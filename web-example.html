@@ -351,19 +351,62 @@
             return 'web_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
         }
 
-        // OS 감지 함수
+        // OS 감지 함수 (더 정확한 버전)
         function detectOS() {
-            const userAgent = navigator.userAgent.toLowerCase();
+            const userAgent = navigator.userAgent;
+            const userAgentLower = userAgent.toLowerCase();
             const platform = navigator.platform.toLowerCase();
             
-            if (platform.includes('mac') || userAgent.includes('mac')) {
-                // Apple Silicon vs Intel Mac 구분
-                return userAgent.includes('intel') ? 'mac-intel' : 'mac-arm64';
-            } else if (platform.includes('win') || userAgent.includes('windows')) {
+            console.log('User Agent:', userAgent);
+            console.log('Platform:', navigator.platform);
+            
+            // macOS 감지
+            if (platform.includes('mac') || userAgentLower.includes('mac') || 
+                userAgentLower.includes('darwin') || platform.includes('darwin')) {
+                
+                // Intel Mac 감지 조건들
+                const isIntelMac = 
+                    userAgent.includes('Intel Mac OS X') ||  // 대소문자 구분
+                    userAgentLower.includes('intel') ||
+                    platform.includes('intel') ||
+                    userAgent.includes('x86_64') ||
+                    platform.includes('x86_64');
+                
+                // Apple Silicon 감지 조건들  
+                const isAppleSilicon = 
+                    userAgent.includes('ARM') ||
+                    userAgentLower.includes('arm64') ||
+                    platform.includes('arm') ||
+                    userAgentLower.includes('m1') ||
+                    userAgentLower.includes('m2') ||
+                    userAgentLower.includes('m3');
+                
+                if (isIntelMac) {
+                    console.log('Detected: Intel Mac');
+                    return 'mac-intel';
+                } else if (isAppleSilicon) {
+                    console.log('Detected: Apple Silicon Mac');
+                    return 'mac-arm64';
+                } else {
+                    // 확실하지 않은 경우 기본적으로 Apple Silicon으로 처리 (최신 Mac 대부분)
+                    console.log('Detected: Mac (defaulting to Apple Silicon)');
+                    return 'mac-arm64';
+                }
+                
+            // Windows 감지
+            } else if (platform.includes('win') || userAgentLower.includes('windows') || 
+                       userAgentLower.includes('win32') || userAgentLower.includes('win64')) {
+                console.log('Detected: Windows');
                 return 'windows';
-            } else if (userAgent.includes('linux')) {
+                
+            // Linux 감지
+            } else if (userAgentLower.includes('linux') || platform.includes('linux') ||
+                       userAgentLower.includes('ubuntu') || userAgentLower.includes('debian')) {
+                console.log('Detected: Linux');
                 return 'linux';
             }
+            
+            console.log('Detected: Unknown OS');
             return 'unknown';
         }
 
@@ -397,22 +440,49 @@
                     
                     downloadHtml += `<div style="margin-bottom: 10px;"><strong>🍎 macOS 다운로드 (${releaseVersion}):</strong></div>`;
                     
-                    if (armAsset) {
-                        downloadHtml += `
-                            <a href="${armAsset.browser_download_url}" 
-                               style="display: inline-block; margin: 5px 10px 5px 0; padding: 8px 15px; background: #007AFF; color: white; text-decoration: none; border-radius: 6px; font-weight: bold;"
-                               target="_blank">
-                                🚀 Apple Silicon (M1/M2/M3) - ${(armAsset.size / 1024 / 1024).toFixed(1)}MB
-                            </a>`;
-                    }
-                    
-                    if (intelAsset) {
-                        downloadHtml += `
-                            <a href="${intelAsset.browser_download_url}" 
-                               style="display: inline-block; margin: 5px 0; padding: 8px 15px; background: #34C759; color: white; text-decoration: none; border-radius: 6px; font-weight: bold;"
-                               target="_blank">
-                                💻 Intel Mac - ${(intelAsset.size / 1024 / 1024).toFixed(1)}MB
-                            </a>`;
+                    // Intel Mac인 경우 Intel 버전을 먼저 강조 표시
+                    if (os === 'mac-intel') {
+                        if (intelAsset) {
+                            downloadHtml += `
+                                <a href="${intelAsset.browser_download_url}" 
+                                   style="display: inline-block; margin: 5px 10px 5px 0; padding: 10px 20px; background: #007AFF; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px;"
+                                   target="_blank">
+                                    💻 Intel Mac (권장) - ${(intelAsset.size / 1024 / 1024).toFixed(1)}MB
+                                </a>`;
+                        }
+                        if (armAsset) {
+                            downloadHtml += `
+                                <div style="margin-top: 10px; padding: 8px; background: #f0f0f0; border-radius: 6px; font-size: 14px;">
+                                    다른 버전: 
+                                    <a href="${armAsset.browser_download_url}" 
+                                       style="margin-left: 10px; padding: 6px 12px; background: #666; color: white; text-decoration: none; border-radius: 4px;"
+                                       target="_blank">
+                                        🚀 Apple Silicon - ${(armAsset.size / 1024 / 1024).toFixed(1)}MB
+                                    </a>
+                                </div>`;
+                        }
+                        
+                    // Apple Silicon Mac인 경우 Apple Silicon 버전을 먼저 강조 표시  
+                    } else {
+                        if (armAsset) {
+                            downloadHtml += `
+                                <a href="${armAsset.browser_download_url}" 
+                                   style="display: inline-block; margin: 5px 10px 5px 0; padding: 10px 20px; background: #007AFF; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px;"
+                                   target="_blank">
+                                    🚀 Apple Silicon (권장) - ${(armAsset.size / 1024 / 1024).toFixed(1)}MB
+                                </a>`;
+                        }
+                        if (intelAsset) {
+                            downloadHtml += `
+                                <div style="margin-top: 10px; padding: 8px; background: #f0f0f0; border-radius: 6px; font-size: 14px;">
+                                    다른 버전: 
+                                    <a href="${intelAsset.browser_download_url}" 
+                                       style="margin-left: 10px; padding: 6px 12px; background: #666; color: white; text-decoration: none; border-radius: 4px;"
+                                       target="_blank">
+                                        💻 Intel Mac - ${(intelAsset.size / 1024 / 1024).toFixed(1)}MB
+                                    </a>
+                                </div>`;
+                        }
                     }
                     
                 } else if (os === 'windows') {
