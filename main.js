@@ -64,7 +64,7 @@ function loadSessionData() {
       // 각 세션의 상세 정보 출력
       Object.keys(receivedUrls).forEach(sessionId => {
         const urls = receivedUrls[sessionId];
-        console.log(`📋 세션 ${sessionId}: preview=${!!urls.previewUrl}, print=${!!urls.printUrl}, size=${urls.paperWidth}x${urls.paperHeight}`);
+        console.log(`📋 세션 ${sessionId}: preview=${!!urls.previewUrl}, print=${!!urls.printUrl}, size=${urls.paperSize?.width}x${urls.paperSize?.height}mm`);
       });
     } else {
       console.log('📂 복구할 세션 데이터가 없습니다.');
@@ -157,12 +157,21 @@ function startHttpServer() {
           return res.status(400).json({ error: 'At least one URL required' });
         }
         
-        // 용지 사이즈 정보 추출
-        const paperWidth = parseFloat(req.body.paper_width) || 210; // 기본값: A4 width (210mm)
-        const paperHeight = parseFloat(req.body.paper_height) || 297; // 기본값: A4 height (297mm)
-        const paperSize = req.body.paper_size || 'Custom'; // A4, Letter, Custom 등
+        // 용지 사이즈 정보 추출 (웹에서 반드시 전달해야 함)
+        const paperWidth = parseFloat(req.body.paper_width);
+        const paperHeight = parseFloat(req.body.paper_height);
+        const paperSize = req.body.paper_size || 'Custom';
         
-        console.log(`용지 사이즈: ${paperWidth}mm × ${paperHeight}mm (${paperSize})`);
+        // 용지 사이즈 검증
+        if (!paperWidth || !paperHeight || paperWidth <= 0 || paperHeight <= 0) {
+          console.error('❌ 잘못된 용지 사이즈:', { paperWidth, paperHeight });
+          return res.status(400).json({ 
+            error: 'Invalid paper size. Width and height must be positive numbers.',
+            received: { paperWidth, paperHeight, paperSize }
+          });
+        }
+        
+        console.log(`📏 웹에서 전달받은 용지 사이즈: ${paperWidth}mm × ${paperHeight}mm (${paperSize})`);
         
         const urlData = {
           paperSize: {
@@ -582,28 +591,20 @@ function setupAutoUpdater() {
   });
   
   autoUpdater.on('update-downloaded', (info) => {
-    console.log('✅ 업데이트 다운로드 완료, 자동 재시작 준비');
+    console.log('✅ 업데이트 다운로드 완료, 다음 실행 시 적용 예정');
     
-    // 사용자에게 업데이트 완료 알림 및 자동 재시작 안내
+    // 사용자에게 업데이트 완료 알림 (즉시 재시작하지 않음)
     if (printWindow && !printWindow.isDestroyed()) {
       printWindow.webContents.send('update-downloaded', {
         version: info.version,
-        autoRestart: true,
-        countdown: 5
+        autoRestart: false, // 자동 재시작 비활성화
+        installOnNextStart: true, // 다음 시작 시 설치
+        userChoice: true // 사용자 선택 가능
       });
-      
-      // 5초 후 자동 재시작
-      setTimeout(() => {
-        console.log('🔄 업데이트 적용을 위해 앱을 재시작합니다...');
-        autoUpdater.quitAndInstall();
-      }, 5000);
-    } else {
-      // 프린터 창이 없으면 1초 후 바로 재시작
-      console.log('🔄 백그라운드에서 업데이트 적용 중...');
-      setTimeout(() => {
-        autoUpdater.quitAndInstall();
-      }, 1000);
     }
+    
+    console.log('💡 업데이트가 준비되었습니다. 다음번 앱 시작 시 자동으로 적용됩니다.');
+    console.log('🔄 즉시 적용하려면 앱을 재시작하세요.');
   });
 }
 
@@ -865,7 +866,7 @@ ipcMain.handle('get-printers', async () => {
 
 // PDF 관련 함수 제거됨
 
-// 브라우저 스타일 웹페이지 인쇄 (Chrome처럼)
+// Electron 내장 프린트 (간단하고 직접적인 방식)
 ipcMain.handle('print-url', async (event, options) => {
   try {
     const { url, printerName, copies = 1, silent = false, paperSize = null } = options;
@@ -874,175 +875,128 @@ ipcMain.handle('print-url', async (event, options) => {
       throw new Error('인쇄할 URL이 없습니다');
     }
     
-    console.log(`🖨️ 브라우저 스타일 인쇄 시작: ${url}`);
+    console.log(`🖨️ Electron 직접 프린트 시작: ${url}`);
     
-    // STEP 1: 웹페이지를 정확히 로드하고 렌더링
-    const renderWindow = new BrowserWindow({
-      show: false,
-      width: 1200,  // 충분한 렌더링 크기
+    // STEP 1: 프린트 전용 BrowserWindow 생성
+    const printWindow = new BrowserWindow({
+      show: false, // 숨겨진 창
+      width: 1200,
       height: 800,
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
-        plugins: true,
         webSecurity: false, // 외부 리소스 로딩 허용
+        plugins: true
       }
     });
-
-    console.log('📄 웹페이지 로딩 중...');
-    await renderWindow.loadURL(url);
     
-    // 완전한 페이지 로드 대기
-    await new Promise(resolve => {
-      renderWindow.webContents.once('did-finish-load', resolve);
-    });
-    
-    // 동적 콘텐츠 로딩 대기 (JavaScript, AJAX 등)
-    console.log('⏳ 동적 콘텐츠 로딩 대기 중...');
-    await new Promise(resolve => setTimeout(resolve, 5000));
-    
-    // STEP 2: 프린트 CSS 적용을 위한 미디어 타입 변경
-    await renderWindow.webContents.executeJavaScript(`
-      // 프린트 미디어 쿼리 강제 적용
-      const printStyleSheet = document.createElement('style');
-      printStyleSheet.textContent = '@media screen { body { -webkit-print-color-adjust: exact; } }';
-      document.head.appendChild(printStyleSheet);
+    try {
+      console.log('📄 URL 로딩 시작...');
       
-      // 페이지 break 설정 확인
-      console.log('Print styles applied');
-    `);
-    
-    // STEP 3: 용지 크기 설정
-    let pdfOptions = {
-      pageSize: 'A4',
-      marginsType: 1, // 최소 여백
-      printBackground: true, // 배경색/이미지 포함
-      printSelectionOnly: false,
-      landscape: false
-    };
-    
-    if (paperSize && paperSize.width && paperSize.height) {
-      // 커스텀 용지 크기 (mm 단위)
-      pdfOptions.pageSize = {
-        width: paperSize.width * 1000, // mm to microns
-        height: paperSize.height * 1000
-      };
-      console.log(`📏 커스텀 용지 크기: ${paperSize.width}mm × ${paperSize.height}mm`);
-    }
-    
-    // STEP 4: PDF로 변환 (크롬과 동일한 렌더링)
-    console.log('📄 PDF 변환 중...');
-    const pdfData = await renderWindow.webContents.printToPDF(pdfOptions);
-    
-    renderWindow.close();
-    console.log('✅ PDF 변환 완료');
-    
-    // STEP 5: PDF를 실제 프린터로 전송
-    return await printPdfToPhysicalPrinter(pdfData, printerName, copies, paperSize);
-    
-  } catch (error) {
-    console.error('❌ 브라우저 스타일 인쇄 실패:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-// PDF를 물리적 프린터로 전송하는 함수
-async function printPdfToPhysicalPrinter(pdfData, printerName, copies = 1, paperSize = null) {
-  try {
-    console.log('🖨️ PDF → 프린터 전송 시작');
-    
-    // 임시 PDF 파일 생성
-    const tempPdfPath = path.join(os.tmpdir(), `webprinter_${Date.now()}.pdf`);
-    fs.writeFileSync(tempPdfPath, pdfData);
-    
-    console.log(`📁 임시 PDF 파일 생성: ${tempPdfPath}`);
-    
-    // PDF 뷰어 창 생성 (사용자 확인용)
-    const pdfViewerWindow = new BrowserWindow({
-      width: 1000,
-      height: 800,
-      title: 'WebPrinter - PDF 미리보기',
-      webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: true,
-        plugins: true // PDF 플러그인 활성화
-      },
-      autoHideMenuBar: true
-    });
-    
-    // PDF 파일을 브라우저에서 열기
-    await pdfViewerWindow.loadFile(tempPdfPath);
-    
-    console.log('📖 PDF 미리보기 창 열림');
-    
-    // PDF 뷰어가 준비되면 자동으로 프린트 대화상자 열기
-    pdfViewerWindow.webContents.once('did-finish-load', async () => {
-      // 잠시 대기 후 프린트 실행
-      setTimeout(async () => {
-        console.log('🖨️ 시스템 프린트 대화상자 열기');
-        
-        // 사용 가능한 프린터 확인
-        const availablePrinters = await pdfViewerWindow.webContents.getPrintersAsync();
-        const selectedPrinter = availablePrinters.find(p => p.name === printerName);
-        
-        // 프린트 옵션 설정
-        const printOptions = {
-          silent: false, // 항상 프린트 대화상자 표시
-          deviceName: selectedPrinter ? printerName : undefined,
-          copies: copies,
-          marginsType: 1,
-          printBackground: true
-        };
-        
-        // 커스텀 용지 크기 적용
-        if (paperSize && paperSize.width && paperSize.height) {
-          printOptions.pageSize = {
-            width: paperSize.width * 1000,
-            height: paperSize.height * 1000
-          };
-        }
-        
-        // 실제 프린트 실행
-        pdfViewerWindow.webContents.print(printOptions, (success, failureReason) => {
-          if (success) {
-            console.log('✅ PDF 프린트 대화상자 열림');
-            
-            // 프린트 후 임시 파일 정리 (5초 후)
-            setTimeout(() => {
-              try {
-                fs.unlinkSync(tempPdfPath);
-                console.log('🗑️ 임시 PDF 파일 삭제됨');
-              } catch (e) {
-                console.warn('임시 파일 삭제 실패:', e.message);
-              }
-              
-              // PDF 뷰어 창 닫기
-              if (!pdfViewerWindow.isDestroyed()) {
-                pdfViewerWindow.close();
-              }
-            }, 5000);
-            
+      // STEP 2: URL 로드
+      await printWindow.loadURL(url);
+      console.log('✅ URL 로딩 완료');
+      
+      // STEP 3: DOM 완전 로드 대기
+      console.log('⏳ DOM 완전 로드 대기 중...');
+      await printWindow.webContents.executeJavaScript(`
+        new Promise(resolve => {
+          if (document.readyState === 'complete') {
+            resolve();
           } else {
-            console.error('❌ PDF 프린트 실패:', failureReason);
-            pdfViewerWindow.close();
+            window.addEventListener('load', resolve);
+          }
+        })
+      `);
+      console.log('✅ DOM 로딩 완료');
+      
+      // STEP 4: 추가 동적 콘텐츠 로딩 대기 (AJAX, 이미지 등)
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      console.log('✅ 동적 콘텐츠 로딩 완료');
+      
+      // STEP 5: 용지 사이즈 및 프린트 옵션 설정
+      const printOptions = {
+        silent: false, // 항상 프린트 대화상자 표시
+        printBackground: true, // 배경 인쇄
+        marginsType: 1, // 최소 여백
+        landscape: false, // 세로 방향
+        copies: copies
+      };
+      
+      // 프린터 설정
+      if (printerName) {
+        // 사용 가능한 프린터 확인
+        const printers = await printWindow.webContents.getPrintersAsync();
+        const selectedPrinter = printers.find(p => p.name === printerName);
+        
+        if (selectedPrinter) {
+          printOptions.deviceName = printerName;
+          console.log(`✅ 프린터 설정: ${printerName}`);
+        } else {
+          console.warn(`⚠️ 프린터 '${printerName}'를 찾을 수 없습니다. 기본 프린터 사용.`);
+        }
+      }
+      
+      // 용지 사이즈 설정 (웹에서 보낸 사이즈 사용)
+      if (paperSize && paperSize.width && paperSize.height) {
+        // 웹에서 전달받은 용지 사이즈 (mm → microns)
+        printOptions.pageSize = {
+          width: paperSize.width * 1000,
+          height: paperSize.height * 1000
+        };
+        console.log(`📏 웹에서 지정한 용지 크기: ${paperSize.width}mm × ${paperSize.height}mm`);
+      } else {
+        console.error('❌ 용지 사이즈 정보가 없습니다. 웹에서 전달되지 않았습니다.');
+        throw new Error('용지 사이즈가 지정되지 않았습니다. 웹에서 크기를 설정해주세요.');
+      }
+      
+      console.log('🖨️ 프린트 옵션:', printOptions);
+      
+      // STEP 6: 프린트 실행
+      return new Promise((resolve, reject) => {
+        console.log('🚀 프린트 대화상자 열기...');
+        
+        printWindow.webContents.print(printOptions, (success, failureReason) => {
+          // 프린트 윈도우 정리
+          setTimeout(() => {
+            if (!printWindow.isDestroyed()) {
+              printWindow.close();
+            }
+          }, 1000);
+          
+          if (success) {
+            console.log('✅ 프린트 대화상자 열림 성공');
+            resolve({
+              success: true,
+              message: '프린트 대화상자가 열렸습니다.',
+              method: 'Electron 직접 프린트',
+              printerName: printerName || '기본 프린터',
+              paperSize: `${paperSize.width}×${paperSize.height}mm`
+            });
+          } else {
+            console.error('❌ 프린트 대화상자 열기 실패:', failureReason);
+            reject(new Error(`프린트 실패: ${failureReason || '알 수 없는 오류'}`));
           }
         });
-        
-      }, 1000);
-    });
-    
-    return {
-      success: true,
-      message: 'PDF로 변환 후 프린트 대화상자가 열렸습니다.',
-      method: 'PDF 변환 → 시스템 프린터',
-      tempFile: tempPdfPath
-    };
+      });
+      
+    } catch (error) {
+      // 오류 발생 시 윈도우 정리
+      if (!printWindow.isDestroyed()) {
+        printWindow.close();
+      }
+      throw error;
+    }
     
   } catch (error) {
-    console.error('❌ PDF 프린터 전송 실패:', error);
-    throw new Error(`PDF 프린트 실패: ${error.message}`);
+    console.error('❌ Electron 프린트 실패:', error);
+    return { 
+      success: false, 
+      error: error.message,
+      method: 'Electron 직접 프린트'
+    };
   }
-}
+});
 
 // 서버 정보 가져오기
 ipcMain.handle('get-server-info', () => {
@@ -1089,7 +1043,15 @@ ipcMain.handle('download-update', () => {
 });
 
 ipcMain.handle('install-update', () => {
+  console.log('🔄 사용자 요청에 의한 업데이트 설치 시작');
+  
+  // 백그라운드 서비스 모드 해제
+  isBackgroundService = false;
+  
+  // 업데이트 설치 및 재시작
   autoUpdater.quitAndInstall();
+  
+  return { success: true, message: '업데이트를 설치하고 재시작합니다.' };
 });
 
 ipcMain.handle('get-app-version', () => {

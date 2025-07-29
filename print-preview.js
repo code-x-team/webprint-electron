@@ -73,20 +73,84 @@ async function initializeUpdater() {
         window.electronAPI.onUpdateDownloaded((info) => {
             console.log('✅ 업데이트 다운로드 완료:', info);
             
-            if (info.autoRestart) {
-                // 자동 재시작 카운트다운
-                let countdown = info.countdown || 5;
-                const countdownInterval = setInterval(() => {
-                    showStatus(`✅ v${info.version} 다운로드 완료! ${countdown}초 후 자동 재시작됩니다...`, 'success');
-                    countdown--;
+            if (info.userChoice) {
+                // 사용자 선택 가능한 업데이트 알림
+                showStatus(`✅ v${info.version} 업데이트 준비 완료!`, 'success');
+                
+                // 업데이트 선택 UI 생성
+                const statusContainer = document.querySelector('.status-container');
+                if (statusContainer) {
+                    const updateChoice = document.createElement('div');
+                    updateChoice.id = 'update-choice';
+                    updateChoice.style.cssText = `
+                        margin-top: 15px;
+                        padding: 15px;
+                        background: linear-gradient(135deg, #e8f5e8, #c8e6c9);
+                        border: 1px solid #4caf50;
+                        border-radius: 8px;
+                        text-align: center;
+                    `;
                     
-                    if (countdown <= 0) {
-                        clearInterval(countdownInterval);
-                        showStatus(`🔄 업데이트 적용 중... 잠시만 기다려주세요.`, 'info');
+                    updateChoice.innerHTML = `
+                        <div style="margin-bottom: 10px; font-weight: 600; color: #2e7d32;">
+                            🚀 새 버전이 준비되었습니다!
+                        </div>
+                        <div style="margin-bottom: 15px; font-size: 14px; color: #388e3c;">
+                            • 지금 재시작: 즉시 새 버전으로 업데이트<br>
+                            • 나중에: 다음번 실행 시 자동 적용
+                        </div>
+                        <div>
+                            <button id="install-now-btn" style="
+                                background: linear-gradient(135deg, #4caf50, #388e3c);
+                                color: white;
+                                border: none;
+                                padding: 10px 20px;
+                                border-radius: 6px;
+                                font-weight: 600;
+                                margin-right: 10px;
+                                cursor: pointer;
+                            ">🔄 지금 재시작</button>
+                            <button id="install-later-btn" style="
+                                background: linear-gradient(135deg, #ff9800, #f57c00);
+                                color: white;
+                                border: none;
+                                padding: 10px 20px;
+                                border-radius: 6px;
+                                font-weight: 600;
+                                cursor: pointer;
+                            ">⏰ 나중에</button>
+                        </div>
+                    `;
+                    
+                    // 기존 업데이트 선택 UI 제거
+                    const existing = document.getElementById('update-choice');
+                    if (existing) {
+                        existing.remove();
                     }
-                }, 1000);
+                    
+                    statusContainer.appendChild(updateChoice);
+                    
+                    // 버튼 이벤트 리스너
+                    document.getElementById('install-now-btn').addEventListener('click', async () => {
+                        showStatus('🔄 업데이트를 설치하고 재시작합니다...', 'info');
+                        updateChoice.remove();
+                        
+                        try {
+                            await window.electronAPI.installUpdate();
+                        } catch (error) {
+                            console.error('업데이트 설치 실패:', error);
+                            showStatus('업데이트 설치에 실패했습니다.', 'error');
+                        }
+                    });
+                    
+                    document.getElementById('install-later-btn').addEventListener('click', () => {
+                        showStatus('📋 다음번 실행 시 자동으로 업데이트됩니다.', 'info');
+                        updateChoice.remove();
+                    });
+                }
             } else {
-                showStatus(`✅ v${info.version} 다운로드 완료! 재시작이 필요합니다.`, 'success');
+                // 기존 자동 재시작 방식 (호환성)
+                showStatus(`✅ v${info.version} 다운로드 완료! 다음 실행 시 적용됩니다.`, 'success');
             }
         });
         
@@ -385,24 +449,28 @@ async function executePrint() {
         paperSize: currentPaperSize
     });
     
-    showStatus('📄 웹페이지를 PDF로 변환하는 중...', 'info');
+    showStatus('🖨️ 웹페이지 로딩 및 프린트 준비 중...', 'info');
     elements.printButton.disabled = true;
     
     // 진행 상태를 단계별로 표시
     setTimeout(() => {
-        showStatus('🔄 브라우저 스타일 렌더링 중...', 'info');
-    }, 1000);
+        showStatus('📄 페이지 로딩 중...', 'info');
+    }, 500);
     
     setTimeout(() => {
-        showStatus('📄 PDF 생성 중...', 'info');
-    }, 3000);
+        showStatus('⏳ DOM 완전 로드 대기 중...', 'info');
+    }, 2000);
     
     setTimeout(() => {
-        showStatus('🖨️ 프린터로 전송 중...', 'info');
-    }, 6000);
+        showStatus('🔧 프린트 옵션 설정 중...', 'info');
+    }, 4000);
+    
+    setTimeout(() => {
+        showStatus('🚀 프린트 대화상자 열기...', 'info');
+    }, 5000);
     
     try {
-        console.log('📤 브라우저 스타일 인쇄 요청 전송 중...');
+        console.log('📤 Electron 직접 프린트 요청 전송 중...');
         const result = await window.electronAPI.printUrl({
             url: printUrl,
             printerName: printerName,
@@ -411,22 +479,17 @@ async function executePrint() {
             paperSize: currentPaperSize // 용지 사이즈 정보 전달
         });
         
-        console.log('📥 브라우저 스타일 인쇄 응답:', result);
+        console.log('📥 Electron 직접 프린트 응답:', result);
         
         if (result.success) {
-            if (result.method) {
-                showStatus(`✅ ${result.message} (방식: ${result.method})`, 'success');
-            } else {
-                showStatus('✅ PDF 변환 후 프린트 대화상자가 열렸습니다!', 'success');
-            }
+            showStatus(`✅ ${result.message}`, 'success');
             
             // 추가 정보 표시
             const statusElement = document.getElementById('status');
-            if (statusElement && result.method) {
-                statusElement.innerHTML += `<br><small>📋 처리 방식: ${result.method}</small>`;
-                if (result.tempFile) {
-                    statusElement.innerHTML += `<br><small>📁 임시 파일: 자동 정리됨</small>`;
-                }
+            if (statusElement) {
+                statusElement.innerHTML += `<br><small>📋 방식: ${result.method}</small>`;
+                statusElement.innerHTML += `<br><small>🖨️ 프린터: ${result.printerName}</small>`;
+                statusElement.innerHTML += `<br><small>📏 용지: ${result.paperSize}</small>`;
             }
             
             // 인쇄 대화상자가 열린 후 백그라운드로 이동 (1초만 대기)
