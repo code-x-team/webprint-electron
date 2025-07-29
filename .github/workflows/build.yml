@@ -31,6 +31,7 @@ jobs:
         env:
           # macOS는 서명 없이 빌드
           CSC_IDENTITY_AUTO_DISCOVERY: false
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build Electron app (Windows)
         if: matrix.os == 'windows-latest'
@@ -38,9 +39,26 @@ jobs:
         env:
           # Windows도 서명 없이 빌드
           CSC_IDENTITY_AUTO_DISCOVERY: false
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+      - name: Upload Release Assets (macOS)
+        if: matrix.os == 'macos-latest'
+        uses: softprops/action-gh-release@v1
         with:
-          name: electron-app-${{ matrix.os }}
-          path: dist/* 
+          files: |
+            dist/*.dmg
+            dist/*.dmg.blockmap
+            dist/latest-mac.yml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Release Assets (Windows)
+        if: matrix.os == 'windows-latest'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            dist/*.exe
+            dist/*.exe.blockmap
+            dist/latest.yml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
