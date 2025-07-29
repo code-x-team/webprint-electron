@@ -18,8 +18,256 @@ const elements = {
     cancelButton: document.getElementById('cancel-button')
 };
 
+// Toast 알림 기능
+function showToast(message, type = 'info', duration = 3000) {
+    // 기존 toast 제거
+    const existingToast = document.getElementById('toast-notification');
+    if (existingToast) {
+        existingToast.remove();
+    }
+    
+    // Toast 컨테이너 생성
+    const toast = document.createElement('div');
+    toast.id = 'toast-notification';
+    toast.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 15px 20px;
+        border-radius: 8px;
+        color: white;
+        font-weight: 600;
+        font-size: 14px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        z-index: 10000;
+        max-width: 350px;
+        word-wrap: break-word;
+        transform: translateX(400px);
+        opacity: 0;
+        transition: all 0.3s ease;
+    `;
+    
+    // 타입별 색상 설정
+    const colors = {
+        success: 'linear-gradient(135deg, #28a745, #20c997)',
+        error: 'linear-gradient(135deg, #dc3545, #fd7e14)', 
+        warning: 'linear-gradient(135deg, #ffc107, #fd7e14)',
+        info: 'linear-gradient(135deg, #007bff, #6f42c1)'
+    };
+    
+    toast.style.background = colors[type] || colors.info;
+    toast.textContent = message;
+    
+    // DOM에 추가
+    document.body.appendChild(toast);
+    
+    // 애니메이션으로 표시
+    setTimeout(() => {
+        toast.style.transform = 'translateX(0)';
+        toast.style.opacity = '1';
+    }, 10);
+    
+    // 자동 제거
+    setTimeout(() => {
+        toast.style.transform = 'translateX(400px)';
+        toast.style.opacity = '0';
+        setTimeout(() => {
+            if (toast.parentNode) {
+                toast.remove();
+            }
+        }, 300);
+    }, duration);
+    
+    // 클릭 시 즉시 제거
+    toast.addEventListener('click', () => {
+        toast.style.transform = 'translateX(400px)';
+        toast.style.opacity = '0';
+        setTimeout(() => {
+            if (toast.parentNode) {
+                toast.remove();
+            }
+        }, 300);
+    });
+}
+
+// IPC 통신 상태 점검 함수
+async function checkIpcCommunication() {
+    console.log('🔍 IPC 통신 상태 점검 시작...');
+    
+    const checks = {
+        electronAPI: false,
+        getServerInfo: false,
+        getPrinters: false,
+        getAppVersion: false,
+        printUrl: false,
+        eventListeners: false,
+        totalPassed: 0,
+        totalTests: 6
+    };
+    
+    try {
+        // 1. electronAPI 객체 존재 확인
+        if (typeof window.electronAPI === 'object' && window.electronAPI !== null) {
+            checks.electronAPI = true;
+            checks.totalPassed++;
+            console.log('✅ electronAPI 객체 존재 확인');
+        } else {
+            console.error('❌ electronAPI 객체가 존재하지 않습니다');
+            showToast('❌ IPC 통신 실패: electronAPI 객체 없음', 'error', 5000);
+            return checks;
+        }
+        
+        // 2. 서버 정보 API 테스트
+        try {
+            const serverData = await window.electronAPI.getServerInfo();
+            if (serverData && typeof serverData === 'object') {
+                checks.getServerInfo = true;
+                checks.totalPassed++;
+                console.log('✅ getServerInfo API 정상:', serverData);
+            }
+        } catch (error) {
+            console.error('❌ getServerInfo API 실패:', error);
+        }
+        
+        // 3. 프린터 목록 API 테스트
+        try {
+            const printerResult = await window.electronAPI.getPrinters();
+            if (printerResult && typeof printerResult === 'object') {
+                checks.getPrinters = true;
+                checks.totalPassed++;
+                console.log('✅ getPrinters API 정상:', printerResult);
+            }
+        } catch (error) {
+            console.error('❌ getPrinters API 실패:', error);
+        }
+        
+        // 4. 앱 버전 API 테스트
+        try {
+            const version = await window.electronAPI.getAppVersion();
+            if (version && typeof version === 'string') {
+                checks.getAppVersion = true;
+                checks.totalPassed++;
+                console.log('✅ getAppVersion API 정상:', version);
+            }
+        } catch (error) {
+            console.error('❌ getAppVersion API 실패:', error);
+        }
+        
+        // 5. printUrl API 존재 확인 (실제 호출은 안함)
+        if (typeof window.electronAPI.printUrl === 'function') {
+            checks.printUrl = true;
+            checks.totalPassed++;
+            console.log('✅ printUrl API 함수 존재 확인');
+        } else {
+            console.error('❌ printUrl API 함수가 존재하지 않습니다');
+        }
+        
+        // 6. 이벤트 리스너 함수들 존재 확인
+        const eventFunctions = ['onServerInfo', 'onUrlsReceived', 'onUpdateAvailable', 'onUpdateDownloaded'];
+        const existingFunctions = eventFunctions.filter(fn => typeof window.electronAPI[fn] === 'function');
+        
+        if (existingFunctions.length === eventFunctions.length) {
+            checks.eventListeners = true;
+            checks.totalPassed++;
+            console.log('✅ 모든 이벤트 리스너 함수 존재 확인');
+        } else {
+            console.error('❌ 일부 이벤트 리스너 함수 누락:', {
+                expected: eventFunctions,
+                found: existingFunctions
+            });
+        }
+        
+        // 결과 분석 및 Toast 표시
+        const successRate = (checks.totalPassed / checks.totalTests * 100).toFixed(0);
+        
+        if (checks.totalPassed === checks.totalTests) {
+            showToast(`✅ IPC 통신 정상 작동 (${successRate}%)`, 'success', 4000);
+            console.log('🎉 모든 IPC 통신 테스트 통과!');
+        } else if (checks.totalPassed >= checks.totalTests * 0.7) {
+            showToast(`⚠️ IPC 통신 부분 작동 (${successRate}%)`, 'warning', 5000);
+            console.warn('⚠️ 일부 IPC 기능에 문제가 있습니다');
+        } else {
+            showToast(`❌ IPC 통신 심각한 문제 (${successRate}%)`, 'error', 6000);
+            console.error('❌ IPC 통신에 심각한 문제가 있습니다');
+        }
+        
+        // 상세 결과 로그
+        console.log('📊 IPC 통신 점검 결과:', {
+            성공률: `${successRate}%`,
+            통과: checks.totalPassed,
+            전체: checks.totalTests,
+            세부결과: {
+                'electronAPI 객체': checks.electronAPI ? '✅' : '❌',
+                'getServerInfo': checks.getServerInfo ? '✅' : '❌',
+                'getPrinters': checks.getPrinters ? '✅' : '❌',
+                'getAppVersion': checks.getAppVersion ? '✅' : '❌',
+                'printUrl 함수': checks.printUrl ? '✅' : '❌',
+                '이벤트 리스너': checks.eventListeners ? '✅' : '❌'
+            }
+        });
+        
+    } catch (error) {
+        console.error('🚨 IPC 통신 점검 중 예외 발생:', error);
+        showToast('🚨 IPC 통신 점검 중 오류 발생', 'error', 5000);
+    }
+    
+    return checks;
+}
+
+// IPC 통신 실패 시 복구 시도 함수
+async function attemptIpcRecovery() {
+    console.log('🔧 IPC 통신 복구 시도 중...');
+    showToast('🔧 IPC 통신 복구 시도 중...', 'warning', 3000);
+    
+    try {
+        // 페이지 새로고침으로 IPC 재연결 시도
+        setTimeout(() => {
+            window.location.reload();
+        }, 3000);
+        
+        return true;
+    } catch (error) {
+        console.error('IPC 복구 실패:', error);
+        showToast('❌ IPC 복구 실패 - 앱을 다시 시작해주세요', 'error', 10000);
+        return false;
+    }
+}
+
+// 실시간 IPC 통신 상태 모니터링
+function startIpcMonitoring() {
+    let consecutiveFailures = 0;
+    const maxFailures = 3;
+    
+    setInterval(async () => {
+        try {
+            // 주기적으로 간단한 API 호출로 연결 상태 확인
+            await window.electronAPI.getAppVersion();
+            consecutiveFailures = 0; // 성공 시 실패 카운터 리셋
+        } catch (error) {
+            consecutiveFailures++;
+            console.warn(`IPC 연결 확인 실패 (${consecutiveFailures}/${maxFailures}):`, error);
+            
+            if (consecutiveFailures >= maxFailures) {
+                showToast('🚨 IPC 연결이 끊어졌습니다!', 'error', 8000);
+                attemptIpcRecovery();
+            }
+        }
+    }, 10000); // 10초마다 체크
+}
+
 // 초기화
 document.addEventListener('DOMContentLoaded', async () => {
+    console.log('🚀 print-preview.js 초기화 시작...');
+    
+    // IPC 통신 상태 점검 (우선 실행)
+    const ipcStatus = await checkIpcCommunication();
+    
+    // IPC 통신이 정상적이면 모니터링 시작
+    if (ipcStatus.totalPassed >= ipcStatus.totalTests * 0.7) {
+        startIpcMonitoring();
+        console.log('📡 IPC 통신 모니터링 시작됨');
+    }
+    
     initializeEventListeners();
     await loadPrinters();
     await initializeUpdater();
@@ -28,6 +276,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.electronAPI.onServerInfo((info) => {
         serverInfo = info;
         displayServerInfo();
+        showToast('📡 서버 정보 수신 완료', 'info', 2000);
     });
     
     // URL 정보 수신 이벤트 리스너 등록
@@ -36,12 +285,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.log('📨 IPC 메시지 수신됨!', urlData);
         receivedUrls = urlData;
         handleUrlsReceived();
+        showToast('📄 URL 정보 수신 완료', 'success', 2000);
     });
     
     // 세션 복구 이벤트 리스너 등록
     window.electronAPI.onSessionRestored((sessionInfo) => {
         console.log('🔄 세션 복구 정보 수신됨!', sessionInfo);
         handleSessionRestored(sessionInfo);
+        showToast('🔄 세션 복구 완료', 'info', 2000);
     });
     
     console.log('✅ 이벤트 리스너 등록 완료');
@@ -53,10 +304,12 @@ async function initializeUpdater() {
         // 앱 버전 표시
         const version = await window.electronAPI.getAppVersion();
         console.log('현재 앱 버전:', version);
+        showToast(`📱 WebPrinter v${version} 실행됨`, 'info', 2500);
         
         // 자동 업데이트 이벤트 리스너 등록
         window.electronAPI.onUpdateAvailable((info) => {
             console.log('🆕 업데이트 발견:', info);
+            showToast(`🆕 새 버전 발견: v${info.version || 'latest'}`, 'info', 4000);
             if (info.autoDownload) {
                 showStatus(`🆕 v${info.version} 업데이트 발견! 자동 다운로드를 시작합니다...`, 'info');
             } else {
@@ -67,11 +320,15 @@ async function initializeUpdater() {
         window.electronAPI.onUpdateProgress((progress) => {
             const percent = Math.round(progress.percent);
             showStatus(`📥 업데이트 다운로드 중... ${percent}% (${Math.round(progress.transferred / 1024 / 1024)}MB / ${Math.round(progress.total / 1024 / 1024)}MB)`, 'info');
+            if (percent % 25 === 0) { // 25% 간격으로 toast 표시
+                showToast(`📥 업데이트 다운로드 ${percent}%`, 'info', 1500);
+            }
             console.log(`다운로드 진행률: ${percent}%`);
         });
         
         window.electronAPI.onUpdateDownloaded((info) => {
             console.log('✅ 업데이트 다운로드 완료:', info);
+            showToast('✅ 업데이트 다운로드 완료!', 'success', 4000);
             
             if (info.userChoice) {
                 // 사용자 선택 가능한 업데이트 알림
@@ -133,6 +390,7 @@ async function initializeUpdater() {
                     // 버튼 이벤트 리스너
                     document.getElementById('install-now-btn').addEventListener('click', async () => {
                         showStatus('🔄 업데이트를 설치하고 재시작합니다...', 'info');
+                        showToast('🔄 업데이트 설치 중...', 'info', 3000);
                         updateChoice.remove();
                         
                         try {
@@ -140,11 +398,13 @@ async function initializeUpdater() {
                         } catch (error) {
                             console.error('업데이트 설치 실패:', error);
                             showStatus('업데이트 설치에 실패했습니다.', 'error');
+                            showToast('❌ 업데이트 설치 실패', 'error', 4000);
                         }
                     });
                     
                     document.getElementById('install-later-btn').addEventListener('click', () => {
                         showStatus('📋 다음번 실행 시 자동으로 업데이트됩니다.', 'info');
+                        showToast('📋 업데이트가 예약되었습니다', 'info', 3000);
                         updateChoice.remove();
                     });
                 }
@@ -156,16 +416,19 @@ async function initializeUpdater() {
         
         window.electronAPI.onUpdateNotAvailable(() => {
             console.log('✅ 최신 버전 사용 중');
+            showToast('✅ 최신 버전 사용 중', 'success', 2000);
             // 최신 버전일 때는 별도 알림 표시하지 않음 (콘솔에만 기록)
         });
         
         window.electronAPI.onUpdateError((error) => {
             console.warn('⚠️ 업데이트 확인 실패:', error.message);
+            showToast('⚠️ 업데이트 확인 실패', 'warning', 3000);
             // 업데이트 오류는 사용자에게 표시하지 않음 (백그라운드 작업)
         });
         
     } catch (error) {
         console.error('업데이트 초기화 실패:', error);
+        showToast('⚠️ 업데이트 시스템 초기화 실패', 'warning', 3000);
     }
 }
 
@@ -379,6 +642,7 @@ async function showHtmlPreview(url) {
 // 프린터 목록 로드
 async function loadPrinters() {
     showStatus('프린터 목록을 불러오는 중...', 'info');
+    showToast('🖨️ 프린터 목록 확인 중...', 'info', 2000);
     
     try {
         const result = await window.electronAPI.getPrinters();
@@ -387,12 +651,14 @@ async function loadPrinters() {
             availablePrinters = result.printers;
             updatePrinterSelect();
             showStatus(`프린터 ${availablePrinters.length}개를 찾았습니다.`, 'success');
+            showToast(`✅ 프린터 ${availablePrinters.length}개 발견`, 'success', 2500);
         } else {
             throw new Error(result.error);
         }
     } catch (error) {
         console.error('프린터 로드 실패:', error);
         showStatus('프린터 목록을 불러올 수 없습니다.', 'error');
+        showToast('❌ 프린터 목록 로드 실패', 'error', 4000);
     }
     
     updateUI();
@@ -428,96 +694,120 @@ async function executePrint() {
     const copies = parseInt(elements.copiesInput.value) || 1;
     const silent = false; // 항상 대화상자 표시
     
-    if (!printerName) {
-        showStatus('프린터를 선택해주세요.', 'error');
-        return;
-    }
-    
-    // 인쇄용 URL이 없으면 미리보기 URL 사용
-    const printUrl = receivedUrls.printUrl || receivedUrls.previewUrl;
-    
-    if (!printUrl) {
-        showStatus('인쇄할 URL이 없습니다.', 'error');
-        return;
-    }
-    
-    console.log('🖨️ 인쇄 실행 시작:', {
-        printerName,
-        copies,
-        printUrl,
-        silent,
-        paperSize: currentPaperSize
-    });
-    
-    showStatus('🖨️ 웹페이지 로딩 및 프린트 준비 중...', 'info');
-    elements.printButton.disabled = true;
-    
-    // 진행 상태를 단계별로 표시
-    setTimeout(() => {
-        showStatus('📄 페이지 로딩 중...', 'info');
-    }, 500);
-    
-    setTimeout(() => {
-        showStatus('⏳ DOM 완전 로드 대기 중...', 'info');
-    }, 2000);
-    
-    setTimeout(() => {
-        showStatus('🔧 프린트 옵션 설정 중...', 'info');
-    }, 4000);
-    
-    setTimeout(() => {
-        showStatus('🚀 프린트 대화상자 열기...', 'info');
-    }, 5000);
+    // 인쇄 전 IPC 통신 상태 재확인
+    console.log('🔍 인쇄 전 IPC 통신 상태 재확인...');
+    showToast('🔍 인쇄 시스템 점검 중...', 'info', 2000);
     
     try {
-        console.log('📤 Electron 직접 프린트 요청 전송 중...');
-        const result = await window.electronAPI.printUrl({
-            url: printUrl,
-            printerName: printerName,
-            copies: copies,
-            silent: silent,
-            paperSize: currentPaperSize // 용지 사이즈 정보 전달
-        });
+        // 필수 API들이 정상 작동하는지 확인
+        await window.electronAPI.getAppVersion();
+        await window.electronAPI.getPrinters();
         
-        console.log('📥 Electron 직접 프린트 응답:', result);
-        
-        if (result.success) {
-            showStatus(`✅ ${result.message}`, 'success');
-            
-            // 추가 정보 표시
-            const statusElement = document.getElementById('status');
-            if (statusElement) {
-                statusElement.innerHTML += `<br><small>📋 방식: ${result.method}</small>`;
-                statusElement.innerHTML += `<br><small>🖨️ 프린터: ${result.printerName}</small>`;
-                statusElement.innerHTML += `<br><small>📏 용지: ${result.paperSize}</small>`;
-            }
-            
-            // 인쇄 대화상자가 열린 후 백그라운드로 이동 (1초만 대기)
-            setTimeout(() => {
-                showStatus('🖨️ 인쇄 대화상자가 열렸습니다. WebPrinter를 백그라운드로 이동합니다.', 'info');
-                setTimeout(() => {
-                    closeApp();
-                }, 500); // 메시지 표시 후 0.5초만 더 대기
-            }, 1000);
-        } else {
-            throw new Error(result.error);
+        if (!printerName) {
+            showToast('⚠️ 프린터를 선택해주세요', 'warning', 3000);
+            showStatus('프린터를 선택해주세요.', 'error');
+            return;
         }
-    } catch (error) {
-        console.error('❌ 인쇄 실패 (상세):', {
-            name: error.name,
-            message: error.message,
-            stack: error.stack
+        
+        const printUrl = receivedUrls.printUrl || receivedUrls.previewUrl;
+        
+        if (!printUrl) {
+            showToast('❌ 인쇄할 URL이 없습니다', 'error', 3000);
+            showStatus('인쇄할 URL이 없습니다.', 'error');
+            return;
+        }
+        
+        console.log('🖨️ 인쇄 실행 시작:', {
+            printerName,
+            copies,
+            printUrl,
+            silent,
+            paperSize: currentPaperSize
         });
-        showStatus(`❌ 인쇄 실패: ${error.message || '알 수 없는 오류'}`, 'error');
+        
+        showToast('🖨️ 인쇄 요청 전송 중...', 'info', 3000);
+        showStatus('🖨️ 웹페이지 로딩 및 프린트 준비 중...', 'info');
+        elements.printButton.disabled = true;
+        
+        // 진행 상태를 단계별로 표시
+        setTimeout(() => {
+            showStatus('📄 페이지 로딩 중...', 'info');
+        }, 500);
+        
+        setTimeout(() => {
+            showStatus('⏳ DOM 완전 로드 대기 중...', 'info');
+        }, 2000);
+        
+        setTimeout(() => {
+            showStatus('🔧 프린트 옵션 설정 중...', 'info');
+        }, 4000);
+        
+        setTimeout(() => {
+            showStatus('🚀 프린트 대화상자 열기...', 'info');
+        }, 5000);
+        
+        try {
+            console.log('📤 Electron 직접 프린트 요청 전송 중...');
+            const result = await window.electronAPI.printUrl({
+                url: printUrl,
+                printerName: printerName,
+                copies: copies,
+                silent: silent,
+                paperSize: currentPaperSize // 용지 사이즈 정보 전달
+            });
+            
+            console.log('📥 Electron 직접 프린트 응답:', result);
+            
+            if (result.success) {
+                showToast('✅ 프린트 대화상자가 열렸습니다!', 'success', 4000);
+                showStatus(`✅ ${result.message}`, 'success');
+                
+                // 추가 정보 표시
+                const statusElement = document.getElementById('status');
+                if (statusElement) {
+                    statusElement.innerHTML += `<br><small>📋 방식: ${result.method}</small>`;
+                    statusElement.innerHTML += `<br><small>🖨️ 프린터: ${result.printerName}</small>`;
+                    statusElement.innerHTML += `<br><small>📏 용지: ${result.paperSize}</small>`;
+                }
+                
+                // 인쇄 대화상자가 열린 후 백그라운드로 이동 (1초만 대기)
+                setTimeout(() => {
+                    showStatus('🖨️ 인쇄 대화상자가 열렸습니다. WebPrinter를 백그라운드로 이동합니다.', 'info');
+                    setTimeout(() => {
+                        closeApp();
+                    }, 500); // 메시지 표시 후 0.5초만 더 대기
+                }, 1000);
+            } else {
+                throw new Error(result.error);
+            }
+        } catch (error) {
+            console.error('❌ 인쇄 실패 (상세):', {
+                name: error.name,
+                message: error.message,
+                stack: error.stack
+            });
+            
+            showToast(`❌ 인쇄 실패: ${error.message}`, 'error', 5000);
+            showStatus(`❌ 인쇄 실패: ${error.message || '알 수 없는 오류'}`, 'error');
+            elements.printButton.disabled = false;
+            
+            // 디버깅을 위한 추가 정보
+            console.log('🔍 디버깅 정보:', {
+                receivedUrls,
+                printerName: elements.printerSelect.value,
+                printerOptions: Array.from(elements.printerSelect.options).map(opt => opt.value),
+                availablePrinters
+            });
+        }
+        
+    } catch (ipcError) {
+        console.error('❌ IPC 통신 실패:', ipcError);
+        showToast('❌ IPC 통신 오류 - 앱을 다시 시작해주세요', 'error', 6000);
+        showStatus('❌ 시스템 통신 오류가 발생했습니다.', 'error');
         elements.printButton.disabled = false;
         
-        // 디버깅을 위한 추가 정보
-        console.log('🔍 디버깅 정보:', {
-            receivedUrls,
-            printerName: elements.printerSelect.value,
-            printerOptions: Array.from(elements.printerSelect.options).map(opt => opt.value),
-            availablePrinters
-        });
+        // IPC 복구 시도
+        attemptIpcRecovery();
     }
 }
 
