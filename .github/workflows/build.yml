@@ -25,6 +25,12 @@ jobs:
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 
+      - name: Create package-lock.json (for npm compatibility)
+        run: |
+          cat > package-lock.json << EOF
+          {"lockfileVersion": 1}
+          EOF
+
       - name: Build Electron app (macOS)
         if: matrix.os == 'macos-latest'
         run: yarn build-mac
@@ -32,6 +38,7 @@ jobs:
           # macOS는 서명 없이 빌드
           CSC_IDENTITY_AUTO_DISCOVERY: false
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_CONFIG_PACKAGE_MANAGER: yarn
 
       - name: Build Electron app (Windows)
         if: matrix.os == 'windows-latest'
@@ -40,6 +47,7 @@ jobs:
           # Windows도 서명 없이 빌드
           CSC_IDENTITY_AUTO_DISCOVERY: false
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_CONFIG_PACKAGE_MANAGER: yarn
 
       - name: Upload Release Assets (macOS)
         if: matrix.os == 'macos-latest'
