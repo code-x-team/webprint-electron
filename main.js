@@ -598,17 +598,16 @@ function isPdfUrl(url) {
 // URL 인쇄 실행 (웹페이지 또는 PDF 지원)
 ipcMain.handle('print-url', async (event, options) => {
   try {
-    const { url, printerName, copies = 1, silent = false, paperSize = null, isPdfSave = false } = options;
+    const { url, printerName, copies = 1, silent = false, paperSize = null } = options;
     
     if (!url) {
       throw new Error('인쇄할 URL이 없습니다');
     }
     
     const isPdf = isPdfUrl(url);
-    const actionType = isPdfSave ? 'PDF 저장' : '인쇄';
-    console.log(`${actionType} 시작: ${isPdf ? 'PDF 문서' : '웹페이지'} - ${url}`);
+    console.log(`인쇄 시작: ${isPdf ? 'PDF 문서' : '웹페이지'} - ${url}`);
     
-    // 숨겨진 윈도우에서 URL 로드
+    // 숨겨진 윈도우에서 URL 로드 및 인쇄
     const hiddenWindow = new BrowserWindow({
       show: false,
       webPreferences: {
@@ -633,86 +632,74 @@ ipcMain.handle('print-url', async (event, options) => {
     let pageSizeConfig = { pageSize: 'A4' };
     
     if (paperSize && paperSize.width && paperSize.height) {
-      // 커스텀 용지 사이즈
+      // 커스텀 용지 사이즈 (mm to microns: 1mm = 1000 microns)
       pageSizeConfig = {
         pageSize: {
-          width: paperSize.width * 1000, // mm to microns (인쇄용)
+          width: paperSize.width * 1000, // mm to microns
           height: paperSize.height * 1000
         }
       };
       console.log(`커스텀 용지 사이즈 적용: ${paperSize.width}mm × ${paperSize.height}mm`);
     }
 
-    let result;
+    // 사용 가능한 프린터 목록 확인
+    const availablePrinters = await hiddenWindow.webContents.getPrinters();
+    console.log('사용 가능한 프린터 목록:', availablePrinters.map(p => p.name));
     
-    if (isPdfSave) {
-      // PDF로 저장
-      const { dialog } = require('electron');
-      const path = require('path');
-      const os = require('os');
-      
-      console.log('📄 PDF 저장 시작 - 대화상자 표시 중...');
-      
-      // 파일 저장 대화상자 표시 (부모 윈도우 명시적 지정)
-      const { filePath, canceled } = await dialog.showSaveDialog(printWindow || null, {
-        title: 'PDF 파일 저장',
-        defaultPath: path.join(os.homedir(), 'Downloads', `WebPrint_${new Date().toISOString().split('T')[0]}.pdf`),
-        filters: [
-          { name: 'PDF 파일', extensions: ['pdf'] },
-          { name: '모든 파일', extensions: ['*'] }
-        ],
-        properties: ['createDirectory']
+    // 선택된 프린터가 존재하는지 확인
+    const selectedPrinter = availablePrinters.find(p => p.name === printerName);
+    if (!selectedPrinter && printerName) {
+      console.warn(`⚠️ 선택된 프린터 '${printerName}'를 찾을 수 없습니다. 기본 프린터 사용.`);
+    } else if (selectedPrinter) {
+      console.log(`✅ 프린터 확인: ${selectedPrinter.name} (상태: ${selectedPrinter.status})`);
+    }
+
+    // 일반 인쇄 (항상 대화상자 표시)
+    const printOptions = {
+      silent: false, // 강제로 대화상자 표시 (사용자 확인 필요)
+      deviceName: selectedPrinter ? printerName : undefined, // 프린터가 없으면 기본값 사용
+      copies: copies,
+      ...pageSizeConfig,
+      marginsType: isPdf ? 0 : 1, // PDF는 여백 없음, 웹페이지는 최소 여백
+      scaleFactor: 100,
+      printBackground: true, // 배경 인쇄 활성화
+      headerFooter: false // 헤더/푸터 비활성화
+    };
+
+    console.log(`${isPdf ? 'PDF' : '웹페이지'} 인쇄 시작:`, {
+      ...printOptions,
+      url: url,
+      printerCount: availablePrinters.length
+    });
+
+    try {
+      // Electron의 print는 Promise를 반환하지 않으므로 다른 방식 사용
+      hiddenWindow.webContents.print(printOptions, (success, failureReason) => {
+        if (success) {
+          console.log('✅ 인쇄 대화상자가 성공적으로 열렸습니다');
+        } else {
+          console.error('❌ 인쇄 대화상자 열기 실패:', failureReason);
+        }
       });
       
-      console.log('💾 대화상자 결과:', { filePath, canceled });
+      // 인쇄 대화상자가 열리는 최소 시간만 대기
+      await new Promise(resolve => setTimeout(resolve, 300));
       
-      if (filePath && !canceled) {
-        // PDF 생성 옵션
-        const pdfOptions = {
-          marginsType: 0, // 여백 없음
-          printBackground: true, // 배경 인쇄
-          printSelectionOnly: false,
-          landscape: false
-        };
-        
-        // 커스텀 용지 사이즈가 있으면 적용 (PDF용)
-        if (paperSize && paperSize.width && paperSize.height) {
-          // PDF는 포인트 단위 사용 (1mm = 2.83465 points)
-          pdfOptions.pageSize = {
-            width: paperSize.width * 2.83465,
-            height: paperSize.height * 2.83465
-          };
-        }
-        
-        console.log('PDF 저장 옵션:', pdfOptions);
-        const pdfData = await hiddenWindow.webContents.printToPDF(pdfOptions);
-        
-        const fs = require('fs');
-        fs.writeFileSync(filePath, pdfData);
-        
-        console.log(`PDF 저장 완료: ${filePath}`);
-        result = { success: true, saved: true, filePath: filePath };
-      } else {
-        result = { success: false, error: '파일 저장이 취소되었습니다.' };
-      }
-    } else {
-      // 일반 인쇄
-      const printOptions = {
-        silent: silent,
-        deviceName: printerName,
-        copies: copies,
-        ...pageSizeConfig,
-        marginsType: isPdf ? 0 : 1, // PDF는 여백 없음, 웹페이지는 최소 여백
-        scaleFactor: 100
+      hiddenWindow.close();
+      console.log('🔄 인쇄 대화상자 열림 완료, 숨겨진 윈도우 닫음');
+      
+      return { 
+        success: true, 
+        message: '인쇄 대화상자가 열렸습니다.',
+        printerName: selectedPrinter ? selectedPrinter.name : '기본 프린터',
+        availablePrinters: availablePrinters.length
       };
-
-      console.log(`${isPdf ? 'PDF' : '웹페이지'} 인쇄 옵션:`, printOptions);
-      const success = await hiddenWindow.webContents.print(printOptions);
-      result = { success: true, printed: success };
+      
+    } catch (printError) {
+      console.error('인쇄 실행 중 오류:', printError);
+      hiddenWindow.close();
+      throw new Error(`인쇄 실행 실패: ${printError.message}`);
     }
-    
-    hiddenWindow.close();
-    return result;
   } catch (error) {
     console.error('URL 인쇄 실패:', error);
     return { success: false, error: error.message };
@@ -730,6 +717,8 @@ ipcMain.handle('get-server-info', () => {
 
 // 앱 종료
 ipcMain.handle('quit-app', () => {
+  console.log('🚪 사용자 요청에 의한 앱 종료');
+  isBackgroundService = false; // 백그라운드 서비스 비활성화
   app.quit();
 });
 

@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🖨️ WebPrinter</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 500px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #2563eb, #1d4ed8);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2rem;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 1.1rem;
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #374151;
+            font-size: 14px;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #2563eb;
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+        }
+
+        .size-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .print-button {
+            width: 100%;
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: white;
+            border: none;
+            padding: 15px;
+            border-radius: 10px;
+            font-size: 18px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .print-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(16, 185, 129, 0.3);
+        }
+
+        .print-button:active {
+            transform: translateY(0);
+        }
+
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            font-weight: 500;
+            display: none;
+        }
+
+        .status.info {
+            background: #dbeafe;
+            color: #1e40af;
+            border: 1px solid #93c5fd;
+        }
+
+        .status.success {
+            background: #d1fae5;
+            color: #065f46;
+            border: 1px solid #6ee7b7;
+        }
+
+        .status.error {
+            background: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #fca5a5;
+        }
+
+        .status.warning {
+            background: #fef3c7;
+            color: #92400e;
+            border: 1px solid #fcd34d;
+        }
+
+        .version-info {
+            margin-top: 15px;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 6px;
+            font-size: 14px;
+            display: none;
+        }
+
+        .install-guide {
+            margin-top: 20px;
+            padding: 20px;
+            background-color: #fff3cd;
+            border-radius: 8px;
+            border-left: 4px solid #ffc107;
+            display: none;
+        }
+
+        .install-guide h3 {
+            color: #856404;
+            margin-bottom: 10px;
+        }
+
+        .download-links {
+            margin-top: 15px;
+        }
+
+        .download-links a {
+            display: inline-block;
+            margin-right: 15px;
+            color: #856404;
+            text-decoration: underline;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🖨️ WebPrinter</h1>
+            <p>웹에서 바로 인쇄하기</p>
+        </div>
+        
+        <div class="content">
+            <div class="form-group">
+                <label for="preview-url">미리보기 URL (웹페이지 또는 PDF):</label>
+                <input type="url" id="preview-url" placeholder="https://example.com/preview.html 또는 https://example.com/document.pdf" value="https://print-seven-nu.vercel.app/preview.html">
+            </div>
+            
+            <div class="form-group">
+                <label for="print-url">인쇄 URL (웹페이지 또는 PDF):</label>
+                <input type="url" id="print-url" placeholder="https://example.com/print.html 또는 https://example.com/document.pdf" value="https://print-seven-nu.vercel.app/print.html">
+            </div>
+           
+            <div class="size-group">
+                <div class="form-group">
+                    <label for="paper-width">가로 (mm):</label>
+                    <input type="number" id="paper-width" value="244" min="10" max="1000" step="0.1">
+                </div>
+                <div class="form-group">
+                    <label for="paper-height">세로 (mm):</label>
+                    <input type="number" id="paper-height" value="88" min="10" max="1000" step="0.1">
+                </div>
+            </div>
+            
+            <button class="print-button" onclick="startPrint()">
+                🖨️ 출력하기
+            </button>
+            
+            <div class="status" id="status"></div>
+            
+            <div class="version-info" id="version-info" style="display: none;">
+                <strong>설치된 WebPrinter:</strong> <span id="installed-version">확인 중...</span>
+            </div>
+            
+            <div class="install-guide" id="install-guide">
+                <h3>📥 WebPrinter 설치 필요</h3>
+                <p>WebPrinter가 설치되지 않았습니다. 아래 링크에서 다운로드하여 설치하세요:</p>
+                
+                <div style="margin: 15px 0; padding: 12px; background: #e1f5fe; border-radius: 6px; font-size: 14px; color: #01579b; border-left: 4px solid #2196f3;">
+                    <strong>🔗 자동 실행 설정:</strong>
+                    <br>• 설치 후 처음 실행 시 브라우저에서 <strong>"이 애플리케이션을 열겠습니까?"</strong> 메시지가 나타납니다
+                    <br>• <strong>"열기"</strong> 또는 <strong>"허용"</strong>을 클릭하여 webprinter:// 프로토콜을 등록하세요
+                    <br>• 이후 웹페이지에서 자동으로 WebPrinter가 실행됩니다
+                    <br>• macOS: 시스템 환경설정에서 "그래도 열기" 클릭 필요할 수 있음
+                </div>
+                
+                <div class="download-links" id="download-links">
+                    <div id="loading-downloads">🔄 최신 버전 확인 중...</div>
+                </div>
+                <p><small>설치 후 이 페이지를 새로고침하여 다시 시도하세요.</small></p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let webPrinterInfo = null;
+
+        function showStatus(message, type = 'info') {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = `status ${type}`;
+            status.style.display = 'block';
+        }
+
+        function hideInstallGuide() {
+            document.getElementById('install-guide').style.display = 'none';
+        }
+
+        function showInstallGuide() {
+            document.getElementById('install-guide').style.display = 'block';
+            showStatus('⚠️ WebPrinter가 설치되지 않았습니다. 아래에서 다운로드하여 설치하세요.', 'warning');
+            loadDownloadLinks();
+        }
+
+        async function startPrint() {
+            const previewUrl = document.getElementById('preview-url').value.trim();
+            const printUrl = document.getElementById('print-url').value.trim();
+            const paperWidth = parseFloat(document.getElementById('paper-width').value);
+            const paperHeight = parseFloat(document.getElementById('paper-height').value);
+
+            // 입력 검증
+            if (!previewUrl && !printUrl) {
+                showStatus('최소 하나의 URL을 입력하세요.', 'error');
+                return;
+            }
+
+            if (!paperWidth || !paperHeight) {
+                showStatus('용지 크기를 입력하세요.', 'error');
+                return;
+            }
+
+            showStatus('WebPrinter를 실행하는 중...', 'info');
+            hideInstallGuide();
+
+            try {
+                // 1단계: WebPrinter 실행 시도
+                const sessionId = generateSessionId();
+                const protocolUrl = `webprinter://print?session=${sessionId}`;
+                
+                // 프로토콜 링크 실행 (브라우저 지원 강화)
+                try {
+                    // 방법 1: 직접 location 변경 (가장 호환성 좋음)
+                    if (navigator.userAgent.includes('Chrome') || navigator.userAgent.includes('Safari')) {
+                        window.location.href = protocolUrl;
+                    } else {
+                        // 방법 2: 링크 클릭 시뮬레이션
+                        const link = document.createElement('a');
+                        link.href = protocolUrl;
+                        link.target = '_blank';
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                    }
+                    
+                    showStatus('WebPrinter 실행 요청을 보냈습니다. 브라우저에서 허용해주세요.', 'info');
+                } catch (error) {
+                    showStatus('프로토콜 호출 실패. 수동으로 WebPrinter를 실행해주세요.', 'warning');
+                }
+
+                // 2단계: WebPrinter 서버 찾기 (빠른 재시도)
+                await waitForWebPrinterAndSend(sessionId, previewUrl, printUrl, {
+                    width: paperWidth,
+                    height: paperHeight,
+                    name: 'Custom'
+                });
+
+            } catch (error) {
+                showInstallGuide();
+            }
+        }
+
+        // WebPrinter 서버 찾기 (빠른 검사)
+        async function findWebPrinterServer() {
+            const ports = [18731, 18732, 18733, 18734, 18735, 18736, 18737, 18738, 18739, 18740];
+            
+            // 타임아웃 헬퍼 함수
+            function timeoutPromise(ms) {
+                return new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error('timeout')), ms)
+                );
+            }
+            
+            // 각 포트를 빠르게 확인하는 함수
+            async function checkPort(port) {
+                try {
+                    const response = await Promise.race([
+                        fetch(`http://localhost:${port}/status`, { method: 'GET' }),
+                        timeoutPromise(500) // 500ms 타임아웃
+                    ]);
+                    
+                    if (response.ok) {
+                        return { port, response };
+                    }
+                } catch (error) {
+                    // 타임아웃 또는 연결 실패
+                }
+                return null;
+            }
+            
+            try {
+                // 모든 포트를 병렬로 확인
+                const promises = ports.map(checkPort);
+                const results = await Promise.allSettled(promises);
+                
+                for (const result of results) {
+                    if (result.status === 'fulfilled' && result.value) {
+                        const { port, response } = result.value;
+                        
+                        // 버전 정보도 함께 가져오기
+                        try {
+                            const statusData = await response.json();
+                            if (statusData.status === 'running') {
+                                displayVersionInfo(statusData);
+                                return port;
+                            }
+                        } catch (e) {
+                            return port; // JSON 파싱 실패해도 포트는 작동
+                        }
+                    }
+                }
+                
+                return null;
+            } catch (error) {
+                console.error('WebPrinter 서버 검색 실패:', error);
+                return null;
+            }
+        }
+
+        // 빠른 재시도로 WebPrinter 서버 찾고 데이터 전송
+        async function waitForWebPrinterAndSend(sessionId, previewUrl, printUrl, paperSize) {
+            const maxAttempts = 8; // 최대 시도 횟수 줄임
+            const delayMs = 300; // 더 빠른 재시도 (0.3초)
+            
+            for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                showStatus(`WebPrinter 연결 시도 중... (${attempt}/${maxAttempts})`, 'info');
+                
+                const port = await findWebPrinterServer();
+                if (port) {
+                    try {
+                        await sendUrlsToWebPrinter(port, sessionId, previewUrl, printUrl, paperSize);
+                        showStatus('WebPrinter로 정보를 전송했습니다!', 'success');
+                        return true;
+                    } catch (error) {
+                        showStatus(`전송 실패, 재시도 중... (${attempt}/${maxAttempts})`, 'warning');
+                    }
+                } else {
+                    // 3번째 시도부터는 더 빠르게 설치 안내 표시
+                    if (attempt >= 3) {
+                        showInstallGuide();
+                        showStatus(`WebPrinter를 찾을 수 없습니다. 설치가 필요합니다. (시도: ${attempt}/${maxAttempts})`, 'error');
+                    }
+                    await new Promise(resolve => setTimeout(resolve, delayMs));
+                }
+            }
+            
+            // 모든 시도 실패
+            showInstallGuide();
+            return false;
+        }
+
+        // GitHub API 캐싱 (2시간)
+        const CACHE_KEY = 'webprinter_github_releases';
+        const CACHE_DURATION = 2 * 60 * 60 * 1000; // 2시간 (밀리초)
+
+        async function getLatestReleaseFromCache() {
+            try {
+                const cached = localStorage.getItem(CACHE_KEY);
+                if (cached) {
+                    const { data, timestamp } = JSON.parse(cached);
+                    const now = Date.now();
+                    
+                    // 캐시가 유효한지 확인
+                    if (now - timestamp < CACHE_DURATION) {
+                        return data;
+                    } else {
+                        localStorage.removeItem(CACHE_KEY);
+                    }
+                }
+                
+                // 캐시가 없거나 만료된 경우 API 호출
+                const response = await fetch('https://api.github.com/repos/code-x-team/webprint-electron/releases/latest');
+                
+                if (!response.ok) {
+                    throw new Error(`GitHub API 호출 실패: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                // 캐시에 저장
+                const cacheData = {
+                    data: data,
+                    timestamp: Date.now()
+                };
+                localStorage.setItem(CACHE_KEY, JSON.stringify(cacheData));
+                
+                return data;
+            } catch (error) {
+                // 캐시된 데이터라도 있으면 사용
+                const cached = localStorage.getItem(CACHE_KEY);
+                if (cached) {
+                    const { data } = JSON.parse(cached);
+                    return data;
+                }
+                throw error;
+            }
+        }
+
+        // 설치된 WebPrinter 버전 정보 표시
+        async function displayVersionInfo(statusData) {
+            const versionInfo = document.getElementById('version-info');
+            const installedVersion = document.getElementById('installed-version');
+            
+            if (statusData && statusData.version) {
+                installedVersion.textContent = `v${statusData.version} (${statusData.name || 'WebPrinter'})`;
+                versionInfo.style.display = 'block';
+                
+                // 캐시된 GitHub API로 최신 버전 확인
+                try {
+                    const latestRelease = await getLatestReleaseFromCache();
+                    const latestVersion = latestRelease.tag_name.replace('v', '');
+                    
+                    if (statusData.version !== latestVersion) {
+                        installedVersion.innerHTML += ` <span style="color: #ff6b35; font-weight: bold;">(최신: v${latestVersion})</span>`;
+                    } else {
+                        installedVersion.innerHTML += ` <span style="color: #28a745;">✓ 최신</span>`;
+                    }
+                } catch (error) {
+                    installedVersion.innerHTML += ` <span style="color: #666;">(버전 확인 불가)</span>`;
+                }
+            }
+        }
+
+        // URL 정보 전송
+        async function sendUrlsToWebPrinter(port, sessionId, previewUrl, printUrl, paperSize) {
+            const requestData = {
+                session: sessionId,
+                preview_url: previewUrl,
+                print_url: printUrl,
+                paper_width: paperSize.width,
+                paper_height: paperSize.height,
+                paper_size: paperSize.name
+            };
+
+            const response = await fetch(`http://localhost:${port}/send-urls`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(requestData)
+            });
+
+            const result = await response.json();
+            if (!result.success) {
+                throw new Error(result.error || '전송 실패');
+            }
+            return result;
+        }
+
+        // 세션 ID 생성
+        function generateSessionId() {
+            return 'web_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
+        }
+
+        // 간단한 OS 감지
+        function detectOS() {
+            const platform = navigator.platform.toLowerCase();
+            const userAgent = navigator.userAgent.toLowerCase();
+            
+            if (platform.includes('mac') || userAgent.includes('mac')) {
+                // Intel Mac 우선 감지
+                if (navigator.userAgent.includes('Intel Mac OS X')) {
+                    return 'mac-intel';
+                }
+                return 'mac-arm64'; // 기본값: Apple Silicon
+            }
+            
+            if (platform.includes('win') || userAgent.includes('windows')) {
+                return 'windows';
+            }
+            
+            return 'unknown';
+        }
+
+        // GitHub Releases API 캐싱된 버전 사용
+        async function loadDownloadLinks() {
+            const downloadLinksEl = document.getElementById('download-links');
+            
+            try {
+                // 캐시된 GitHub API 사용
+                const release = await getLatestReleaseFromCache();
+                
+                if (!release.assets || release.assets.length === 0) {
+                    throw new Error('릴리즈 파일을 찾을 수 없습니다');
+                }
+
+                await loadFromGitHubReleases(release);
+                
+            } catch (error) {
+                loadFallbackLinks();
+            }
+        }
+
+        // GitHub Releases에서 다운로드 링크 생성
+        async function loadFromGitHubReleases(release) {
+            const downloadLinksEl = document.getElementById('download-links');
+            const os = detectOS();
+            const releaseVersion = release.tag_name;
+            
+            // OS별 다운로드 링크 생성
+            let downloadHtml = '';
+            
+            if (os === 'mac-arm64' || os === 'mac-intel') {
+                // macOS용 링크
+                const armAsset = release.assets.find(asset => 
+                    asset.name.includes('.dmg') && asset.name.includes('arm64')
+                );
+                const intelAsset = release.assets.find(asset => 
+                    asset.name.includes('.dmg') && !asset.name.includes('arm64')
+                );
+                
+                downloadHtml += `<div style="margin-bottom: 10px;"><strong>🍎 macOS 다운로드 (${releaseVersion}):</strong></div>`;
+                
+                // Intel Mac인 경우 Intel 버전을 먼저 강조 표시
+                if (os === 'mac-intel' && intelAsset) {
+                    downloadHtml += `
+                        <a href="${intelAsset.browser_download_url}" 
+                           style="display: inline-block; margin: 5px 10px 5px 0; padding: 10px 20px; background: #007AFF; color: white; text-decoration: none; border-radius: 8px; font-weight: bold;"
+                           target="_blank">
+                            💻 Intel Mac 다운로드 (권장)
+                        </a>`;
+                }
+                
+                if (armAsset) {
+                    const isRecommended = os === 'mac-arm64';
+                    downloadHtml += `
+                        <a href="${armAsset.browser_download_url}" 
+                           style="display: inline-block; margin: 5px 10px 5px 0; padding: 10px 20px; background: ${isRecommended ? '#007AFF' : '#666'}; color: white; text-decoration: none; border-radius: 8px; font-weight: bold;"
+                           target="_blank">
+                            🚀 Apple Silicon${isRecommended ? ' (권장)' : ''}
+                        </a>`;
+                }
+                
+                if (intelAsset && os !== 'mac-intel') {
+                    downloadHtml += `
+                        <a href="${intelAsset.browser_download_url}" 
+                           style="display: inline-block; margin: 5px 10px 5px 0; padding: 10px 20px; background: #666; color: white; text-decoration: none; border-radius: 8px; font-weight: bold;"
+                           target="_blank">
+                            💻 Intel Mac
+                        </a>`;
+                }
+                
+            } else if (os === 'windows') {
+                // Windows용 링크
+                const winAsset = release.assets.find(asset => 
+                    asset.name.includes('.exe')
+                );
+                
+                if (winAsset) {
+                    downloadHtml += `
+                        <div style="margin-bottom: 10px;"><strong>🪟 Windows 다운로드 (${releaseVersion}):</strong></div>
+                        <a href="${winAsset.browser_download_url}" 
+                           style="display: inline-block; margin: 5px 10px 5px 0; padding: 10px 20px; background: #007AFF; color: white; text-decoration: none; border-radius: 8px; font-weight: bold;"
+                           target="_blank">
+                            🪟 Windows 다운로드
+                        </a>`;
+                }
+            } else {
+                // 알 수 없는 OS
+                downloadHtml += `<div style="margin-bottom: 10px;"><strong>📦 다운로드 (${releaseVersion}):</strong></div>`;
+                release.assets.forEach(asset => {
+                    if (asset.name.includes('.dmg') || asset.name.includes('.exe')) {
+                        downloadHtml += `
+                            <a href="${asset.browser_download_url}" 
+                               style="display: inline-block; margin: 5px 10px 5px 0; padding: 10px 20px; background: #666; color: white; text-decoration: none; border-radius: 8px; font-weight: bold;"
+                               target="_blank">
+                                📦 ${asset.name}
+                            </a>`;
+                    }
+                });
+            }
+            
+            downloadLinksEl.innerHTML = downloadHtml;
+        }
+
+        // 대체 링크 표시
+        function loadFallbackLinks() {
+            const downloadLinksEl = document.getElementById('download-links');
+            
+            let fallbackHtml = `
+                <div style="color: #856404; margin-bottom: 10px;">
+                    <strong>⚠️ 다운로드 링크를 불러올 수 없습니다</strong>
+                </div>`;
+                
+            fallbackHtml += `
+                <a href="https://github.com/code-x-team/webprint-electron/releases/latest" 
+                   style="display: inline-block; margin: 5px 10px 5px 0; padding: 10px 20px; background: #666; color: white; text-decoration: none; border-radius: 8px; font-weight: bold;"
+                   target="_blank">
+                    📦 모든 플랫폼 다운로드
+                </a>`;
+            
+            fallbackHtml += `
+                <div style="margin-top: 15px; padding: 10px; background: #f8f9fa; border-radius: 6px; font-size: 14px; color: #666;">
+                    <strong>💡 참고:</strong> 
+                    <br>• GitHub Releases 페이지에서 최신 버전의 DMG 또는 EXE 파일을 찾아 다운로드하세요
+                    <br>• 다운로드 후 설치하고 웹페이지를 새로고침하세요
+                </div>
+                <div style="margin-top: 10px; padding: 12px; background: #fff3cd; border-radius: 6px; font-size: 14px; color: #856404; border-left: 4px solid #ffc107;">
+                    <strong>🛡️ macOS 보안 경고 해결:</strong>
+                    <br>• "WebPrinter을(를) 열지 않음" 메시지가 나타나면:
+                    <br>• <strong>시스템 환경설정 → 보안 및 개인 정보 보호 → 일반</strong>
+                    <br>• "확인되지 않은 개발자" 메시지 옆의 <strong>"그래도 열기"</strong> 클릭
+                    <br>• 또는 앱을 우클릭 → <strong>"열기"</strong> → <strong>"열기"</strong> 확인
+                </div>
+            `;
+            
+            downloadLinksEl.innerHTML = fallbackHtml;
+        }
+
+        // 페이지 로드 시 WebPrinter 설치 여부 및 버전 확인
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                showStatus('WebPrinter 설치 상태를 확인하는 중...', 'info');
+                const port = await findWebPrinterServer();
+                if (port) {
+                    showStatus('WebPrinter가 실행 중입니다', 'success');
+                    hideInstallGuide();
+                } else {
+                    // WebPrinter를 찾지 못한 경우 설치 안내 표시
+                    showInstallGuide();
+                }
+            } catch (error) {
+                console.error('WebPrinter 상태 확인 실패:', error);
+                // 상태 확인 실패 시에도 설치 안내 표시
+                showInstallGuide();
+            }
+        });
+    </script>
+</body>
+</html> 

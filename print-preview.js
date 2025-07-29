@@ -302,21 +302,7 @@ function updatePrinterSelect() {
         elements.printerSelect.removeChild(elements.printerSelect.lastChild);
     }
     
-    // PDF 저장 옵션 추가 (최상단)
-    const pdfOption = document.createElement('option');
-    pdfOption.value = 'PDF_SAVE';
-    pdfOption.textContent = '📄 PDF로 저장';
-    pdfOption.style.fontWeight = 'bold';
-    pdfOption.style.color = '#e91e63';
-    elements.printerSelect.appendChild(pdfOption);
-    
-    // 구분선 추가
-    const separatorOption = document.createElement('option');
-    separatorOption.disabled = true;
-    separatorOption.textContent = '────────────────';
-    elements.printerSelect.appendChild(separatorOption);
-    
-    // 새 프린터 옵션 추가
+    // 프린터 옵션 추가
     availablePrinters.forEach(printer => {
         const option = document.createElement('option');
         option.value = printer.name;
@@ -324,8 +310,11 @@ function updatePrinterSelect() {
         elements.printerSelect.appendChild(option);
     });
     
-    // 기본 프린터 자동 선택 (PDF 옵션이 있으므로 기본값은 PDF로 설정)
-    elements.printerSelect.value = 'PDF_SAVE';
+    // 기본 프린터 자동 선택
+    const defaultPrinter = availablePrinters.find(p => p.isDefault);
+    if (defaultPrinter) {
+        elements.printerSelect.value = defaultPrinter.name;
+    }
 }
 
 
@@ -349,14 +338,7 @@ async function executePrint() {
         return;
     }
     
-    // PDF 저장 모드 확인
-    const isPdfSave = printerName === 'PDF_SAVE';
-    
-    if (isPdfSave) {
-        showStatus('PDF 파일을 생성하는 중...', 'info');
-    } else {
-        showStatus('인쇄를 실행하는 중...', 'info');
-    }
+    showStatus('인쇄를 실행하는 중...', 'info');
     elements.printButton.disabled = true;
     
     try {
@@ -365,32 +347,31 @@ async function executePrint() {
             printerName: printerName,
             copies: copies,
             silent: silent,
-            paperSize: currentPaperSize, // 용지 사이즈 정보 전달
-            isPdfSave: isPdfSave // PDF 저장 모드 플래그
+            paperSize: currentPaperSize // 용지 사이즈 정보 전달
         });
         
         if (result.success) {
-            if (isPdfSave) {
-                if (result.saved) {
-                    showStatus(`📄 PDF 파일이 저장되었습니다! (${result.filePath})`, 'success');
-                    
-                    // 3초 후 앱 종료 (PDF 저장은 조금 더 오래 표시)
-                    setTimeout(() => {
-                        closeApp();
-                    }, 3000);
-                } else {
-                    showStatus('PDF 저장이 취소되었습니다.', 'warning');
-                    elements.printButton.disabled = false;
-                    return; // 앱 종료하지 않음
-                }
+            if (result.message) {
+                showStatus(`🖨️ ${result.message}`, 'success');
             } else {
                 showStatus('🖨️ 인쇄가 완료되었습니다!', 'success');
-                
-                // 2초 후 앱 종료
+            }
+            
+            // 추가 정보가 있으면 표시
+            if (result.printerName) {
+                const statusElement = document.getElementById('status');
+                if (statusElement) {
+                    statusElement.innerHTML += `<br><small>사용 프린터: ${result.printerName}</small>`;
+                }
+            }
+            
+            // 인쇄 대화상자가 열린 후 즉시 앱 종료 (1초만 대기)
+            setTimeout(() => {
+                showStatus('🖨️ 인쇄 대화상자가 열렸습니다. WebPrinter를 종료합니다.', 'info');
                 setTimeout(() => {
                     closeApp();
-                }, 2000);
-            }
+                }, 500); // 메시지 표시 후 0.5초만 더 대기
+            }, 1000);
         } else {
             throw new Error(result.error);
         }
