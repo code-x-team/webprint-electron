@@ -1,0 +1,65 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# WebPrinter 아키텍처 가이드
+
+## 프로젝트 개요
+WebPrinter는 웹페이지에서 로컬 데스크톱 인쇄 프로그램을 호출하는 크로스플랫폼 Electron 애플리케이션입니다.
+
+## 핵심 아키텍처
+
+### 프로세스 구조
+- **Main Process**: [main.js](mdc:main.js) - Electron 메인 프로세스, HTTP 서버, 프로토콜 핸들러
+- **Renderer Process**: [print-preview.js](mdc:print-preview.js) - 인쇄 미리보기 UI 로직
+- **Preload Script**: [preload.js](mdc:preload.js) - 메인-렌더러 프로세스 간 보안 브리지
+
+### 통신 흐름
+1. 웹페이지 → `webprinter://` 프로토콜 → Electron 앱 실행
+2. 웹페이지 → HTTP POST `/send-urls` → Express 서버 (포트 18731)
+3. Express 서버 → IPC `urls-received` → 렌더러 프로세스
+4. 렌더러 → IPC `print-url` → 메인 프로세스 → 실제 인쇄
+
+## 핵심 파일 구조
+
+### 메인 파일들
+- [main.js](mdc:main.js): Electron 메인 프로세스, HTTP 서버, 자동 업데이트
+- [preload.js](mdc:preload.js): IPC 통신 브리지 (printUrl, getServerInfo, quit 등)
+- [print-preview.html](mdc:print-preview.html): 인쇄 미리보기 UI
+- [print-preview.js](mdc:print-preview.js): 미리보기 로직, 프린터 선택, 인쇄 실행
+
+### 웹 통합
+- [web-example.html](mdc:web-example.html): 웹 연동 샘플 페이지
+- `webprinter://print?session={id}` 프로토콜로 앱 실행
+- `/send-urls` 엔드포인트로 URL과 용지 크기 전송
+
+### 빌드 & 배포
+- [package.json](mdc:package.json): Electron Builder 설정, 의존성 관리
+- [.github/workflows/build.yml](mdc:.github/workflows/build.yml): 자동 빌드/릴리즈 파이프라인
+
+## 개발 패턴
+
+### IPC 통신 패턴
+```javascript
+// preload.js에서 API 노출
+window.electronAPI = {
+    printUrl: (url, options) => ipcRenderer.invoke('print-url', url, options),
+    onUrlsReceived: (callback) => ipcRenderer.on('urls-received', callback)
+};
+
+// main.js에서 핸들러 등록
+ipcMain.handle('print-url', async (event, url, options) => {
+    // 인쇄 로직
+});
+```
+
+### HTTP API 구조
+- `POST /send-urls`: URL과 용지 크기 수신
+- `GET /status`: 앱 상태 및 버전 정보
+- `GET /version`: 상세 앱 정보
+
+### 에러 처리 원칙
+- 모든 async 함수에 try-catch 블록 필요
+- 사용자에게 명확한 에러 메시지 표시
+- 콘솔 로그로 디버깅 정보 제공

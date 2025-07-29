@@ -1,0 +1,313 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# WebPrinter 웹 통합 가이드
+
+## 기본 통합 패턴
+
+### 1단계: 프로토콜 호출
+```javascript
+// WebPrinter 앱 실행 (세션 ID와 함께)
+const sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+window.location.href = `webprinter://print?session=${sessionId}`;
+```
+
+### 2단계: 서버 탐지
+```javascript
+// [web-example.html](mdc:web-example.html) 패턴 참고
+async function findWebPrinterServer() {
+    const ports = [18731, 18732, 18733, 18734, 18735];
+    
+    for (const port of ports) {
+        try {
+            const response = await fetch(`http://localhost:${port}/status`, {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                if (data.status === 'running' && data.name === 'WebPrinter') {
+                    return port;
+                }
+            }
+        } catch (error) {
+            continue; // 다음 포트 시도
+        }
+    }
+    return null;
+}
+```
+
+### 3단계: 인쇄 데이터 전송
+```javascript
+async function sendPrintData(port, sessionId, previewUrl, printUrl, width, height) {
+    const response = await fetch(`http://localhost:${port}/send-urls`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            session_id: sessionId,
+            preview_url: previewUrl,
+            print_url: printUrl,
+            paper_width: parseFloat(width),
+            paper_height: parseFloat(height),
+            paper_size: `${width}mm x ${height}mm`
+        })
+    });
+    
+    return response.ok;
+}
+```
+
+## 완전한 통합 예제
+
+### HTML 구조
+```html
+<!-- [web-example.html](mdc:web-example.html) 기반 -->
+<div class="container">
+    <div class="input-group">
+        <label>미리보기 URL:</label>
+        <input type="url" id="preview-url" value="https://print-seven-nu.vercel.app/preview.html">
+    </div>
+    
+    <div class="input-group">
+        <label>인쇄 URL:</label>
+        <input type="url" id="print-url" value="https://print-seven-nu.vercel.app/print.html">
+    </div>
+    
+    <div class="size-inputs">
+        <div class="input-group">
+            <label>가로 (mm):</label>
+            <input type="number" id="paper-width" value="244">
+        </div>
+        <div class="input-group">
+            <label>세로 (mm):</label>
+            <input type="number" id="paper-height" value="88">
+        </div>
+    </div>
+    
+    <button onclick="startPrint()">🖨️ 출력하기</button>
+</div>
+```
+
+### JavaScript 통합 함수
+```javascript
+async function startPrint() {
+    // 1. 입력값 수집
+    const previewUrl = document.getElementById('preview-url').value;
+    const printUrl = document.getElementById('print-url').value;
+    const width = document.getElementById('paper-width').value;
+    const height = document.getElementById('paper-height').value;
+    
+    // 2. 세션 ID 생성
+    const sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    
+    // 3. WebPrinter 실행
+    window.location.href = `webprinter://print?session=${sessionId}`;
+    
+    // 4. 서버 연결 대기 및 데이터 전송
+    setTimeout(async () => {
+        const port = await findWebPrinterServer();
+        if (port) {
+            const success = await sendUrlsToWebPrinter(port, sessionId, previewUrl, printUrl, width, height);
+            if (success) {
+                showStatus('✅ 인쇄 데이터가 전송되었습니다.');
+            } else {
+                showStatus('❌ 데이터 전송에 실패했습니다.');
+            }
+        } else {
+            showInstallGuide();
+        }
+    }, 2000);
+}
+```
+
+## OS별 다운로드 링크 제공
+
+### OS 감지 로직
+```javascript
+function detectOS() {
+    const userAgent = navigator.userAgent;
+    const userAgentLower = userAgent.toLowerCase();
+    const platform = navigator.platform.toLowerCase();
+    
+    // macOS 감지
+    if (platform.includes('mac') || userAgentLower.includes('mac')) {
+        // Intel vs Apple Silicon 구분
+        const isIntelMac = userAgent.includes('Intel Mac OS X') || 
+                          userAgentLower.includes('intel');
+        return isIntelMac ? 'mac-intel' : 'mac-arm64';
+    }
+    
+    // Windows 감지
+    if (platform.includes('win') || userAgentLower.includes('windows')) {
+        return 'windows';
+    }
+    
+    return 'unknown';
+}
+```
+
+### GitHub Releases 연동
+```javascript
+async function loadDownloadLinks() {
+    try {
+        const response = await fetch('https://api.github.com/repos/code-x-team/webprint-electron/releases/latest');
+        const release = await response.json();
+        const os = detectOS();
+        
+        let downloadHtml = '';
+        
+        if (os === 'mac-intel' || os === 'mac-arm64') {
+            // macOS 다운로드 링크 생성
+            const armAsset = release.assets.find(asset => 
+                asset.name.includes('.dmg') && asset.name.includes('arm64'));
+            const intelAsset = release.assets.find(asset => 
+                asset.name.includes('.dmg') && !asset.name.includes('arm64'));
+                
+            // OS에 따라 우선 추천 버전 표시
+            if (os === 'mac-intel' && intelAsset) {
+                downloadHtml += createDownloadButton(intelAsset, '💻 Intel Mac (권장)', 'primary');
+                if (armAsset) {
+                    downloadHtml += createDownloadButton(armAsset, '🚀 Apple Silicon', 'secondary');
+                }
+            } else if (armAsset) {
+                downloadHtml += createDownloadButton(armAsset, '🚀 Apple Silicon (권장)', 'primary');
+                if (intelAsset) {
+                    downloadHtml += createDownloadButton(intelAsset, '💻 Intel Mac', 'secondary');
+                }
+            }
+        } else if (os === 'windows') {
+            // Windows 다운로드 링크
+            const winAsset = release.assets.find(asset => asset.name.includes('.exe'));
+            if (winAsset) {
+                downloadHtml += createDownloadButton(winAsset, '🪟 Windows', 'primary');
+            }
+        }
+        
+        document.getElementById('download-links').innerHTML = downloadHtml;
+    } catch (error) {
+        console.error('Failed to load download links:', error);
+    }
+}
+
+function createDownloadButton(asset, label, type) {
+    const isPrimary = type === 'primary';
+    const style = isPrimary 
+        ? 'display: inline-block; margin: 5px 10px 5px 0; padding: 10px 20px; background: #007AFF; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px;'
+        : 'margin-left: 10px; padding: 6px 12px; background: #666; color: white; text-decoration: none; border-radius: 4px;';
+        
+    const size = (asset.size / 1024 / 1024).toFixed(1);
+    
+    return `
+        <a href="${asset.browser_download_url}" 
+           style="${style}"
+           target="_blank">
+            ${label} - ${size}MB
+        </a>`;
+}
+```
+
+## 버전 확인 및 업데이트 안내
+
+### 현재 설치된 버전 확인
+```javascript
+async function checkInstalledVersion() {
+    try {
+        const port = await findWebPrinterServer();
+        if (port) {
+            const response = await fetch(`http://localhost:${port}/status`);
+            const data = await response.json();
+            return data.version;
+        }
+    } catch (error) {
+        console.error('Failed to get installed version:', error);
+    }
+    return null;
+}
+```
+
+### 최신 버전과 비교
+```javascript
+async function checkForUpdates() {
+    const [installedVersion, latestRelease] = await Promise.all([
+        checkInstalledVersion(),
+        fetch('https://api.github.com/repos/code-x-team/webprint-electron/releases/latest').then(r => r.json())
+    ]);
+    
+    if (installedVersion && latestRelease) {
+        const latestVersion = latestRelease.tag_name.replace('v', '');
+        
+        if (installedVersion !== latestVersion) {
+            showUpdateNotification(installedVersion, latestVersion);
+        } else {
+            showVersionStatus(`✅ 최신 버전 (v${installedVersion}) 사용 중`);
+        }
+    }
+}
+```
+
+## 에러 처리 패턴
+
+### 연결 실패 처리
+```javascript
+async function handleConnectionError() {
+    const isInstalled = await checkIfAppInstalled();
+    
+    if (!isInstalled) {
+        showInstallGuide();
+    } else {
+        showTroubleshootingGuide();
+    }
+}
+
+function showTroubleshootingGuide() {
+    const guide = `
+        <div class="troubleshooting">
+            <h3>🔧 문제 해결</h3>
+            <p>WebPrinter가 설치되어 있지만 연결할 수 없습니다:</p>
+            <ul>
+                <li>WebPrinter를 다시 시작해보세요</li>
+                <li>방화벽에서 로컬 연결을 허용하는지 확인하세요</li>
+                <li>브라우저를 새로고침하고 다시 시도하세요</li>
+            </ul>
+        </div>
+    `;
+    document.getElementById('status-message').innerHTML = guide;
+}
+```
+
+## API 명세
+
+### POST /send-urls
+**요청 본문**:
+```json
+{
+    "session_id": "session_1234567890_abc123",
+    "preview_url": "https://example.com/preview.html",
+    "print_url": "https://example.com/print.html", 
+    "paper_width": 244,
+    "paper_height": 88,
+    "paper_size": "244mm x 88mm"
+}
+```
+
+**응답**:
+```json
+{
+    "message": "URLs received successfully",
+    "session_id": "session_1234567890_abc123"
+}
+```
+
+### GET /status
+**응답**:
+```json
+{
+    "status": "running",
+    "name": "WebPrinter",
+    "version": "1.1.0"
+}
+```

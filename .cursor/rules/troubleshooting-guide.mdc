@@ -1,0 +1,205 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# WebPrinter 트러블슈팅 가이드
+
+## 설치 및 실행 문제
+
+### "WebPrinter 설치가 필요합니다" 메시지가 계속 표시
+**증상**: 앱을 설치했는데도 웹페이지에서 설치하라는 메시지가 나타남
+
+**진단 방법**:
+```bash
+# 1. 프로세스 확인
+ps aux | grep -i webprinter
+
+# 2. 포트 확인 (18731)
+lsof -i :18731
+netstat -an | grep 18731
+
+# 3. 프로토콜 핸들러 확인
+open webprinter://test
+```
+
+**가능한 원인**:
+1. **HTTP 서버 미실행**: [main.js](mdc:main.js)의 `startHttpServer()` 호출 확인
+2. **포트 충돌**: 18731 포트가 다른 프로세스에서 사용 중
+3. **프로토콜 미등록**: `webprinter://` 프로토콜 핸들러 등록 실패
+4. **CORS 문제**: 웹페이지와 로컬 서버 간 통신 차단
+
+**해결 방법**:
+```javascript
+// [main.js](mdc:main.js)에서 포트 충돌 시 대안 포트 사용
+const findAvailablePort = async (startPort) => {
+    // 18731부터 18740까지 시도
+    for (let port = startPort; port < startPort + 10; port++) {
+        try {
+            await new Promise((resolve, reject) => {
+                const server = require('net').createServer();
+                server.listen(port, () => {
+                    server.close(resolve);
+                }).on('error', reject);
+            });
+            return port;
+        } catch (error) {
+            continue;
+        }
+    }
+    throw new Error('No available port found');
+};
+```
+
+### macOS 코드 서명 문제
+**증상**: "개발자를 확인할 수 없음" 또는 실행 거부
+
+**해결 방법**:
+```bash
+# 1. 격리 속성 제거 (Gatekeeper 우회)
+sudo xattr -r -d com.apple.quarantine /Applications/WebPrinter.app
+
+# 2. 시스템 설정에서 허용
+# 시스템 설정 > 개인정보 보호 및 보안 > 일반 > "확인된 개발자가 아닌 앱 허용"
+```
+
+## 빌드 문제
+
+### "Cannot find module 'express'" 에러
+**증상**: 빌드된 앱이 실행되지 않고 모듈 누락 에러
+
+**원인**: [package.json](mdc:package.json)의 `build.files` 설정 문제
+
+**해결 방법**:
+```json
+// package.json - 올바른 files 설정
+"build": {
+    "files": [
+        "main.js",
+        "preload.js", 
+        "print-preview.html",
+        "print-preview.js",
+        "web-example.html",
+        "package.json"
+    ]
+}
+```
+
+### GitHub Actions 빌드 실패
+**증상**: CI/CD 파이프라인에서 빌드 실패
+
+**공통 문제들**:
+1. **Yarn vs NPM 충돌**:
+```yaml
+# [.github/workflows/build.yml](mdc:.github/workflows/build.yml)
+env:
+  npm_config_package_manager: yarn
+  ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES: true
+```
+
+2. **버전 동기화 실패** (Windows):
+```yaml
+# OS별 버전 추출
+- name: Set version from tag (Windows)
+  if: runner.os == 'Windows'
+  shell: pwsh
+  run: |
+    $TAG_VERSION = $env:GITHUB_REF -replace 'refs/tags/v', ''
+    npm version $TAG_VERSION --no-git-tag-version
+```
+
+3. **권한 부족** (GitHub Releases):
+```yaml
+permissions:
+  contents: write
+  discussions: write
+```
+
+## 네트워킹 문제
+
+### 웹페이지에서 로컬 서버 접근 실패
+**증상**: `findWebPrinterServer()` 함수가 항상 실패
+
+**진단**:
+```javascript
+// [web-example.html](mdc:web-example.html)에 디버깅 추가
+async function debugConnection() {
+    const ports = [18731, 18732, 18733];
+    for (const port of ports) {
+        try {
+            const response = await fetch(`http://localhost:${port}/status`);
+            console.log(`Port ${port}: OK`, await response.json());
+        } catch (error) {
+            console.log(`Port ${port}: Failed`, error.message);
+        }
+    }
+}
+```
+
+**해결 방법**:
+1. **방화벽 확인**: macOS/Windows 방화벽에서 로컬 접근 허용
+2. **CORS 설정**: [main.js](mdc:main.js)에서 `origin: '*'` 확인
+3. **브라우저 보안**: Chrome의 로컬 파일 제한 우회
+
+## 인쇄 문제
+
+### 용지 크기 설정 무시
+**증상**: 커스텀 용지 크기(244mm x 88mm)가 적용되지 않음
+
+**해결 방법**:
+```javascript
+// [main.js](mdc:main.js) - 올바른 용지 크기 설정
+const paperSize = {
+    width_microns: Math.round(options.paperSize.width * 1000),
+    height_microns: Math.round(options.paperSize.height * 1000)
+};
+
+hiddenWindow.webContents.print({
+    silent: false,
+    printBackground: true,
+    pageSize: paperSize
+});
+```
+
+### 프린터 선택 안됨
+**증상**: 사용자가 선택한 프린터가 무시됨
+
+**해결 방법**:
+```javascript
+// 프린터 목록 가져오기 및 선택 적용
+const printers = await hiddenWindow.webContents.getPrintersAsync();
+const selectedPrinter = printers.find(p => p.name === printerName);
+
+if (selectedPrinter) {
+    printOptions.deviceName = selectedPrinter.name;
+}
+```
+
+## 디버깅 도구
+
+### 개발 중 유용한 명령어
+```bash
+# Electron 앱 로그 확인 (macOS)
+tail -f ~/Library/Logs/WebPrinter/main.log
+
+# 프로토콜 핸들러 테스트
+open webprinter://print?session=test123
+
+# HTTP 서버 테스트
+curl http://localhost:18731/status
+
+# 빌드 테스트 (로컬)
+npm run build-mac
+npm run build-win
+```
+
+### 프로덕션 디버깅
+```javascript
+// [main.js](mdc:main.js)에 디버깅 모드 추가
+const isDev = process.env.NODE_ENV === 'development';
+
+if (isDev) {
+    printWindow.webContents.openDevTools();
+    console.log('Debug mode enabled');
+}
+```

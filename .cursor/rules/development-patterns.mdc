@@ -1,0 +1,124 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# WebPrinter 개발 패턴 & 코딩 규칙
+
+## 코딩 스타일
+
+### 변수명 규칙
+- **camelCase**: JavaScript 변수, 함수명 (`receivedUrls`, `showPreviewUrl`)
+- **kebab-case**: HTML ID, CSS 클래스 (`preview-container`, `install-guide`)
+- **일관성 유지**: 기존 코드 메커니즘 따라가기
+
+### 함수 네이밍 패턴
+- **이벤트 핸들러**: `handle{Event}` (예: `handleUrlsReceived`)
+- **표시/숨김**: `show{Component}`, `hide{Component}` (예: `showInstallGuide`)
+- **초기화**: `initialize{Component}` (예: `initializeUpdater`)
+- **상태 업데이트**: `update{Component}` (예: `updateUI`)
+
+## Electron 보안 패턴
+
+### Preload Script 구조
+```javascript
+// [preload.js](mdc:preload.js) 패턴
+const { contextBridge, ipcRenderer } = require('electron');
+
+contextBridge.exposeInMainWorld('electronAPI', {
+    // 명시적 함수만 노출, 직접적인 ipcRenderer 접근 금지
+    printUrl: (url, options) => ipcRenderer.invoke('print-url', url, options),
+    onUrlsReceived: (callback) => ipcRenderer.on('urls-received', callback)
+});
+```
+
+### 보안 설정 ([main.js](mdc:main.js))
+```javascript
+webPreferences: {
+    nodeIntegration: false,        // Node.js 접근 차단
+    contextIsolation: true,        // 컨텍스트 격리
+    preload: path.join(__dirname, 'preload.js')
+}
+```
+
+## HTTP 서버 패턴
+
+### CORS 설정
+```javascript
+// [main.js](mdc:main.js)에서 모든 도메인 허용
+app.use(cors({
+    origin: '*',
+    methods: ['GET', 'POST'],
+    allowedHeaders: ['Content-Type']
+}));
+```
+
+### API 엔드포인트 구조
+- **POST /send-urls**: 메인 기능 (URL + 용지 크기 수신)
+- **GET /status**: 헬스체크 + 기본 정보
+- **GET /version**: 상세 버전 정보
+
+## 에러 처리 패턴
+
+### Try-Catch 필수 영역
+1. **파일 I/O 작업**
+2. **네트워크 요청**
+3. **IPC 통신**
+4. **Electron API 호출**
+
+### 에러 로깅 형식
+```javascript
+try {
+    // 위험한 작업
+} catch (error) {
+    console.error('[Component] Error description:', error);
+    // 사용자 친화적 메시지 표시
+}
+```
+
+## 업데이트 처리 패턴
+
+### Auto-Updater 설정 ([main.js](mdc:main.js))
+```javascript
+// GitHub 릴리즈 기반 업데이트
+autoUpdater.setFeedURL({
+    provider: 'github',
+    owner: 'code-x-team',
+    repo: 'webprint-electron'
+});
+
+// 5분마다 업데이트 확인
+setInterval(() => {
+    autoUpdater.checkForUpdatesAndNotify();
+}, 5 * 60 * 1000);
+```
+
+## 빌드 패턴
+
+### package.json 구조
+- **dependencies**: 런타임 필요 패키지 (express, cors, electron-updater)
+- **devDependencies**: 빌드/개발 도구 (electron, electron-builder)
+- **files 설정**: 포함할 파일만 명시적 지정
+
+### GitHub Actions 패턴 ([.github/workflows/build.yml](mdc:.github/workflows/build.yml))
+1. **태그 푸시 트리거**: `v*` 패턴
+2. **버전 동기화**: Git 태그 → package.json
+3. **멀티플랫폼 빌드**: macOS + Windows 병렬
+4. **자동 릴리즈**: GitHub Releases 업로드
+
+## 디버깅 패턴
+
+### 콘솔 로그 규칙
+```javascript
+console.log('[Component] Action:', data);        // 정보
+console.warn('[Component] Warning:', warning);   // 경고  
+console.error('[Component] Error:', error);      // 에러
+```
+
+### 개발 도구 활성화
+```javascript
+// 개발 환경에서만 DevTools 열기
+if (process.env.NODE_ENV === 'development') {
+    printWindow.webContents.openDevTools();
+}
+```
