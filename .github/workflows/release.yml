@@ -1,0 +1,55 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'  # v1.0.0, v1.0.1 등의 태그 푸시 시 실행
+
+jobs:
+  release:
+    runs-on: ${{ matrix.os }}
+    
+    strategy:
+      matrix:
+        os: [macos-latest, windows-latest]
+    
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@v4
+        
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Build/release Electron app
+        uses: samuelmeuli/action-electron-builder@v1
+        with:
+          # GitHub token, automatically provided to the action
+          # (No need to define this secret in the repo settings)
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          
+          # If the commit is tagged with a version (e.g. "v1.0.0"),
+          # release the app after building
+          release: true
+          
+          # Build script (npm run build 등)
+          build_script_name: "build"
+          
+        env:
+          # macOS notarization (선택사항 - Apple Developer 계정 필요)
+          # APPLE_ID: ${{ secrets.APPLE_ID }}
+          # APPLE_ID_PASS: ${{ secrets.APPLE_ID_PASS }}
+          # CSC_LINK: ${{ secrets.CSC_LINK }}
+          # CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          
+          # Windows code signing (선택사항 - 인증서 필요)
+          # CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
+          # CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
+          
+          # Auto-updater를 위한 GitHub provider 설정
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} 

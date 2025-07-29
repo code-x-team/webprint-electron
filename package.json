@@ -70,23 +70,10 @@
           "arch": ["x64", "arm64"]
         }
       ],
-      "identity": "Developer ID Application: Your Name (TEAM_ID)",
-      "hardenedRuntime": true,
-      "gatekeeperAssess": false,
-      "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.plist",
-      "notarize": {
-        "teamId": "${APPLE_TEAM_ID}"
-      },
       "forceCodeSigning": false
     },
     "win": {
-      "icon": "assets/icon.ico",
-      "target": "nsis",
-      "certificateFile": "certificates/windows-certificate.p12",
-      "certificatePassword": "",
-      "publisherName": "Your Company Name",
-      "verifyUpdateCodeSignature": true
+      "target": "nsis"
     },
     "nsis": {
       "oneClick": false,
