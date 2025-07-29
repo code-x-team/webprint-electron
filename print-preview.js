@@ -37,6 +37,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         receivedUrls = urlData;
         handleUrlsReceived();
     });
+    
+    // 세션 복구 이벤트 리스너 등록
+    window.electronAPI.onSessionRestored((sessionInfo) => {
+        console.log('🔄 세션 복구 정보 수신됨!', sessionInfo);
+        handleSessionRestored(sessionInfo);
+    });
+    
     console.log('✅ 이벤트 리스너 등록 완료');
 });
 
@@ -165,6 +172,68 @@ async function handleUrlsReceived() {
     }
     
     updateUI();
+}
+
+// 세션 복구 처리
+function handleSessionRestored(sessionInfo) {
+    const { sessionId, restoredFromSaved, dataAge } = sessionInfo;
+    
+    if (restoredFromSaved) {
+        // 저장된 세션에서 복구된 경우
+        showStatus(`🔄 이전 세션이 복구되었습니다! (${dataAge} 생성)`, 'info');
+        
+        // 복구 알림을 상태 표시 영역에 추가
+        setTimeout(() => {
+            const statusContainer = document.querySelector('.status-container');
+            if (statusContainer) {
+                const restoreNotice = document.createElement('div');
+                restoreNotice.id = 'restore-notice';
+                restoreNotice.style.cssText = `
+                    margin-top: 10px;
+                    padding: 12px;
+                    background: linear-gradient(135deg, #e3f2fd, #bbdefb);
+                    border: 1px solid #2196f3;
+                    border-radius: 8px;
+                    font-size: 14px;
+                    color: #1565c0;
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                `;
+                
+                restoreNotice.innerHTML = `
+                    <span style="font-size: 16px;">🔄</span>
+                    <div>
+                        <strong>세션 복구됨</strong><br>
+                        이전에 설정한 URL과 용지 크기가 자동으로 복원되었습니다.<br>
+                        <small>데이터 생성 시간: ${dataAge}</small>
+                    </div>
+                `;
+                
+                // 기존 알림이 있으면 제거
+                const existing = document.getElementById('restore-notice');
+                if (existing) {
+                    existing.remove();
+                }
+                
+                statusContainer.appendChild(restoreNotice);
+                
+                // 5초 후 자동으로 숨기기
+                setTimeout(() => {
+                    if (restoreNotice.parentNode) {
+                        restoreNotice.style.opacity = '0';
+                        restoreNotice.style.transition = 'opacity 0.5s ease';
+                        setTimeout(() => {
+                            restoreNotice.remove();
+                        }, 500);
+                    }
+                }, 5000);
+            }
+        }, 1000);
+    } else {
+        // 현재 세션 데이터 사용
+        console.log('✅ 현재 세션 데이터 사용 중:', sessionId);
+    }
 }
 
 // PDF 관련 함수 제거됨
@@ -316,11 +385,24 @@ async function executePrint() {
         paperSize: currentPaperSize
     });
     
-    showStatus('인쇄를 실행하는 중...', 'info');
+    showStatus('📄 웹페이지를 PDF로 변환하는 중...', 'info');
     elements.printButton.disabled = true;
     
+    // 진행 상태를 단계별로 표시
+    setTimeout(() => {
+        showStatus('🔄 브라우저 스타일 렌더링 중...', 'info');
+    }, 1000);
+    
+    setTimeout(() => {
+        showStatus('📄 PDF 생성 중...', 'info');
+    }, 3000);
+    
+    setTimeout(() => {
+        showStatus('🖨️ 프린터로 전송 중...', 'info');
+    }, 6000);
+    
     try {
-        console.log('📤 메인 프로세스로 인쇄 요청 전송 중...');
+        console.log('📤 브라우저 스타일 인쇄 요청 전송 중...');
         const result = await window.electronAPI.printUrl({
             url: printUrl,
             printerName: printerName,
@@ -329,20 +411,21 @@ async function executePrint() {
             paperSize: currentPaperSize // 용지 사이즈 정보 전달
         });
         
-        console.log('📥 메인 프로세스 응답:', result);
+        console.log('📥 브라우저 스타일 인쇄 응답:', result);
         
         if (result.success) {
-            if (result.message) {
-                showStatus(`🖨️ ${result.message}`, 'success');
+            if (result.method) {
+                showStatus(`✅ ${result.message} (방식: ${result.method})`, 'success');
             } else {
-                showStatus('🖨️ 인쇄가 완료되었습니다!', 'success');
+                showStatus('✅ PDF 변환 후 프린트 대화상자가 열렸습니다!', 'success');
             }
             
-            // 추가 정보가 있으면 표시
-            if (result.printerName) {
-                const statusElement = document.getElementById('status');
-                if (statusElement) {
-                    statusElement.innerHTML += `<br><small>사용 프린터: ${result.printerName}</small>`;
+            // 추가 정보 표시
+            const statusElement = document.getElementById('status');
+            if (statusElement && result.method) {
+                statusElement.innerHTML += `<br><small>📋 처리 방식: ${result.method}</small>`;
+                if (result.tempFile) {
+                    statusElement.innerHTML += `<br><small>📁 임시 파일: 자동 정리됨</small>`;
                 }
             }
             

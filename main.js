@@ -13,6 +13,93 @@ let serverPort = null;
 let currentSession = null;
 let receivedUrls = {};
 
+// 세션 데이터 저장 경로
+const sessionDataPath = path.join(os.homedir(), '.webprinter-sessions.json');
+
+// 세션 데이터 저장 (영구 저장소)
+function saveSessionData() {
+  try {
+    const sessionData = {
+      lastSaved: new Date().toISOString(),
+      currentSession: currentSession,
+      receivedUrls: receivedUrls
+    };
+    
+    fs.writeFileSync(sessionDataPath, JSON.stringify(sessionData, null, 2));
+    console.log('💾 세션 데이터 저장 완료:', Object.keys(receivedUrls).length, '개 세션');
+  } catch (error) {
+    console.warn('⚠️ 세션 데이터 저장 실패:', error.message);
+  }
+}
+
+// 세션 데이터 복구
+function loadSessionData() {
+  try {
+    if (!fs.existsSync(sessionDataPath)) {
+      console.log('📂 저장된 세션 데이터가 없습니다.');
+      return;
+    }
+    
+    const data = fs.readFileSync(sessionDataPath, 'utf8');
+    const sessionData = JSON.parse(data);
+    
+    // 24시간 이내 데이터만 복구
+    const savedTime = new Date(sessionData.lastSaved);
+    const now = new Date();
+    const hoursDiff = (now - savedTime) / (1000 * 60 * 60);
+    
+    if (hoursDiff > 24) {
+      console.log('🕒 저장된 세션 데이터가 24시간 이상 경과하여 무시됩니다.');
+      fs.unlinkSync(sessionDataPath); // 오래된 파일 삭제
+      return;
+    }
+    
+    // 데이터 복구
+    receivedUrls = sessionData.receivedUrls || {};
+    const sessionCount = Object.keys(receivedUrls).length;
+    
+    if (sessionCount > 0) {
+      console.log('🔄 세션 데이터 복구 완료:', sessionCount, '개 세션');
+      
+      // 각 세션의 상세 정보 출력
+      Object.keys(receivedUrls).forEach(sessionId => {
+        const urls = receivedUrls[sessionId];
+        console.log(`📋 세션 ${sessionId}: preview=${!!urls.previewUrl}, print=${!!urls.printUrl}, size=${urls.paperWidth}x${urls.paperHeight}`);
+      });
+    } else {
+      console.log('📂 복구할 세션 데이터가 없습니다.');
+    }
+  } catch (error) {
+    console.warn('⚠️ 세션 데이터 복구 실패:', error.message);
+    // 손상된 파일 삭제
+    try {
+      fs.unlinkSync(sessionDataPath);
+    } catch (e) {
+      // 무시
+    }
+  }
+}
+
+// 오래된 세션 정리
+function cleanOldSessions() {
+  const now = Date.now();
+  const maxAge = 24 * 60 * 60 * 1000; // 24시간
+  let cleanedCount = 0;
+  
+  Object.keys(receivedUrls).forEach(sessionId => {
+    const sessionData = receivedUrls[sessionId];
+    if (sessionData.timestamp && (now - sessionData.timestamp) > maxAge) {
+      delete receivedUrls[sessionId];
+      cleanedCount++;
+    }
+  });
+  
+  if (cleanedCount > 0) {
+    console.log(`🧹 오래된 세션 ${cleanedCount}개 정리 완료`);
+    saveSessionData(); // 정리 후 저장
+  }
+}
+
 // 프로토콜 핸들러 등록 (강화)
 function registerProtocol() {
   const protocolName = 'webprinter';
@@ -93,8 +180,13 @@ function startHttpServer() {
           urlData.printUrl = printUrl;
         }
         
-        // 세션에 URL과 용지 정보 저장
+        // 세션에 URL과 용지 정보 저장 (타임스탬프 포함)
+        urlData.timestamp = Date.now();
+        urlData.receivedAt = new Date().toISOString();
         receivedUrls[sessionId] = urlData;
+        
+        // 세션 데이터 영구 저장
+        saveSessionData();
         
         console.log(`URL 정보 수신 완료 - 세션: ${sessionId}`);
         console.log('미리보기 URL:', urlData.previewUrl || '없음');
@@ -222,20 +314,41 @@ function generateSessionId() {
 }
 
 // 인쇄 미리보기 창 생성
-async function createPrintWindow(sessionId = null) {
+async function createPrintWindow(sessionId = null, isForced = false) {
   // 프로그램 실행 시마다 업데이트 체크 (출력하기 버튼 클릭 시)
-  console.log('🔄 WebPrinter 실행 - 업데이트 확인 중...');
-  try {
-    autoUpdater.checkForUpdates();
-  } catch (error) {
-    console.warn('업데이트 체크 실패 (무시됨):', error.message);
+  if (isForced) {
+    console.log('🚀 강제 실행 모드 - 업데이트 체크 생략');
+  } else {
+    console.log('🔄 WebPrinter 실행 - 업데이트 확인 중...');
+    try {
+      autoUpdater.checkForUpdates();
+    } catch (error) {
+      console.warn('업데이트 체크 실패 (무시됨):', error.message);
+    }
   }
   
   // 기존 창이 있고 숨겨져 있으면 재사용
   if (printWindow && !printWindow.isDestroyed()) {
-    console.log('🔄 기ㅈ존 창 재사용 - 숨겨진 상태에서 복원');
-    printWindow.show();
-    printWindow.focus();
+    if (isForced) {
+      console.log('🚀 강제 모드 - 기존 창 적극적 복원');
+      printWindow.show();
+      printWindow.focus();
+      printWindow.setAlwaysOnTop(true);
+      setTimeout(() => printWindow.setAlwaysOnTop(false), 1000); // 1초간 최상단 유지
+      
+      // 플랫폼별 추가 활성화
+      if (process.platform === 'darwin' && app.dock) {
+        app.dock.show();
+        app.focus();
+      } else if (process.platform === 'win32') {
+        printWindow.setAlwaysOnTop(true);
+        setTimeout(() => printWindow.setAlwaysOnTop(false), 1000);
+      }
+    } else {
+      console.log('🔄 기존 창 재사용 - 숨겨진 상태에서 복원');
+      printWindow.show();
+      printWindow.focus();
+    }
     
     // 세션 ID만 업데이트
     if (sessionId) {
@@ -317,17 +430,58 @@ async function createPrintWindow(sessionId = null) {
           console.log('✅ server-info 전송 완료');
         }
 
-        // 이미 받은 URL이 있으면 로드
+        // 이미 받은 URL이 있으면 로드 (현재 세션 또는 복구된 최근 세션)
         console.log(`🔍 윈도우 생성 후 URL 확인:`);
         console.log(`- sessionId: ${sessionId}`);
         console.log(`- receivedUrls[sessionId] 존재: ${!!receivedUrls[sessionId]}`);
         
+        let urlDataToSend = null;
+        let usedSessionId = sessionId;
+        
         if (receivedUrls[sessionId]) {
-          console.log('✅ 이미 받은 URL 데이터를 윈도우로 전송');
-          console.log('📤 전송할 데이터:', receivedUrls[sessionId]);
+          // 현재 세션에 데이터가 있음
+          urlDataToSend = receivedUrls[sessionId];
+          console.log('✅ 현재 세션의 URL 데이터 발견');
+        } else {
+          // 현재 세션에 데이터가 없으면 복구된 세션 중 가장 최근 것 찾기
+          const sessions = Object.keys(receivedUrls);
+          if (sessions.length > 0) {
+            // 타임스탬프 기준으로 가장 최근 세션 찾기
+            let latestSession = sessions[0];
+            let latestTimestamp = receivedUrls[latestSession].timestamp || 0;
+            
+            sessions.forEach(sid => {
+              const timestamp = receivedUrls[sid].timestamp || 0;
+              if (timestamp > latestTimestamp) {
+                latestSession = sid;
+                latestTimestamp = timestamp;
+              }
+            });
+            
+            urlDataToSend = receivedUrls[latestSession];
+            usedSessionId = latestSession;
+            
+            console.log(`🔄 복구된 세션에서 가장 최근 데이터 사용: ${latestSession}`);
+            console.log(`📅 데이터 생성 시간: ${new Date(latestTimestamp).toLocaleString()}`);
+            
+            // 현재 세션을 복구된 세션으로 업데이트
+            currentSession = latestSession;
+          }
+        }
+        
+        if (urlDataToSend) {
+          console.log('✅ URL 데이터를 윈도우로 전송');
+          console.log('📤 전송할 데이터:', urlDataToSend);
+          console.log('🔗 사용된 세션 ID:', usedSessionId);
+          
           if (printWindow && !printWindow.isDestroyed()) {
-            printWindow.webContents.send('urls-received', receivedUrls[sessionId]);
-            console.log('✅ urls-received 전송 완료');
+            printWindow.webContents.send('urls-received', urlDataToSend);
+            printWindow.webContents.send('session-restored', {
+              sessionId: usedSessionId,
+              restoredFromSaved: usedSessionId !== sessionId,
+              dataAge: urlDataToSend.receivedAt ? new Date(urlDataToSend.receivedAt).toLocaleString() : '알 수 없음'
+            });
+            console.log('✅ urls-received 및 session-restored 전송 완료');
           }
         } else {
           console.log('⚠️ 아직 URL 데이터가 없음 - 대기 중');
@@ -344,6 +498,9 @@ async function createPrintWindow(sessionId = null) {
     if (sessionId && receivedUrls[sessionId]) {
       delete receivedUrls[sessionId];
       console.log(`세션 ${sessionId} 정리 완료`);
+      
+      // 세션 정리 후 저장
+      saveSessionData();
     }
   });
 
@@ -454,10 +611,35 @@ function setupAutoUpdater() {
 let isAppReady = false;
 let pendingProtocolCall = null;
 
+// 시작 프로그램 등록 (OS별 자동 시작 설정)
+function setupAutoLaunch() {
+  try {
+    const openAtLogin = app.getLoginItemSettings().openAtLogin;
+    
+    if (!openAtLogin) {
+      console.log('🚀 시작 프로그램에 WebPrinter 등록 중...');
+      
+      app.setLoginItemSettings({
+        openAtLogin: true,
+        openAsHidden: true,  // 숨겨진 상태로 시작
+        name: 'WebPrinter',
+        args: ['--hidden'] // 숨겨진 모드로 시작
+      });
+      
+      console.log('✅ 시작 프로그램 등록 완료 - 부팅 시 자동 실행됩니다');
+    } else {
+      console.log('✅ 이미 시작 프로그램에 등록되어 있습니다');
+    }
+  } catch (error) {
+    console.warn('⚠️ 시작 프로그램 등록 실패 (권한 부족):', error.message);
+  }
+}
+
 // 앱 이벤트 핸들러
 app.whenReady().then(async () => {
   registerProtocol();
   setupAutoUpdater();
+  setupAutoLaunch(); // 시작 프로그램 등록
   
   // HTTP 서버 시작
   try {
@@ -466,8 +648,26 @@ app.whenReady().then(async () => {
     console.error('HTTP 서버 시작 실패:', error);
   }
   
+  // 세션 데이터 복구
+  loadSessionData();
+  cleanOldSessions();
+  
   // 앱 준비 완료 표시
   isAppReady = true;
+  
+  // 숨겨진 모드로 시작되었는지 확인
+  const isHiddenMode = process.argv.includes('--hidden');
+  if (isHiddenMode) {
+    console.log('🔕 숨겨진 모드로 시작 - 백그라운드 서비스로 실행');
+    isBackgroundService = true;
+    
+    // 독(Dock) 및 작업 표시줄에서 숨기기
+    if (process.platform === 'darwin' && app.dock) {
+      app.dock.hide();
+    }
+  } else {
+    console.log('🖥️ 일반 모드로 시작');
+  }
   
   // 대기 중인 프로토콜 호출 처리
   if (pendingProtocolCall) {
@@ -529,7 +729,13 @@ async function handleProtocolCall(protocolUrl) {
   switch (action) {
     case 'print':
       const sessionId = params.session || generateSessionId();
-      console.log('프린트 윈도우 생성 중...', sessionId);
+      const isForced = params.force === 'true';
+      
+      if (isForced) {
+        console.log('🚀 강제 실행 모드로 프린트 윈도우 생성 중...', sessionId);
+      } else {
+        console.log('프린트 윈도우 생성 중...', sessionId);
+      }
       
       // 백그라운드 서비스 모드에서 복원
       if (isBackgroundService) {
@@ -549,10 +755,14 @@ async function handleProtocolCall(protocolUrl) {
         }
       }
       
-      await createPrintWindow(sessionId);
+      await createPrintWindow(sessionId, isForced);
       
       // 웹에게 서버 정보 응답 (콘솔 출력으로 웹 개발자가 확인 가능)
-      console.log(`WebPrinter 준비됨:`);
+      if (isForced) {
+        console.log(`🚀 WebPrinter 강제 실행 완료:`);
+      } else {
+        console.log(`WebPrinter 준비됨:`);
+      }
       console.log(`- 서버 주소: http://localhost:${serverPort}`);
       console.log(`- 세션 ID: ${sessionId}`);
       console.log(`- URL 전송 엔드포인트: POST /send-urls`);
@@ -655,7 +865,7 @@ ipcMain.handle('get-printers', async () => {
 
 // PDF 관련 함수 제거됨
 
-// URL 인쇄 실행 (웹페이지 전용)
+// 브라우저 스타일 웹페이지 인쇄 (Chrome처럼)
 ipcMain.handle('print-url', async (event, options) => {
   try {
     const { url, printerName, copies = 1, silent = false, paperSize = null } = options;
@@ -664,106 +874,175 @@ ipcMain.handle('print-url', async (event, options) => {
       throw new Error('인쇄할 URL이 없습니다');
     }
     
-    console.log(`인쇄 시작: 웹페이지 - ${url}`);
+    console.log(`🖨️ 브라우저 스타일 인쇄 시작: ${url}`);
     
-    // 숨겨진 윈도우에서 URL 로드 및 인쇄
-    const hiddenWindow = new BrowserWindow({
+    // STEP 1: 웹페이지를 정확히 로드하고 렌더링
+    const renderWindow = new BrowserWindow({
       show: false,
+      width: 1200,  // 충분한 렌더링 크기
+      height: 800,
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
-        plugins: true, // 플러그인 활성화
+        plugins: true,
+        webSecurity: false, // 외부 리소스 로딩 허용
       }
     });
 
-    await hiddenWindow.loadURL(url);
+    console.log('📄 웹페이지 로딩 중...');
+    await renderWindow.loadURL(url);
     
-    // 페이지 로드 완료 대기
+    // 완전한 페이지 로드 대기
     await new Promise(resolve => {
-      hiddenWindow.webContents.once('did-finish-load', resolve);
+      renderWindow.webContents.once('did-finish-load', resolve);
     });
-
-    // 웹페이지 로딩 대기 시간
-    const waitTime = 3000; // 웹페이지 로딩 완료 대기
-    await new Promise(resolve => setTimeout(resolve, waitTime));
-
-    // 용지 사이즈 설정
-    let pageSizeConfig = { pageSize: 'A4' };
+    
+    // 동적 콘텐츠 로딩 대기 (JavaScript, AJAX 등)
+    console.log('⏳ 동적 콘텐츠 로딩 대기 중...');
+    await new Promise(resolve => setTimeout(resolve, 5000));
+    
+    // STEP 2: 프린트 CSS 적용을 위한 미디어 타입 변경
+    await renderWindow.webContents.executeJavaScript(`
+      // 프린트 미디어 쿼리 강제 적용
+      const printStyleSheet = document.createElement('style');
+      printStyleSheet.textContent = '@media screen { body { -webkit-print-color-adjust: exact; } }';
+      document.head.appendChild(printStyleSheet);
+      
+      // 페이지 break 설정 확인
+      console.log('Print styles applied');
+    `);
+    
+    // STEP 3: 용지 크기 설정
+    let pdfOptions = {
+      pageSize: 'A4',
+      marginsType: 1, // 최소 여백
+      printBackground: true, // 배경색/이미지 포함
+      printSelectionOnly: false,
+      landscape: false
+    };
     
     if (paperSize && paperSize.width && paperSize.height) {
-      // 커스텀 용지 사이즈 (mm to microns: 1mm = 1000 microns)
-      pageSizeConfig = {
-        pageSize: {
-          width: paperSize.width * 1000, // mm to microns
-          height: paperSize.height * 1000
-        }
+      // 커스텀 용지 크기 (mm 단위)
+      pdfOptions.pageSize = {
+        width: paperSize.width * 1000, // mm to microns
+        height: paperSize.height * 1000
       };
-      console.log(`커스텀 용지 사이즈 적용: ${paperSize.width}mm × ${paperSize.height}mm`);
+      console.log(`📏 커스텀 용지 크기: ${paperSize.width}mm × ${paperSize.height}mm`);
     }
-
-    // 사용 가능한 프린터 목록 확인
-    const availablePrinters = await hiddenWindow.webContents.getPrinters();
-    console.log('사용 가능한 프린터 목록:', availablePrinters.map(p => p.name));
     
-    // 선택된 프린터가 존재하는지 확인
-    const selectedPrinter = availablePrinters.find(p => p.name === printerName);
-    if (!selectedPrinter && printerName) {
-      console.warn(`⚠️ 선택된 프린터 '${printerName}'를 찾을 수 없습니다. 기본 프린터 사용.`);
-    } else if (selectedPrinter) {
-      console.log(`✅ 프린터 확인: ${selectedPrinter.name} (상태: ${selectedPrinter.status})`);
-    }
-
-    // 일반 인쇄 (항상 대화상자 표시)
-    const printOptions = {
-      silent: false, // 강제로 대화상자 표시 (사용자 확인 필요)
-      deviceName: selectedPrinter ? printerName : undefined, // 프린터가 없으면 기본값 사용
-      copies: copies,
-      ...pageSizeConfig,
-      marginsType: 1, // 최소 여백
-      scaleFactor: 100,
-      printBackground: true, // 배경 인쇄 활성화
-      headerFooter: false // 헤더/푸터 비활성화
-    };
-
-    console.log('웹페이지 인쇄 시작:', {
-      ...printOptions,
-      url: url,
-      printerCount: availablePrinters.length
-    });
-
-    try {
-      // Electron의 print는 Promise를 반환하지 않으므로 다른 방식 사용
-      hiddenWindow.webContents.print(printOptions, (success, failureReason) => {
-        if (success) {
-          console.log('✅ 인쇄 대화상자가 성공적으로 열렸습니다');
-        } else {
-          console.error('❌ 인쇄 대화상자 열기 실패:', failureReason);
-        }
-      });
-      
-      // 인쇄 대화상자가 열리는 최소 시간만 대기
-      await new Promise(resolve => setTimeout(resolve, 300));
-      
-      hiddenWindow.close();
-      console.log('🔄 인쇄 대화상자 열림 완료, 숨겨진 윈도우 닫음');
-      
-      return { 
-        success: true, 
-        message: '인쇄 대화상자가 열렸습니다.',
-        printerName: selectedPrinter ? selectedPrinter.name : '기본 프린터',
-        availablePrinters: availablePrinters.length
-      };
-      
-    } catch (printError) {
-      console.error('인쇄 실행 중 오류:', printError);
-      hiddenWindow.close();
-      throw new Error(`인쇄 실행 실패: ${printError.message}`);
-    }
+    // STEP 4: PDF로 변환 (크롬과 동일한 렌더링)
+    console.log('📄 PDF 변환 중...');
+    const pdfData = await renderWindow.webContents.printToPDF(pdfOptions);
+    
+    renderWindow.close();
+    console.log('✅ PDF 변환 완료');
+    
+    // STEP 5: PDF를 실제 프린터로 전송
+    return await printPdfToPhysicalPrinter(pdfData, printerName, copies, paperSize);
+    
   } catch (error) {
-    console.error('URL 인쇄 실패:', error);
+    console.error('❌ 브라우저 스타일 인쇄 실패:', error);
     return { success: false, error: error.message };
   }
 });
+
+// PDF를 물리적 프린터로 전송하는 함수
+async function printPdfToPhysicalPrinter(pdfData, printerName, copies = 1, paperSize = null) {
+  try {
+    console.log('🖨️ PDF → 프린터 전송 시작');
+    
+    // 임시 PDF 파일 생성
+    const tempPdfPath = path.join(os.tmpdir(), `webprinter_${Date.now()}.pdf`);
+    fs.writeFileSync(tempPdfPath, pdfData);
+    
+    console.log(`📁 임시 PDF 파일 생성: ${tempPdfPath}`);
+    
+    // PDF 뷰어 창 생성 (사용자 확인용)
+    const pdfViewerWindow = new BrowserWindow({
+      width: 1000,
+      height: 800,
+      title: 'WebPrinter - PDF 미리보기',
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        plugins: true // PDF 플러그인 활성화
+      },
+      autoHideMenuBar: true
+    });
+    
+    // PDF 파일을 브라우저에서 열기
+    await pdfViewerWindow.loadFile(tempPdfPath);
+    
+    console.log('📖 PDF 미리보기 창 열림');
+    
+    // PDF 뷰어가 준비되면 자동으로 프린트 대화상자 열기
+    pdfViewerWindow.webContents.once('did-finish-load', async () => {
+      // 잠시 대기 후 프린트 실행
+      setTimeout(async () => {
+        console.log('🖨️ 시스템 프린트 대화상자 열기');
+        
+        // 사용 가능한 프린터 확인
+        const availablePrinters = await pdfViewerWindow.webContents.getPrintersAsync();
+        const selectedPrinter = availablePrinters.find(p => p.name === printerName);
+        
+        // 프린트 옵션 설정
+        const printOptions = {
+          silent: false, // 항상 프린트 대화상자 표시
+          deviceName: selectedPrinter ? printerName : undefined,
+          copies: copies,
+          marginsType: 1,
+          printBackground: true
+        };
+        
+        // 커스텀 용지 크기 적용
+        if (paperSize && paperSize.width && paperSize.height) {
+          printOptions.pageSize = {
+            width: paperSize.width * 1000,
+            height: paperSize.height * 1000
+          };
+        }
+        
+        // 실제 프린트 실행
+        pdfViewerWindow.webContents.print(printOptions, (success, failureReason) => {
+          if (success) {
+            console.log('✅ PDF 프린트 대화상자 열림');
+            
+            // 프린트 후 임시 파일 정리 (5초 후)
+            setTimeout(() => {
+              try {
+                fs.unlinkSync(tempPdfPath);
+                console.log('🗑️ 임시 PDF 파일 삭제됨');
+              } catch (e) {
+                console.warn('임시 파일 삭제 실패:', e.message);
+              }
+              
+              // PDF 뷰어 창 닫기
+              if (!pdfViewerWindow.isDestroyed()) {
+                pdfViewerWindow.close();
+              }
+            }, 5000);
+            
+          } else {
+            console.error('❌ PDF 프린트 실패:', failureReason);
+            pdfViewerWindow.close();
+          }
+        });
+        
+      }, 1000);
+    });
+    
+    return {
+      success: true,
+      message: 'PDF로 변환 후 프린트 대화상자가 열렸습니다.',
+      method: 'PDF 변환 → 시스템 프린터',
+      tempFile: tempPdfPath
+    };
+    
+  } catch (error) {
+    console.error('❌ PDF 프린터 전송 실패:', error);
+    throw new Error(`PDF 프린트 실패: ${error.message}`);
+  }
+}
 
 // 서버 정보 가져오기
 ipcMain.handle('get-server-info', () => {

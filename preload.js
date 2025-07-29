@@ -30,6 +30,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('urls-received', (event, urlData) => callback(urlData));
   },
   
+  onSessionRestored: (callback) => {
+    ipcRenderer.on('session-restored', (event, sessionInfo) => callback(sessionInfo));
+  },
+  
   // 업데이트 이벤트 리스너
   onUpdateAvailable: (callback) => {
     ipcRenderer.on('update-available', (event, info) => callback(info));

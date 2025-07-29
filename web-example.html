@@ -252,6 +252,219 @@
             loadDownloadLinks();
         }
 
+        // WebPrinter 강제 실행 재시도
+        async function retryWebPrinterExecution() {
+            showStatus('🔄 WebPrinter 강제 실행을 시도하는 중...', 'info');
+            
+            try {
+                // 현재 폼 데이터 백업
+                const currentFormData = {
+                    previewUrl: document.getElementById('preview-url').value.trim(),
+                    printUrl: document.getElementById('print-url').value.trim(),
+                    paperWidth: parseFloat(document.getElementById('paper-width').value),
+                    paperHeight: parseFloat(document.getElementById('paper-height').value)
+                };
+                
+                console.log('💾 현재 폼 데이터 백업:', currentFormData);
+                
+                // 새 세션 ID 생성 (강제 실행용)
+                const sessionId = generateSessionId();
+                
+                for (let i = 1; i <= 3; i++) {
+                    showStatus(`🔄 WebPrinter 강제 실행 시도 ${i}/3...`, 'info');
+                    
+                    const protocolUrl = `webprinter://print?session=${sessionId}&force=true`;
+                    
+                    // 프로토콜 링크 실행
+                    try {
+                        if (navigator.userAgent.includes('Chrome') || navigator.userAgent.includes('Safari')) {
+                            window.location.href = protocolUrl;
+                        } else {
+                            const link = document.createElement('a');
+                            link.href = protocolUrl;
+                            link.target = '_blank';
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                        }
+                        
+                        // 각 시도 사이에 대기
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        
+                        // 서버 확인
+                        const port = await findWebPrinterServer();
+                        if (port) {
+                            showStatus('✅ WebPrinter가 성공적으로 실행되었습니다!', 'success');
+                            
+                            // 서비스 가이드 숨기기
+                            const serviceGuide = document.getElementById('service-stopped-guide');
+                            if (serviceGuide) {
+                                serviceGuide.style.display = 'none';
+                            }
+                            
+                            // 백업한 데이터가 유효하면 자동으로 전송
+                            if (currentFormData.previewUrl || currentFormData.printUrl) {
+                                showStatus('🔄 이전 설정을 복원하고 인쇄를 진행합니다...', 'info');
+                                
+                                try {
+                                    await sendUrlsToWebPrinter(port, sessionId, 
+                                        currentFormData.previewUrl, 
+                                        currentFormData.printUrl, 
+                                        {
+                                            width: currentFormData.paperWidth,
+                                            height: currentFormData.paperHeight,
+                                            name: 'Custom'
+                                        }
+                                    );
+                                    
+                                    showStatus('✅ 이전 설정이 복원되었습니다! 인쇄를 계속 진행합니다.', 'success');
+                                    
+                                    // 잠시 후 자동으로 인쇄 진행
+                                    setTimeout(() => {
+                                        showStatus('🖨️ 복원된 설정으로 인쇄를 시작합니다...', 'info');
+                                    }, 1000);
+                                    
+                                } catch (error) {
+                                    console.warn('데이터 전송 실패, 수동 재시도 필요:', error);
+                                    // 데이터 전송 실패 시 수동 인쇄 버튼 클릭 유도
+                                    setTimeout(() => {
+                                        document.querySelector('.print-button').click();
+                                    }, 1000);
+                                }
+                            } else {
+                                // 백업 데이터가 없으면 수동 인쇄 버튼 클릭
+                                setTimeout(() => {
+                                    document.querySelector('.print-button').click();
+                                }, 1000);
+                            }
+                            
+                            return;
+                        }
+                    } catch (error) {
+                        console.warn(`시도 ${i} 실패:`, error);
+                    }
+                }
+                
+                // 모든 시도 실패
+                showStatus('❌ WebPrinter 강제 실행에 실패했습니다. 수동으로 실행해주세요.', 'error');
+                
+                // 추가 안내 표시
+                setTimeout(() => {
+                    showStatus('💡 수동 실행 후 이 페이지를 새로고침하여 다시 시도하세요.', 'warning');
+                }, 3000);
+                
+            } catch (error) {
+                console.error('강제 실행 오류:', error);
+                showStatus('❌ WebPrinter 강제 실행 중 오류가 발생했습니다.', 'error');
+            }
+        }
+
+        // 서비스 완전 종료 상황 대응 가이드
+        function showServiceStoppedGuide() {
+            // 먼저 설치 여부 재확인 시도
+            showStatus('🔍 WebPrinter 설치 상태를 재확인하는 중...', 'info');
+            
+            setTimeout(() => {
+                const serviceGuide = document.createElement('div');
+                serviceGuide.id = 'service-stopped-guide';
+                serviceGuide.style.cssText = `
+                    margin-top: 20px;
+                    padding: 20px;
+                    background-color: #fff3cd;
+                    border-radius: 8px;
+                    border-left: 4px solid #ffc107;
+                    display: block;
+                `;
+                
+                serviceGuide.innerHTML = `
+                    <h3 style="color: #856404; margin-bottom: 15px;">🔄 WebPrinter 서비스 재시작 필요</h3>
+                    <p style="color: #856404; margin-bottom: 15px;">
+                        WebPrinter가 설치되어 있지만 서비스가 완전히 종료된 것 같습니다.<br>
+                        아래 방법 중 하나를 시도해보세요:
+                    </p>
+                    
+                    <div style="margin: 15px 0; padding: 15px; background: #e1f5fe; border-radius: 6px; border-left: 4px solid #2196f3;">
+                        <strong>🚀 방법 1: 수동 실행</strong>
+                        <br>• <strong>Windows:</strong> 시작 메뉴에서 "WebPrinter" 검색 후 실행
+                        <br>• <strong>macOS:</strong> Applications 폴더에서 WebPrinter.app 실행
+                        <br>• <strong>또는:</strong> 바탕화면/독(Dock)의 WebPrinter 아이콘 클릭
+                    </div>
+                    
+                    <div style="margin: 15px 0; padding: 15px; background: #e8f5e8; border-radius: 6px; border-left: 4px solid #4caf50;">
+                        <strong>🔄 방법 2: 프로토콜 재시도</strong>
+                        <br>• 아래 버튼을 클릭하여 WebPrinter 강제 실행 시도
+                        <br>• 브라우저에서 "이 애플리케이션을 열겠습니까?" 메시지 시 <strong>"열기"</strong> 클릭
+                    </div>
+                    
+                    <div style="margin: 15px 0; text-align: center;">
+                        <button id="retry-webprinter" style="
+                            background: linear-gradient(135deg, #ff9800, #f57c00);
+                            color: white;
+                            border: none;
+                            padding: 12px 24px;
+                            border-radius: 8px;
+                            font-size: 16px;
+                            font-weight: 600;
+                            cursor: pointer;
+                            margin-right: 10px;
+                            transition: transform 0.2s;
+                        " onmouseover="this.style.transform='translateY(-2px)'" 
+                           onmouseout="this.style.transform='translateY(0)'">
+                            🔄 WebPrinter 강제 실행 시도
+                        </button>
+                        
+                        <button id="open-download-page" style="
+                            background: linear-gradient(135deg, #9c27b0, #7b1fa2);
+                            color: white;
+                            border: none;
+                            padding: 12px 24px;
+                            border-radius: 8px;
+                            font-size: 16px;
+                            font-weight: 600;
+                            cursor: pointer;
+                            transition: transform 0.2s;
+                        " onmouseover="this.style.transform='translateY(-2px)'" 
+                           onmouseout="this.style.transform='translateY(0)'">
+                            📥 최신 버전 다운로드
+                        </button>
+                    </div>
+                    
+                    <div style="margin-top: 15px; padding: 12px; background: #f8f9fa; border-radius: 6px; font-size: 14px; color: #666;">
+                        <strong>💡 참고:</strong>
+                        <br>• WebPrinter는 부팅 시 자동으로 시작되도록 설정되어 있습니다
+                        <br>• 수동 실행 후 이 페이지를 새로고침하여 다시 시도하세요
+                        <br>• 문제가 지속되면 프로그램을 재설치해보세요
+                    </div>
+                `;
+                
+                // 기존 설치 가이드 제거
+                const existingGuide = document.getElementById('install-guide');
+                if (existingGuide) {
+                    existingGuide.style.display = 'none';
+                }
+                
+                // 기존 서비스 가이드 제거
+                const existingServiceGuide = document.getElementById('service-stopped-guide');
+                if (existingServiceGuide) {
+                    existingServiceGuide.remove();
+                }
+                
+                // 새 가이드 추가
+                document.querySelector('.content').appendChild(serviceGuide);
+                
+                // 버튼 이벤트 리스너 추가
+                document.getElementById('retry-webprinter').addEventListener('click', () => {
+                    retryWebPrinterExecution();
+                });
+                
+                document.getElementById('open-download-page').addEventListener('click', () => {
+                    window.open('https://github.com/code-x-team/webprint-electron/releases/latest', '_blank');
+                });
+                
+                showStatus('🔄 WebPrinter 서비스가 종료되었습니다. 위의 방법으로 재시작하세요.', 'warning');
+            }, 1000);
+        }
+
         async function startPrint() {
             const previewUrl = document.getElementById('preview-url').value.trim();
             const printUrl = document.getElementById('print-url').value.trim();
@@ -393,8 +606,8 @@
                 }
             }
             
-            // 모든 시도 실패
-            showInstallGuide();
+            // 모든 시도 실패 - 서비스 완전 종료 상황 처리
+            showServiceStoppedGuide();
             return false;
         }
 
