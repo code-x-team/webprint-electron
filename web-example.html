@@ -275,7 +275,7 @@
 
         // WebPrinter 서버 찾기
         async function findWebPrinterServer() {
-            for (let port = 50000; port <= 50010; port++) {
+            for (let port = 18731; port <= 18740; port++) {
                 try {
                     const response = await fetch(`http://localhost:${port}/status`, {
                         method: 'GET',
@@ -305,7 +305,6 @@
                 
                 // Public repository - 직접 최신 버전 확인
                 try {
-                    console.log('Checking latest version from GitHub Releases...');
                     const latestResponse = await fetch('https://api.github.com/repos/code-x-team/webprint-electron/releases/latest');
                     
                     if (latestResponse.ok) {
@@ -321,7 +320,6 @@
                         throw new Error(`API 호출 실패: ${latestResponse.status}`);
                     }
                 } catch (error) {
-                    console.log('최신 버전 확인 실패:', error);
                     installedVersion.innerHTML += ` <span style="color: #666;">(버전 확인 불가)</span>`;
                 }
             }
@@ -358,62 +356,23 @@
             return 'web_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
         }
 
-        // OS 감지 함수 (더 정확한 버전)
+        // 간단한 OS 감지
         function detectOS() {
-            const userAgent = navigator.userAgent;
-            const userAgentLower = userAgent.toLowerCase();
             const platform = navigator.platform.toLowerCase();
+            const userAgent = navigator.userAgent.toLowerCase();
             
-            console.log('User Agent:', userAgent);
-            console.log('Platform:', navigator.platform);
-            
-            // macOS 감지
-            if (platform.includes('mac') || userAgentLower.includes('mac') || 
-                userAgentLower.includes('darwin') || platform.includes('darwin')) {
-                
-                // Intel Mac 감지 조건들
-                const isIntelMac = 
-                    userAgent.includes('Intel Mac OS X') ||  // 대소문자 구분
-                    userAgentLower.includes('intel') ||
-                    platform.includes('intel') ||
-                    userAgent.includes('x86_64') ||
-                    platform.includes('x86_64');
-                
-                // Apple Silicon 감지 조건들  
-                const isAppleSilicon = 
-                    userAgent.includes('ARM') ||
-                    userAgentLower.includes('arm64') ||
-                    platform.includes('arm') ||
-                    userAgentLower.includes('m1') ||
-                    userAgentLower.includes('m2') ||
-                    userAgentLower.includes('m3');
-                
-                if (isIntelMac) {
-                    console.log('Detected: Intel Mac');
+            if (platform.includes('mac') || userAgent.includes('mac')) {
+                // Intel Mac 우선 감지
+                if (navigator.userAgent.includes('Intel Mac OS X')) {
                     return 'mac-intel';
-                } else if (isAppleSilicon) {
-                    console.log('Detected: Apple Silicon Mac');
-                    return 'mac-arm64';
-                } else {
-                    // 확실하지 않은 경우 기본적으로 Apple Silicon으로 처리 (최신 Mac 대부분)
-                    console.log('Detected: Mac (defaulting to Apple Silicon)');
-                    return 'mac-arm64';
                 }
-                
-            // Windows 감지
-            } else if (platform.includes('win') || userAgentLower.includes('windows') || 
-                       userAgentLower.includes('win32') || userAgentLower.includes('win64')) {
-                console.log('Detected: Windows');
-                return 'windows';
-                
-            // Linux 감지
-            } else if (userAgentLower.includes('linux') || platform.includes('linux') ||
-                       userAgentLower.includes('ubuntu') || userAgentLower.includes('debian')) {
-                console.log('Detected: Linux');
-                return 'linux';
+                return 'mac-arm64'; // 기본값: Apple Silicon
             }
             
-            console.log('Detected: Unknown OS');
+            if (platform.includes('win') || userAgent.includes('windows')) {
+                return 'windows';
+            }
+            
             return 'unknown';
         }
 
@@ -425,7 +384,6 @@
             
             try {
                 // GitHub Releases API 직접 호출 (Public repository)
-                console.log('Loading download links from GitHub Releases...');
                 const response = await fetch('https://api.github.com/repos/code-x-team/webprint-electron/releases/latest');
                 
                 if (!response.ok) {
@@ -438,7 +396,6 @@
                     throw new Error('릴리즈 파일을 찾을 수 없습니다');
                 }
 
-                console.log(`최신 릴리즈 발견: ${release.tag_name}, 에셋 ${release.assets.length}개`);
                 await loadFromGitHubReleases(release);
                 
             } catch (error) {
@@ -615,7 +572,7 @@
                     loadDownloadLinks();
                 }
             } catch (error) {
-                console.log('WebPrinter 상태 확인 실패:', error);
+                // 상태 확인 실패 시 무시
             }
         });
     </script>
