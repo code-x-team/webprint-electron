@@ -67,101 +67,32 @@ jobs:
           npm_config_package_manager: yarn
           ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES: true
 
-      - name: Upload to GitHub Packages (macOS)
+      - name: Upload Release Assets (macOS)
         if: matrix.os == 'macos-latest'
-        run: |
-          TAG_VERSION=${GITHUB_REF#refs/tags/v}
-          echo "Uploading macOS files to GitHub Packages..."
-          
-          # gh CLI를 사용하여 Generic Package 업로드
-          for file in dist/*.dmg; do
-            if [ -f "$file" ]; then
-              filename=$(basename "$file")
-              echo "Uploading $filename to GitHub Packages..."
-              
-              # Generic Package 업로드 (gh api 사용)
-              gh api \
-                --method POST \
-                -H "Accept: application/vnd.github+json" \
-                -H "X-GitHub-Api-Version: 2022-11-28" \
-                "/user/packages/generic/webprinter-macos/versions" \
-                -f package_name="webprinter-macos" \
-                -f version="$TAG_VERSION" \
-                --input "$file"
-              
-              # blockmap 파일도 업로드
-              if [ -f "${file}.blockmap" ]; then
-                gh api \
-                  --method POST \
-                  -H "Accept: application/vnd.github+json" \
-                  -H "X-GitHub-Api-Version: 2022-11-28" \
-                  "/user/packages/generic/webprinter-macos-blockmap/versions" \
-                  -f package_name="webprinter-macos-blockmap" \
-                  -f version="$TAG_VERSION" \
-                  --input "${file}.blockmap"
-              fi
-            fi
-          done
-          
-          # latest-mac.yml 업로드
-          if [ -f "dist/latest-mac.yml" ]; then
-            gh api \
-              --method POST \
-              -H "Accept: application/vnd.github+json" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              "/user/packages/generic/webprinter-macos-meta/versions" \
-              -f package_name="webprinter-macos-meta" \
-              -f version="$TAG_VERSION" \
-              --input "dist/latest-mac.yml"
-          fi
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            dist/*.dmg
+            dist/*.dmg.blockmap
+            dist/latest-mac.yml
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload to GitHub Packages (Windows)
+      - name: Upload Release Assets (Windows)
         if: matrix.os == 'windows-latest'
-        run: |
-          $TAG_VERSION = $env:GITHUB_REF -replace 'refs/tags/v', ''
-          Write-Host "Uploading Windows files to GitHub Packages..."
-          
-          # EXE 파일 업로드
-          Get-ChildItem "dist\*.exe" | ForEach-Object {
-            $filename = $_.Name
-            Write-Host "Uploading $filename to GitHub Packages..."
-            
-            # Generic Package 업로드 (gh api 사용)
-            gh api `
-              --method POST `
-              -H "Accept: application/vnd.github+json" `
-              -H "X-GitHub-Api-Version: 2022-11-28" `
-              "/user/packages/generic/webprinter-windows/versions" `
-              -f package_name="webprinter-windows" `
-              -f version="$TAG_VERSION" `
-              --input $_.FullName
-            
-            # blockmap 파일도 업로드
-            $blockmapFile = $_.FullName + ".blockmap"
-            if (Test-Path $blockmapFile) {
-              gh api `
-                --method POST `
-                -H "Accept: application/vnd.github+json" `
-                -H "X-GitHub-Api-Version: 2022-11-28" `
-                "/user/packages/generic/webprinter-windows-blockmap/versions" `
-                -f package_name="webprinter-windows-blockmap" `
-                -f version="$TAG_VERSION" `
-                --input $blockmapFile
-            }
-          }
-          
-          # latest.yml 업로드
-          if (Test-Path "dist\latest.yml") {
-            gh api `
-              --method POST `
-              -H "Accept: application/vnd.github+json" `
-              -H "X-GitHub-Api-Version: 2022-11-28" `
-              "/user/packages/generic/webprinter-windows-meta/versions" `
-              -f package_name="webprinter-windows-meta" `
-              -f version="$TAG_VERSION" `
-              --input "dist\latest.yml"
-          }
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            dist/*.exe
+            dist/*.exe.blockmap
+            dist/latest.yml
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
