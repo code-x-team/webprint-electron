@@ -6,6 +6,7 @@ const cors = require('cors');
 const fs = require('fs');
 const os = require('os');
 const { autoUpdater } = require('electron-updater');
+const { dialog } = require('electron'); 
 
 let printWindow = null;
 let httpServer = null;
@@ -864,12 +865,25 @@ ipcMain.handle('get-printers', async () => {
   }
 });
 
-// PDF 관련 함수 제거됨
 
-// Electron 내장 프린트 (간단하고 직접적인 방식)
 ipcMain.handle('print-url', async (event, options) => {
+  let printWindow = null;
+  
+  // 사용자 알림 함수 (간단한 버전)
+  const showAlert = async (title, message, type = 'info') => {
+    return dialog.showMessageBox(BrowserWindow.getFocusedWindow(), {
+      type: type, // 'info', 'warning', 'error'
+      title: title,
+      message: message,
+      buttons: ['확인']
+    });
+  };
+  
   try {
     const { url, printerName, copies = 1, silent = false, paperSize = null } = options;
+    
+    // STEP 1: 기본 검증
+    await showAlert('프린트 시작', `URL: ${url}\n용지: ${paperSize?.width}×${paperSize?.height}mm`);
     
     if (!url) {
       throw new Error('인쇄할 URL이 없습니다');
@@ -877,119 +891,255 @@ ipcMain.handle('print-url', async (event, options) => {
     
     console.log(`🖨️ Electron 직접 프린트 시작: ${url}`);
     
-    // STEP 1: 프린트 전용 BrowserWindow 생성
-    const printWindow = new BrowserWindow({
-      show: false, // 숨겨진 창
+    // STEP 2: 프린터 확인
+    await showAlert('진행 상황', 'STEP 2: 시스템 프린터 확인 중...');
+    
+    const tempWindow = new BrowserWindow({
+      show: false, width: 100, height: 100,
+      webPreferences: { nodeIntegration: false }
+    });
+    
+    await tempWindow.loadURL('data:text/html,<html><body>test</body></html>');
+    
+    let printers = [];
+    try {
+      printers = await tempWindow.webContents.getPrinters?.() || 
+                await tempWindow.webContents.getPrintersAsync?.() || [];
+    } catch (e) {
+      console.warn('프린터 목록 조회 실패:', e.message);
+    }
+    
+    tempWindow.close();
+    
+    const printerNames = printers.map(p => p.name).join('\n');
+    await showAlert('프린터 확인 완료', 
+      `발견된 프린터 (${printers.length}개):\n${printerNames || '없음'}`);
+    
+    if (printers.length === 0) {
+      await showAlert('경고', '시스템에 프린터가 설치되어 있지 않습니다.\n기본 프린터를 사용하여 계속 진행합니다.', 'warning');
+    }
+    
+    // STEP 3: 프린트 윈도우 생성
+    await showAlert('진행 상황', 'STEP 3: 프린트 윈도우 생성 중...');
+    
+    printWindow = new BrowserWindow({
+      show: false, // 디버깅시 true로 변경 가능
       width: 1200,
       height: 800,
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
-        webSecurity: false, // 외부 리소스 로딩 허용
+        webSecurity: false,
         plugins: true
       }
     });
     
+    await showAlert('윈도우 생성 완료', `윈도우 ID: ${printWindow.id}`);
+    
+    // 윈도우 정리 함수
+    const cleanupWindow = () => {
+      if (printWindow && !printWindow.isDestroyed()) {
+        printWindow.close();
+        printWindow = null;
+      }
+    };
+    
+    printWindow.on('closed', () => printWindow = null);
+    
+    // STEP 4: URL 로딩
+    await showAlert('진행 상황', `STEP 4: URL 로딩 시작\n${url}`);
+    
+    console.log('📄 URL 로딩 시작...');
+    const loadStartTime = Date.now();
+    
+    // 로딩 실패 모니터링
+    printWindow.webContents.on('did-fail-load', async (event, errorCode, errorDescription) => {
+      await showAlert('로딩 실패', 
+        `URL 로딩 실패\n코드: ${errorCode}\n설명: ${errorDescription}`, 'error');
+    });
+    
     try {
-      console.log('📄 URL 로딩 시작...');
+      await Promise.race([
+        printWindow.loadURL(url),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('URL 로딩 타임아웃 (30초)')), 30000)
+        )
+      ]);
       
-      // STEP 2: URL 로드
-      await printWindow.loadURL(url);
+      const loadTime = Date.now() - loadStartTime;
+      await showAlert('로딩 완료', `URL 로딩 성공\n소요 시간: ${loadTime}ms`);
       console.log('✅ URL 로딩 완료');
       
-      // STEP 3: DOM 완전 로드 대기
-      console.log('⏳ DOM 완전 로드 대기 중...');
-      await printWindow.webContents.executeJavaScript(`
-        new Promise(resolve => {
-          if (document.readyState === 'complete') {
-            resolve();
-          } else {
-            window.addEventListener('load', resolve);
-          }
+    } catch (loadError) {
+      await showAlert('로딩 실패', `URL 로딩 실패: ${loadError.message}`, 'error');
+      throw loadError;
+    }
+    
+    // STEP 5: 페이지 내용 확인
+    await showAlert('진행 상황', 'STEP 5: 페이지 내용 확인 중...');
+    
+    try {
+      const pageInfo = await printWindow.webContents.executeJavaScript(`
+        ({
+          readyState: document.readyState,
+          title: document.title || '제목 없음',
+          url: window.location.href,
+          bodyLength: document.body ? document.body.innerHTML.length : 0,
+          hasContent: document.body && document.body.innerHTML.trim().length > 0
         })
       `);
-      console.log('✅ DOM 로딩 완료');
       
-      // STEP 4: 추가 동적 콘텐츠 로딩 대기 (AJAX, 이미지 등)
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      console.log('✅ 동적 콘텐츠 로딩 완료');
+      await showAlert('페이지 분석 완료', 
+        `제목: ${pageInfo.title}\n상태: ${pageInfo.readyState}\n내용 길이: ${pageInfo.bodyLength}자\n내용 존재: ${pageInfo.hasContent ? '예' : '아니오'}`);
       
-      // STEP 5: 용지 사이즈 및 프린트 옵션 설정
-      const printOptions = {
-        silent: false, // 항상 프린트 대화상자 표시
-        printBackground: true, // 배경 인쇄
-        marginsType: 1, // 최소 여백
-        landscape: false, // 세로 방향
-        copies: copies
+      if (!pageInfo.hasContent) {
+        await showAlert('내용 경고', '페이지에 프린트할 내용이 없습니다.\n빈 페이지가 인쇄될 수 있습니다.', 'warning');
+      }
+      
+    } catch (pageError) {
+      await showAlert('페이지 확인 실패', `페이지 내용 확인 실패: ${pageError.message}`, 'error');
+    }
+    
+    // STEP 6: 완전 로딩 대기
+    await showAlert('진행 상황', 'STEP 6: DOM 및 리소스 완전 로딩 대기 중...\n(약 5초 소요)');
+    
+    console.log('⏳ DOM 완전 로드 대기 중...');
+    await printWindow.webContents.executeJavaScript(`
+      new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('DOM 로딩 타임아웃')), 15000);
+        
+        if (document.readyState === 'complete') {
+          clearTimeout(timeout);
+          resolve();
+        } else {
+          const handler = () => {
+            clearTimeout(timeout);
+            window.removeEventListener('load', handler);
+            resolve();
+          };
+          window.addEventListener('load', handler);
+        }
+      })
+    `);
+    
+    // 추가 리소스 로딩 대기
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    console.log('✅ 동적 콘텐츠 로딩 완료');
+    
+    await showAlert('로딩 완료', 'DOM 및 모든 리소스 로딩 완료');
+    
+    // STEP 7: 프린트 옵션 설정
+    await showAlert('진행 상황', 'STEP 7: 프린트 옵션 설정 중...');
+    
+    let selectedPrinter = null;
+    if (printerName && printers.length > 0) {
+      selectedPrinter = printers.find(p => p.name === printerName);
+    }
+    
+    const printOptions = {
+      silent: silent,
+      printBackground: true,
+      color: true,
+      margins: {
+        marginType: 'minimum'
+      },
+      landscape: false,
+      copies: Math.max(1, Math.min(copies, 100)),
+      collate: true,
+      scaleFactor: 100
+    };
+    
+    if (selectedPrinter) {
+      printOptions.deviceName = printerName;
+    }
+    
+    // 용지 사이즈 설정
+    let paperSizeInfo = '';
+    if (paperSize?.width && paperSize?.height) {
+      const standardSizes = {
+        '210x297': 'A4', '297x420': 'A3', '148x210': 'A5',
+        '216x279': 'Letter', '216x356': 'Legal'
       };
       
-      // 프린터 설정
-      if (printerName) {
-        // 사용 가능한 프린터 확인
-        const printers = await printWindow.webContents.getPrintersAsync();
-        const selectedPrinter = printers.find(p => p.name === printerName);
-        
-        if (selectedPrinter) {
-          printOptions.deviceName = printerName;
-          console.log(`✅ 프린터 설정: ${printerName}`);
-        } else {
-          console.warn(`⚠️ 프린터 '${printerName}'를 찾을 수 없습니다. 기본 프린터 사용.`);
-        }
-      }
+      const sizeKey = `${Math.round(paperSize.width)}x${Math.round(paperSize.height)}`;
+      const standardSize = standardSizes[sizeKey];
       
-      // 용지 사이즈 설정 (웹에서 보낸 사이즈 사용)
-      if (paperSize && paperSize.width && paperSize.height) {
-        // 웹에서 전달받은 용지 사이즈 (mm → microns)
-        printOptions.pageSize = {
-          width: paperSize.width * 1000,
-          height: paperSize.height * 1000
-        };
-        console.log(`📏 웹에서 지정한 용지 크기: ${paperSize.width}mm × ${paperSize.height}mm`);
+      if (standardSize) {
+        printOptions.pageSize = standardSize;
+        paperSizeInfo = `${standardSize} (${paperSize.width}×${paperSize.height}mm)`;
       } else {
-        console.error('❌ 용지 사이즈 정보가 없습니다. 웹에서 전달되지 않았습니다.');
-        throw new Error('용지 사이즈가 지정되지 않았습니다. 웹에서 크기를 설정해주세요.');
+        printOptions.pageSize = {
+          width: Math.round(paperSize.width * 2.83465),
+          height: Math.round(paperSize.height * 2.83465)
+        };
+        paperSizeInfo = `사용자 정의 ${paperSize.width}×${paperSize.height}mm`;
       }
+    } else {
+      console.error('❌ 용지 사이즈 정보가 없습니다.');
+      throw new Error('용지 사이즈가 지정되지 않았습니다.');
+    }
+    
+    await showAlert('옵션 설정 완료', 
+      `프린터: ${selectedPrinter?.name || '기본 프린터'}\n용지: ${paperSizeInfo}\n매수: ${printOptions.copies}부\n다이얼로그: ${silent ? '숨김' : '표시'}`);
+    
+    console.log('🖨️ 프린트 옵션:', printOptions);
+    
+    // STEP 8: 프린트 실행
+    await showAlert('최종 단계', 'STEP 8: 프린트 실행\n프린트 다이얼로그가 열립니다.');
+    
+    return new Promise((resolve, reject) => {
+      console.log('🚀 프린트 실행...');
       
-      console.log('🖨️ 프린트 옵션:', printOptions);
+      const timeoutId = setTimeout(async () => {
+        await showAlert('타임아웃', '프린트 실행 타임아웃 (60초)', 'error');
+        cleanupWindow();
+        reject(new Error('프린트 실행 타임아웃 (60초)'));
+      }, 60000);
       
-      // STEP 6: 프린트 실행
-      return new Promise((resolve, reject) => {
-        console.log('🚀 프린트 대화상자 열기...');
-        
-        printWindow.webContents.print(printOptions, (success, failureReason) => {
-          // 프린트 윈도우 정리
-          setTimeout(() => {
-            if (!printWindow.isDestroyed()) {
-              printWindow.close();
-            }
-          }, 1000);
+      try {
+        printWindow.webContents.print(printOptions, async (success, failureReason) => {
+          clearTimeout(timeoutId);
+          
+          setTimeout(cleanupWindow, 1000);
           
           if (success) {
-            console.log('✅ 프린트 대화상자 열림 성공');
+            console.log('✅ 프린트 성공');
+            await showAlert('🎉 성공!', 
+              `프린트가 성공적으로 완료되었습니다!\n\n최종 정보:\n• 프린터: ${selectedPrinter?.name || '기본 프린터'}\n• 용지: ${paperSizeInfo}\n• 매수: ${printOptions.copies}부`);
+            
             resolve({
               success: true,
-              message: '프린트 대화상자가 열렸습니다.',
+              message: '프린트가 완료되었습니다.',
               method: 'Electron 직접 프린트',
-              printerName: printerName || '기본 프린터',
-              paperSize: `${paperSize.width}×${paperSize.height}mm`
+              printerName: selectedPrinter?.name || '기본 프린터',
+              paperSize: paperSizeInfo
             });
           } else {
-            console.error('❌ 프린트 대화상자 열기 실패:', failureReason);
-            reject(new Error(`프린트 실패: ${failureReason || '알 수 없는 오류'}`));
+            console.error('❌ 프린트 실패:', failureReason);
+            await showAlert('❌ 프린트 실패', 
+              `프린트 실패\n사유: ${failureReason || '사용자가 취소했거나 알 수 없는 오류'}`, 'error');
+            
+            reject(new Error(`프린트 실패: ${failureReason || '사용자가 취소했거나 알 수 없는 오류'}`));
           }
         });
-      });
-      
-    } catch (error) {
-      // 오류 발생 시 윈도우 정리
-      if (!printWindow.isDestroyed()) {
-        printWindow.close();
+        
+      } catch (printError) {
+        clearTimeout(timeoutId);
+        cleanupWindow();
+        console.error('프린트 실행 중 예외:', printError);
+        showAlert('실행 오류', `프린트 실행 중 오류 발생: ${printError.message}`, 'error');
+        reject(new Error(`프린트 실행 오류: ${printError.message}`));
       }
-      throw error;
-    }
+    });
     
   } catch (error) {
     console.error('❌ Electron 프린트 실패:', error);
+    await showAlert('❌ 전체 실패', `프린트 프로세스 실패:\n${error.message}`, 'error');
+    
+    if (printWindow && !printWindow.isDestroyed()) {
+      printWindow.close();
+    }
+    
     return { 
       success: false, 
       error: error.message,
@@ -997,6 +1147,7 @@ ipcMain.handle('print-url', async (event, options) => {
     };
   }
 });
+
 
 // 서버 정보 가져오기
 ipcMain.handle('get-server-info', () => {
