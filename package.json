@@ -9,7 +9,13 @@
     "build": "electron-builder",
     "build-win": "electron-builder --win",
     "build-mac": "electron-builder --mac",
-    "pack": "electron-builder --dir"
+    "pack": "electron-builder --dir",
+    "build-signed": "electron-builder --publish=never",
+    "build-signed-mac": "electron-builder --mac --publish=never",
+    "build-signed-win": "electron-builder --win --publish=never",
+    "publish": "electron-builder --publish=always",
+    "build-self-signed-mac": "chmod +x scripts/create-mac-cert.sh && ./scripts/create-mac-cert.sh",
+    "build-self-signed-win": "powershell -ExecutionPolicy Bypass -File scripts/create-win-cert.ps1"
   },
   "keywords": [
     "electron",
@@ -68,7 +74,11 @@
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.plist"
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": {
+        "teamId": "${APPLE_TEAM_ID}"
+      },
+      "forceCodeSigning": false
     },
     "win": {
       "icon": "assets/icon.ico",
@@ -86,8 +96,8 @@
     },
     "publish": {
       "provider": "github",
-      "owner": "your-username",
-      "repo": "webprinter"
+      "owner": "code-x-team",
+      "repo": "webprint-electron"
     }
   },
   "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"

@@ -102,3 +102,11 @@ coverage/
 
 # Serverless directories
 .serverless
+
+# Code signing certificates (NEVER commit these)
+certificates/
+*.p12
+*.pem
+*.cer
+*.crt
+*.key
