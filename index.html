@@ -187,14 +187,23 @@
             <strong>설치된 WebPrinter:</strong> <span id="installed-version">확인 중...</span>
         </div>
         
-                 <div class="install-guide" id="install-guide">
-             <h3>📥 WebPrinter 설치 필요</h3>
-             <p>WebPrinter가 설치되지 않았습니다. 아래 링크에서 다운로드하여 설치하세요:</p>
-             <div class="download-links" id="download-links">
-                 <div id="loading-downloads">🔄 최신 버전 확인 중...</div>
-             </div>
-             <p><small>설치 후 이 페이지를 새로고침하여 다시 시도하세요.</small></p>
-         </div>
+                         <div class="install-guide" id="install-guide">
+            <h3>📥 WebPrinter 설치 필요</h3>
+            <p>WebPrinter가 설치되지 않았습니다. 아래 링크에서 다운로드하여 설치하세요:</p>
+            
+            <div style="margin: 15px 0; padding: 12px; background: #e1f5fe; border-radius: 6px; font-size: 14px; color: #01579b; border-left: 4px solid #2196f3;">
+                <strong>🔗 자동 실행 설정:</strong>
+                <br>• 설치 후 처음 실행 시 브라우저에서 <strong>"이 애플리케이션을 열겠습니까?"</strong> 메시지가 나타납니다
+                <br>• <strong>"열기"</strong> 또는 <strong>"허용"</strong>을 클릭하여 webprinter:// 프로토콜을 등록하세요
+                <br>• 이후 웹페이지에서 자동으로 WebPrinter가 실행됩니다
+                <br>• macOS: 시스템 환경설정에서 "그래도 열기" 클릭 필요할 수 있음
+            </div>
+            
+            <div class="download-links" id="download-links">
+                <div id="loading-downloads">🔄 최신 버전 확인 중...</div>
+            </div>
+            <p><small>설치 후 이 페이지를 새로고침하여 다시 시도하세요.</small></p>
+        </div>
     </div>
 
     <script>
@@ -249,10 +258,25 @@
                 const sessionId = generateSessionId();
                 const protocolUrl = `webprinter://print?session=${sessionId}`;
                 
-                // 프로토콜 링크 실행
-                const link = document.createElement('a');
-                link.href = protocolUrl;
-                link.click();
+                // 프로토콜 링크 실행 (브라우저 지원 강화)
+                try {
+                    // 방법 1: 직접 location 변경 (가장 호환성 좋음)
+                    if (navigator.userAgent.includes('Chrome') || navigator.userAgent.includes('Safari')) {
+                        window.location.href = protocolUrl;
+                    } else {
+                        // 방법 2: 링크 클릭 시뮬레이션
+                        const link = document.createElement('a');
+                        link.href = protocolUrl;
+                        link.target = '_blank';
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                    }
+                    
+                    showStatus('WebPrinter 실행 요청을 보냈습니다. 브라우저에서 허용해주세요.', 'info');
+                } catch (error) {
+                    showStatus('프로토콜 호출 실패. 수동으로 WebPrinter를 실행해주세요.', 'warning');
+                }
 
                 // 2단계: WebPrinter 서버 찾기 (빠른 재시도)
                 await waitForWebPrinterAndSend(sessionId, previewUrl, printUrl, {
@@ -607,6 +631,13 @@
                     <strong>💡 참고:</strong> 
                     <br>• GitHub Releases 페이지에서 최신 버전의 DMG 또는 EXE 파일을 찾아 다운로드하세요
                     <br>• 다운로드 후 설치하고 웹페이지를 새로고침하세요
+                </div>
+                <div style="margin-top: 10px; padding: 12px; background: #fff3cd; border-radius: 6px; font-size: 14px; color: #856404; border-left: 4px solid #ffc107;">
+                    <strong>🛡️ macOS 보안 경고 해결:</strong>
+                    <br>• "WebPrinter을(를) 열지 않음" 메시지가 나타나면:
+                    <br>• <strong>시스템 환경설정 → 보안 및 개인 정보 보호 → 일반</strong>
+                    <br>• "확인되지 않은 개발자" 메시지 옆의 <strong>"그래도 열기"</strong> 클릭
+                    <br>• 또는 앱을 우클릭 → <strong>"열기"</strong> → <strong>"열기"</strong> 확인
                 </div>
             `;
             

@@ -14,9 +14,7 @@ const elements = {
     printerSelect: document.getElementById('printer-select'),
     refreshPrintersBtn: document.getElementById('refresh-printers'),
     copiesInput: document.getElementById('copies'),
-    silentPrintCheckbox: document.getElementById('silent-print'),
     statusMessage: document.getElementById('status-message'),
-    showPreviewBtn: document.getElementById('show-preview'),
     printButton: document.getElementById('print-button'),
     cancelButton: document.getElementById('cancel-button')
 };
@@ -34,10 +32,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
     
     // URL 정보 수신 이벤트 리스너 등록
+    console.log('🎧 URL 수신 이벤트 리스너 등록 중...');
     window.electronAPI.onUrlsReceived((urlData) => {
+        console.log('📨 IPC 메시지 수신됨!', urlData);
         receivedUrls = urlData;
         handleUrlsReceived();
     });
+    console.log('✅ 이벤트 리스너 등록 완료');
 });
 
 // 업데이트 기능 초기화
@@ -75,7 +76,6 @@ async function initializeUpdater() {
 // 이벤트 리스너 초기화
 function initializeEventListeners() {
     elements.refreshPrintersBtn.addEventListener('click', loadPrinters);
-    elements.showPreviewBtn.addEventListener('click', showPreviewUrl);
     elements.printButton.addEventListener('click', executePrint);
     elements.cancelButton.addEventListener('click', closeApp);
     elements.printerSelect.addEventListener('change', updateUI);
@@ -85,50 +85,58 @@ function initializeEventListeners() {
 // 서버 정보 표시
 function displayServerInfo() {
     if (serverInfo) {
-        elements.statusText.textContent = `서버 실행 중 - 포트: ${serverInfo.port}, 세션: ${serverInfo.session}`;
-        elements.serverDisplay.textContent = `http://localhost:${serverInfo.port} (세션: ${serverInfo.session})`;
+        elements.statusText.textContent = `WebPrinter 준비 완료 - 포트: ${serverInfo.port}`;
+        elements.serverDisplay.textContent = `세션: ${serverInfo.session}`;
         
+        // 간단한 대기 메시지
         elements.loadingText.innerHTML = `
-            <div style="text-align: left; font-size: 0.9rem;">
-                <p><strong>웹에서 다음 정보로 URL을 전송하세요:</strong></p>
-                <p>• 서버 주소: <code>http://localhost:${serverInfo.port}</code> (포트: 18731-18740)</p>
-                <p>• 엔드포인트: <code>POST /send-urls</code></p>
-                <p>• 세션 ID: <code>${serverInfo.session}</code></p>
-                <br>
-                <p>전송할 데이터:</p>
-                <p>• <code>preview_url</code>: 미리보기용 URL</p>
-                <p>• <code>print_url</code>: 실제 인쇄용 URL</p>
-                <p>• <code>paper_width/height</code>: 용지 크기 (244×88mm)</p>
+            <div style="text-align: center; font-size: 1.1rem; color: #2196f3;">
+                <div style="margin: 40px 0;">
+                    <div style="font-size: 2rem; margin-bottom: 15px;">🖨️</div>
+                    <p><strong>웹페이지에서 인쇄 요청을 기다리는 중...</strong></p>
+                    <p style="font-size: 0.9rem; color: #666; margin-top: 10px;">
+                        브라우저에서 "출력하기" 버튼을 클릭하세요
+                    </p>
+                </div>
             </div>
         `;
     }
 }
 
 // URL 정보 수신 처리
-function handleUrlsReceived() {
-    console.log('URL 정보 수신됨:', receivedUrls);
+async function handleUrlsReceived() {
+    console.log('✅ URL 정보 수신됨:', receivedUrls);
     
     // 용지 사이즈 정보 저장
     if (receivedUrls.paperSize) {
         currentPaperSize = receivedUrls.paperSize;
-        console.log('용지 사이즈 설정됨:', currentPaperSize);
+        console.log('📐 용지 사이즈 설정됨:', currentPaperSize);
         
         // 용지 사이즈 정보 표시
         const paperSizeText = `${currentPaperSize.width}mm × ${currentPaperSize.height}mm (${currentPaperSize.name})`;
         elements.serverDisplay.innerHTML = `
-            <div>서버: http://localhost:${serverInfo.port}</div>
-            <div>용지 사이즈: ${paperSizeText}</div>
+            <div>세션: ${serverInfo.session}</div>
+            <div>용지: ${paperSizeText}</div>
         `;
     }
     
+    // 즉시 로딩 화면 숨김
     hideLoading();
     
-    // 미리보기 URL이 있으면 자동으로 표시
+    // 미리보기 URL이 있으면 즉시 자동으로 표시
     if (receivedUrls.previewUrl) {
-        showPreviewUrl();
-        showStatus('URL 정보가 수신되었습니다!', 'success');
+        console.log('🖼️ 미리보기 자동 표시 시작');
+        showStatus('📥 URL 수신 완료! 미리보기를 로드합니다...', 'info');
+        
+        // 즉시 미리보기 표시
+        await showPreviewUrl();
     } else if (receivedUrls.printUrl) {
+        console.log('🖨️ 인쇄 URL만 수신됨');
         showStatus('인쇄용 URL이 수신되었습니다. (미리보기 없음)', 'info');
+        
+        // 미리보기 URL이 없으면 인쇄 URL로 미리보기 표시
+        receivedUrls.previewUrl = receivedUrls.printUrl;
+        await showPreviewUrl();
     }
     
     updateUI();
@@ -156,9 +164,13 @@ function isPdfUrl(url) {
     return false;
 }
 
-// 미리보기 URL 표시 (웹페이지 또는 PDF 지원)
-function showPreviewUrl() {
+// 미리보기 URL 표시 (디버깅 강화)
+async function showPreviewUrl() {
+    console.log('🎯 showPreviewUrl 호출됨');
+    console.log('📋 receivedUrls:', receivedUrls);
+    
     if (!receivedUrls.previewUrl) {
+        console.error('❌ previewUrl이 없음');
         showStatus('미리보기 URL이 없습니다.', 'error');
         return;
     }
@@ -167,40 +179,99 @@ function showPreviewUrl() {
         const url = receivedUrls.previewUrl;
         const isPdf = isPdfUrl(url);
         
-        // URL을 iframe으로 표시
-        const iframe = document.createElement('iframe');
-        iframe.src = url;
-        iframe.style.width = '100%';
-        iframe.style.height = '100%';
-        iframe.style.border = 'none';
-        iframe.style.borderRadius = '4px';
+        console.log(`🔍 URL 분석: ${url}`);
+        console.log(`📄 PDF 여부: ${isPdf}`);
         
-        // PDF인 경우 추가 속성 설정
         if (isPdf) {
-            iframe.style.backgroundColor = '#525659';
-            iframe.title = 'PDF 미리보기';
-        }
-        
-        // 기존 뷰어 숨기고 iframe 표시
-        elements.pdfViewer.classList.add('hidden');
-        elements.previewContainer = document.querySelector('.preview-container');
-        elements.previewContainer.innerHTML = '';
-        elements.previewContainer.appendChild(iframe);
-        
-        const contentType = isPdf ? 'PDF 문서' : '웹페이지';
-        showStatus(`${contentType} 미리보기를 표시하고 있습니다.`, 'info');
-        
-        // PDF인 경우 추가 안내 메시지
-        if (isPdf) {
-            setTimeout(() => {
-                showStatus('📄 PDF 미리보기가 로드되었습니다. 인쇄를 진행하세요.', 'success');
-            }, 2000);
+            console.log('📄 PDF 미리보기 시작');
+            showPdfPreview(url);
+        } else {
+            console.log('🌐 웹페이지 미리보기 시작');
+            await showHtmlPreview(url);
         }
     } catch (error) {
-        console.error('미리보기 표시 실패:', error);
+        console.error('❌ 미리보기 표시 실패:', error);
         showStatus('미리보기를 표시할 수 없습니다.', 'error');
     }
 }
+
+// PDF 미리보기 (iframe 사용)
+function showPdfPreview(url) {
+    showStatus('📄 PDF 문서를 로드하는 중...', 'info');
+    
+    const iframe = document.createElement('iframe');
+    iframe.src = url;
+    iframe.style.width = '100%';
+    iframe.style.height = '100%';
+    iframe.style.border = 'none';
+    iframe.style.borderRadius = '4px';
+    iframe.style.backgroundColor = '#525659';
+    iframe.title = 'PDF 미리보기';
+    
+    iframe.onload = () => {
+        showStatus('📄 PDF 미리보기 완료! 인쇄를 진행하세요.', 'success');
+    };
+    
+    iframe.onerror = () => {
+        showStatus('❌ PDF 로드 실패. URL을 확인해주세요.', 'error');
+    };
+    
+    elements.pdfViewer.classList.add('hidden');
+    elements.previewContainer = document.querySelector('.preview-container');
+    elements.previewContainer.innerHTML = '';
+    elements.previewContainer.appendChild(iframe);
+}
+
+// HTML 웹페이지 미리보기 (iframe 사용 - 안정적)
+async function showHtmlPreview(url) {
+    console.log(`🌐 showHtmlPreview 시작: ${url}`);
+    showStatus('🌐 웹페이지를 로드하는 중...', 'info');
+    
+    // 웹페이지는 iframe으로 안정적으로 표시
+    const iframe = document.createElement('iframe');
+    iframe.src = url;
+    iframe.style.width = '100%';
+    iframe.style.height = '100%';
+    iframe.style.border = 'none';
+    iframe.style.borderRadius = '4px';
+    iframe.style.backgroundColor = 'white';
+    
+    console.log('📦 iframe 생성 완료');
+    
+    // 로딩 상태 표시
+    let loadingTimeout;
+    
+    iframe.onload = () => {
+        console.log('✅ iframe 로드 완료!');
+        clearTimeout(loadingTimeout);
+        showStatus('✅ 웹페이지 로드 완료! 인쇄를 진행하세요.', 'success');
+    };
+    
+    iframe.onerror = () => {
+        console.error('❌ iframe 로드 실패!');
+        clearTimeout(loadingTimeout);
+        showStatus('❌ 웹페이지 로드 실패. URL을 확인해주세요.', 'error');
+    };
+    
+    // 타임아웃 설정 (15초)
+    loadingTimeout = setTimeout(() => {
+        console.warn('⚠️ iframe 로드 타임아웃');
+        showStatus('⚠️ 웹페이지 로드가 느립니다. 네트워크를 확인해주세요.', 'warning');
+    }, 15000);
+    
+    // 기존 뷰어 숨기고 iframe 표시
+    elements.pdfViewer.classList.add('hidden');
+    elements.previewContainer = document.querySelector('.preview-container');
+    
+    console.log('🎨 previewContainer 찾음:', elements.previewContainer);
+    
+    elements.previewContainer.innerHTML = '';
+    elements.previewContainer.appendChild(iframe);
+    
+    console.log('🎉 iframe DOM에 추가 완료');
+}
+
+
 
 // 프린터 목록 로드
 async function loadPrinters() {
@@ -231,19 +302,30 @@ function updatePrinterSelect() {
         elements.printerSelect.removeChild(elements.printerSelect.lastChild);
     }
     
-    // 새 옵션 추가
+    // PDF 저장 옵션 추가 (최상단)
+    const pdfOption = document.createElement('option');
+    pdfOption.value = 'PDF_SAVE';
+    pdfOption.textContent = '📄 PDF로 저장';
+    pdfOption.style.fontWeight = 'bold';
+    pdfOption.style.color = '#e91e63';
+    elements.printerSelect.appendChild(pdfOption);
+    
+    // 구분선 추가
+    const separatorOption = document.createElement('option');
+    separatorOption.disabled = true;
+    separatorOption.textContent = '────────────────';
+    elements.printerSelect.appendChild(separatorOption);
+    
+    // 새 프린터 옵션 추가
     availablePrinters.forEach(printer => {
         const option = document.createElement('option');
         option.value = printer.name;
-        option.textContent = `${printer.displayName || printer.name} ${printer.isDefault ? '(기본)' : ''}`;
+        option.textContent = `🖨️ ${printer.displayName || printer.name} ${printer.isDefault ? '(기본)' : ''}`;
         elements.printerSelect.appendChild(option);
     });
     
-    // 기본 프린터 자동 선택
-    const defaultPrinter = availablePrinters.find(p => p.isDefault);
-    if (defaultPrinter) {
-        elements.printerSelect.value = defaultPrinter.name;
-    }
+    // 기본 프린터 자동 선택 (PDF 옵션이 있으므로 기본값은 PDF로 설정)
+    elements.printerSelect.value = 'PDF_SAVE';
 }
 
 
@@ -252,7 +334,7 @@ function updatePrinterSelect() {
 async function executePrint() {
     const printerName = elements.printerSelect.value;
     const copies = parseInt(elements.copiesInput.value) || 1;
-    const silent = elements.silentPrintCheckbox.checked;
+    const silent = false; // 항상 대화상자 표시
     
     if (!printerName) {
         showStatus('프린터를 선택해주세요.', 'error');
@@ -267,7 +349,14 @@ async function executePrint() {
         return;
     }
     
-    showStatus('인쇄를 실행하는 중...', 'info');
+    // PDF 저장 모드 확인
+    const isPdfSave = printerName === 'PDF_SAVE';
+    
+    if (isPdfSave) {
+        showStatus('PDF 파일을 생성하는 중...', 'info');
+    } else {
+        showStatus('인쇄를 실행하는 중...', 'info');
+    }
     elements.printButton.disabled = true;
     
     try {
@@ -276,16 +365,32 @@ async function executePrint() {
             printerName: printerName,
             copies: copies,
             silent: silent,
-            paperSize: currentPaperSize // 용지 사이즈 정보 전달
+            paperSize: currentPaperSize, // 용지 사이즈 정보 전달
+            isPdfSave: isPdfSave // PDF 저장 모드 플래그
         });
         
         if (result.success) {
-            showStatus('인쇄가 완료되었습니다!', 'success');
-            
-            // 2초 후 앱 종료
-            setTimeout(() => {
-                closeApp();
-            }, 2000);
+            if (isPdfSave) {
+                if (result.saved) {
+                    showStatus(`📄 PDF 파일이 저장되었습니다! (${result.filePath})`, 'success');
+                    
+                    // 3초 후 앱 종료 (PDF 저장은 조금 더 오래 표시)
+                    setTimeout(() => {
+                        closeApp();
+                    }, 3000);
+                } else {
+                    showStatus('PDF 저장이 취소되었습니다.', 'warning');
+                    elements.printButton.disabled = false;
+                    return; // 앱 종료하지 않음
+                }
+            } else {
+                showStatus('🖨️ 인쇄가 완료되었습니다!', 'success');
+                
+                // 2초 후 앱 종료
+                setTimeout(() => {
+                    closeApp();
+                }, 2000);
+            }
         } else {
             throw new Error(result.error);
         }
@@ -308,7 +413,6 @@ function updateUI() {
     const hasPreviewUrl = !!receivedUrls.previewUrl;
     
     // 버튼 활성화 상태
-    elements.showPreviewBtn.disabled = !hasPreviewUrl;
     elements.printButton.disabled = !hasUrl || !hasPrinter;
 }
 
@@ -328,7 +432,15 @@ function showStatus(message, type = 'info') {
 
 // 로딩 숨김
 function hideLoading() {
-    elements.previewLoading.classList.add('hidden');
+    console.log('🙈 hideLoading 호출됨');
+    console.log('📋 previewLoading 요소:', elements.previewLoading);
+    
+    if (elements.previewLoading) {
+        elements.previewLoading.classList.add('hidden');
+        console.log('✅ 로딩 화면 숨김 완료');
+    } else {
+        console.error('❌ previewLoading 요소를 찾을 수 없음');
+    }
 }
 
 // 키보드 단축키
