@@ -26,10 +26,8 @@ function registerProtocol() {
 
 // HTTP 서버 시작
 function startHttpServer() {
-  console.log('[DEBUG] startHttpServer() 함수 호출됨');
   return new Promise((resolve, reject) => {
     const app = express();
-    console.log('[DEBUG] Express 앱 생성됨');
     
     // CORS 설정
     app.use(cors({
@@ -130,26 +128,22 @@ function startHttpServer() {
     let portToTry = 18731;
     
     const tryPort = (port) => {
-      console.log(`[DEBUG] 포트 ${port} 시도 중...`);
       const server = app.listen(port, 'localhost', () => {
         serverPort = server.address().port;
-        console.log(`✅ HTTP 서버 시작됨: http://localhost:${serverPort}`);
+        console.log(`HTTP 서버 시작됨: http://localhost:${serverPort}`);
         resolve(server);
       });
       
       server.on('error', (err) => {
-        console.log(`[DEBUG] 포트 ${port} 에러:`, err.code);
         if (err.code === 'EADDRINUSE' && port < 18740) {
           console.log(`포트 ${port} 사용 중, ${port + 1} 시도`);
           tryPort(port + 1);
         } else {
-          console.error(`❌ 서버 시작 실패:`, err);
           reject(err);
         }
       });
     };
     
-    console.log(`[DEBUG] tryPort(${portToTry}) 호출`);
     tryPort(portToTry);
   });
 }
@@ -254,10 +248,7 @@ async function createPrintWindow(sessionId = null) {
     }
   });
 
-  // 개발 모드에서 DevTools 열기
-  if (process.argv.includes('--debug')) {
-    printWindow.webContents.openDevTools();
-  }
+  // DevTools는 프로덕션에서 사용하지 않음
 
   return sessionId;
 }
@@ -334,29 +325,14 @@ function setupAutoUpdater() {
 
 // 앱 이벤트 핸들러
 app.whenReady().then(async () => {
-  console.log('[DEBUG] 🚀 앱이 준비됨! whenReady() 실행');
-  
   registerProtocol();
-  console.log('[DEBUG] 프로토콜 등록 완료');
-  
-  // 자동 업데이트 설정
   setupAutoUpdater();
-  console.log('[DEBUG] 자동 업데이트 설정 완료');
   
   // HTTP 서버 시작
-  console.log('[DEBUG] HTTP 서버 시작 시도...');
   try {
     httpServer = await startHttpServer();
-    console.log('[DEBUG] ✅ HTTP 서버 시작 성공!');
   } catch (error) {
-    console.error('[DEBUG] ❌ HTTP 서버 시작 실패:', error);
-  }
-  
-  // 개발 모드에서는 자동으로 미리보기 창 열기
-  if (process.env.NODE_ENV !== 'production' && !app.isPackaged) {
-    console.log('[DEBUG] 🚀 개발 모드: 미리보기 창 자동 열기');
-    const devSessionId = await createPrintWindow();
-    console.log('[DEBUG] ✅ 개발 세션 생성됨:', devSessionId);
+    console.error('HTTP 서버 시작 실패:', error);
   }
   
   // 앱이 이미 실행 중일 때 프로토콜 호출 처리

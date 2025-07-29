@@ -5,19 +5,11 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dev": "electron . --debug",
     "build": "npm run sync-version && electron-builder",
     "build-win": "npm run sync-version && electron-builder --win --publish=never",
     "build-mac": "npm run sync-version && electron-builder --mac --publish=never",
-    "pack": "npm run sync-version && electron-builder --dir",
-    "build-signed": "npm run sync-version && electron-builder --publish=never",
-    "build-signed-mac": "npm run sync-version && electron-builder --mac --publish=never",
-    "build-signed-win": "npm run sync-version && electron-builder --win --publish=never",
     "sync-version": "node -e \"const fs=require('fs'),{execSync}=require('child_process');try{const tag=execSync('git describe --tags --abbrev=0',{encoding:'utf8'}).trim().replace('v','');const pkg=JSON.parse(fs.readFileSync('package.json'));pkg.version=tag;fs.writeFileSync('package.json',JSON.stringify(pkg,null,2));console.log('✅ Version synced to:',tag);}catch(e){console.log('⚠️ Using current version (no git tags found)');}\"",
-    "version-info": "node -e \"console.log('Package version:', require('./package.json').version); try { console.log('Latest git tag:', require('child_process').execSync('git describe --tags --abbrev=0', {encoding: 'utf8'}).trim()); } catch(e) { console.log('No git tags found'); }\"",
-    "publish": "electron-builder --publish=always",
-    "build-self-signed-mac": "chmod +x scripts/create-mac-cert.sh && ./scripts/create-mac-cert.sh",
-    "build-self-signed-win": "powershell -ExecutionPolicy Bypass -File scripts/create-win-cert.ps1"
+    "publish": "electron-builder --publish=always"
   },
   "keywords": [
     "electron",
