@@ -145,15 +145,18 @@
     <div class="container">
         <h1>🖨️ WebPrinter</h1>
         
-                 <div class="form-group">
-             <label for="preview-url">미리보기 URL:</label>
-             <input type="url" id="preview-url" placeholder="https://print-seven-nu.vercel.app/preview.html" value="https://print-seven-nu.vercel.app/preview.html">
-         </div>
-         
-         <div class="form-group">
-             <label for="print-url">인쇄 URL:</label>
-             <input type="url" id="print-url" placeholder="https://print-seven-nu.vercel.app/print.html" value="https://print-seven-nu.vercel.app/print.html">
-         </div>
+                         <div class="form-group">
+            <label for="preview-url">미리보기 URL (웹페이지 또는 PDF):</label>
+            <input type="url" id="preview-url" placeholder="https://example.com/preview.html 또는 https://example.com/document.pdf" value="https://print-seven-nu.vercel.app/preview.html">
+        </div>
+        
+        <div class="form-group">
+            <label for="print-url">인쇄 URL (웹페이지 또는 PDF):</label>
+            <input type="url" id="print-url" placeholder="https://example.com/print.html 또는 https://example.com/document.pdf" value="https://print-seven-nu.vercel.app/print.html">
+            <small style="color: #666; font-size: 12px; display: block; margin-top: 4px;">
+                💡 PDF 파일의 경우 미리보기 URL과 인쇄 URL을 동일하게 설정하세요
+            </small>
+        </div>
         
         <div class="size-group">
             <div class="form-group">
@@ -251,21 +254,12 @@
                 link.href = protocolUrl;
                 link.click();
 
-                // 2단계: WebPrinter 서버 찾기 (3초 후)
-                setTimeout(async () => {
-                    const port = await findWebPrinterServer();
-                    if (port) {
-                        // 3단계: URL 정보 전송
-                        await sendUrlsToWebPrinter(port, sessionId, previewUrl, printUrl, {
-                            width: paperWidth,
-                            height: paperHeight,
-                            name: 'Custom'
-                        });
-                        showStatus('WebPrinter로 정보를 전송했습니다!', 'success');
-                    } else {
-                        showInstallGuide();
-                    }
-                }, 3000);
+                // 2단계: WebPrinter 서버 찾기 (빠른 재시도)
+                await waitForWebPrinterAndSend(sessionId, previewUrl, printUrl, {
+                    width: paperWidth,
+                    height: paperHeight,
+                    name: 'Custom'
+                });
 
             } catch (error) {
                 console.error('인쇄 실행 실패:', error);
@@ -294,6 +288,33 @@
             return null;
         }
 
+        // 빠른 재시도로 WebPrinter 서버 찾고 데이터 전송
+        async function waitForWebPrinterAndSend(sessionId, previewUrl, printUrl, paperSize) {
+            const maxAttempts = 10;
+            const delayMs = 500; // 0.5초씩 재시도
+            
+            for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                showStatus(`WebPrinter 연결 시도 중... (${attempt}/${maxAttempts})`, 'info');
+                
+                const port = await findWebPrinterServer();
+                if (port) {
+                    try {
+                        await sendUrlsToWebPrinter(port, sessionId, previewUrl, printUrl, paperSize);
+                        showStatus('WebPrinter로 정보를 전송했습니다!', 'success');
+                        return true;
+                    } catch (error) {
+                        showStatus(`전송 실패, 재시도 중... (${attempt}/${maxAttempts})`, 'warning');
+                    }
+                } else {
+                    await new Promise(resolve => setTimeout(resolve, delayMs));
+                }
+            }
+            
+            // 모든 시도 실패
+            showInstallGuide();
+            return false;
+        }
+
         // 설치된 WebPrinter 버전 정보 표시
         async function displayVersionInfo(statusData) {
             const versionInfo = document.getElementById('version-info');
@@ -303,21 +324,15 @@
                 installedVersion.textContent = `v${statusData.version} (${statusData.name || 'WebPrinter'})`;
                 versionInfo.style.display = 'block';
                 
-                // Public repository - 직접 최신 버전 확인
+                // 캐시된 GitHub API로 최신 버전 확인
                 try {
-                    const latestResponse = await fetch('https://api.github.com/repos/code-x-team/webprint-electron/releases/latest');
+                    const latestRelease = await getLatestReleaseFromCache();
+                    const latestVersion = latestRelease.tag_name.replace('v', '');
                     
-                    if (latestResponse.ok) {
-                        const latestRelease = await latestResponse.json();
-                        const latestVersion = latestRelease.tag_name.replace('v', '');
-                        
-                        if (statusData.version !== latestVersion) {
-                            installedVersion.innerHTML += ` <span style="color: #ff6b35; font-weight: bold;">(최신: v${latestVersion})</span>`;
-                        } else {
-                            installedVersion.innerHTML += ` <span style="color: #28a745;">✓ 최신</span>`;
-                        }
+                    if (statusData.version !== latestVersion) {
+                        installedVersion.innerHTML += ` <span style="color: #ff6b35; font-weight: bold;">(최신: v${latestVersion})</span>`;
                     } else {
-                        throw new Error(`API 호출 실패: ${latestResponse.status}`);
+                        installedVersion.innerHTML += ` <span style="color: #28a745;">✓ 최신</span>`;
                     }
                 } catch (error) {
                     installedVersion.innerHTML += ` <span style="color: #666;">(버전 확인 불가)</span>`;
@@ -356,6 +371,53 @@
             return 'web_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
         }
 
+        // GitHub API 캐싱 (2시간)
+        const CACHE_KEY = 'webprinter_github_releases';
+        const CACHE_DURATION = 2 * 60 * 60 * 1000; // 2시간 (밀리초)
+
+        async function getLatestReleaseFromCache() {
+            try {
+                const cached = localStorage.getItem(CACHE_KEY);
+                if (cached) {
+                    const { data, timestamp } = JSON.parse(cached);
+                    const now = Date.now();
+                    
+                    // 캐시가 유효한지 확인
+                    if (now - timestamp < CACHE_DURATION) {
+                        return data;
+                    } else {
+                        localStorage.removeItem(CACHE_KEY);
+                    }
+                }
+                
+                // 캐시가 없거나 만료된 경우 API 호출
+                const response = await fetch('https://api.github.com/repos/code-x-team/webprint-electron/releases/latest');
+                
+                if (!response.ok) {
+                    throw new Error(`GitHub API 호출 실패: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                // 캐시에 저장
+                const cacheData = {
+                    data: data,
+                    timestamp: Date.now()
+                };
+                localStorage.setItem(CACHE_KEY, JSON.stringify(cacheData));
+                
+                return data;
+            } catch (error) {
+                // 캐시된 데이터라도 있으면 사용
+                const cached = localStorage.getItem(CACHE_KEY);
+                if (cached) {
+                    const { data } = JSON.parse(cached);
+                    return data;
+                }
+                throw error;
+            }
+        }
+
         // 간단한 OS 감지
         function detectOS() {
             const platform = navigator.platform.toLowerCase();
@@ -378,19 +440,13 @@
 
         // Public repository이므로 GitHub Releases API 직접 사용
 
-        // Public repository - GitHub Releases API 직접 사용
+        // GitHub Releases API 캐싱된 버전 사용
         async function loadDownloadLinks() {
             const downloadLinksEl = document.getElementById('download-links');
             
             try {
-                // GitHub Releases API 직접 호출 (Public repository)
-                const response = await fetch('https://api.github.com/repos/code-x-team/webprint-electron/releases/latest');
-                
-                if (!response.ok) {
-                    throw new Error(`GitHub API 호출 실패: ${response.status}`);
-                }
-                
-                const release = await response.json();
+                // 캐시된 GitHub API 사용
+                const release = await getLatestReleaseFromCache();
                 
                 if (!release.assets || release.assets.length === 0) {
                     throw new Error('릴리즈 파일을 찾을 수 없습니다');
@@ -399,7 +455,6 @@
                 await loadFromGitHubReleases(release);
                 
             } catch (error) {
-                console.error('다운로드 링크 로드 실패:', error);
                 loadFallbackLinks();
             }
         }

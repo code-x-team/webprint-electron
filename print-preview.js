@@ -91,7 +91,7 @@ function displayServerInfo() {
         elements.loadingText.innerHTML = `
             <div style="text-align: left; font-size: 0.9rem;">
                 <p><strong>웹에서 다음 정보로 URL을 전송하세요:</strong></p>
-                <p>• 서버 주소: <code>http://localhost:${serverInfo.port}</code> (포트: 50000-50010)</p>
+                <p>• 서버 주소: <code>http://localhost:${serverInfo.port}</code> (포트: 18731-18740)</p>
                 <p>• 엔드포인트: <code>POST /send-urls</code></p>
                 <p>• 세션 ID: <code>${serverInfo.session}</code></p>
                 <br>
@@ -134,7 +134,29 @@ function handleUrlsReceived() {
     updateUI();
 }
 
-// 미리보기 URL 표시
+// URL이 PDF인지 확인
+function isPdfUrl(url) {
+    if (!url) return false;
+    
+    // PDF 파일 확장자 체크
+    const pdfExtensions = ['.pdf'];
+    const urlLower = url.toLowerCase();
+    
+    // 확장자로 판단
+    if (pdfExtensions.some(ext => urlLower.includes(ext))) {
+        return true;
+    }
+    
+    // Content-Type으로 판단 (나중에 확장 가능)
+    // URL에 pdf 키워드가 있는지 확인
+    if (urlLower.includes('pdf') || urlLower.includes('document')) {
+        return true;
+    }
+    
+    return false;
+}
+
+// 미리보기 URL 표시 (웹페이지 또는 PDF 지원)
 function showPreviewUrl() {
     if (!receivedUrls.previewUrl) {
         showStatus('미리보기 URL이 없습니다.', 'error');
@@ -142,13 +164,22 @@ function showPreviewUrl() {
     }
     
     try {
+        const url = receivedUrls.previewUrl;
+        const isPdf = isPdfUrl(url);
+        
         // URL을 iframe으로 표시
         const iframe = document.createElement('iframe');
-        iframe.src = receivedUrls.previewUrl;
+        iframe.src = url;
         iframe.style.width = '100%';
         iframe.style.height = '100%';
         iframe.style.border = 'none';
         iframe.style.borderRadius = '4px';
+        
+        // PDF인 경우 추가 속성 설정
+        if (isPdf) {
+            iframe.style.backgroundColor = '#525659';
+            iframe.title = 'PDF 미리보기';
+        }
         
         // 기존 뷰어 숨기고 iframe 표시
         elements.pdfViewer.classList.add('hidden');
@@ -156,7 +187,15 @@ function showPreviewUrl() {
         elements.previewContainer.innerHTML = '';
         elements.previewContainer.appendChild(iframe);
         
-        showStatus('미리보기 페이지를 표시하고 있습니다.', 'info');
+        const contentType = isPdf ? 'PDF 문서' : '웹페이지';
+        showStatus(`${contentType} 미리보기를 표시하고 있습니다.`, 'info');
+        
+        // PDF인 경우 추가 안내 메시지
+        if (isPdf) {
+            setTimeout(() => {
+                showStatus('📄 PDF 미리보기가 로드되었습니다. 인쇄를 진행하세요.', 'success');
+            }, 2000);
+        }
     } catch (error) {
         console.error('미리보기 표시 실패:', error);
         showStatus('미리보기를 표시할 수 없습니다.', 'error');

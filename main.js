@@ -323,6 +323,10 @@ function setupAutoUpdater() {
   });
 }
 
+// 앱 준비 상태 추적
+let isAppReady = false;
+let pendingProtocolCall = null;
+
 // 앱 이벤트 핸들러
 app.whenReady().then(async () => {
   registerProtocol();
@@ -333,6 +337,16 @@ app.whenReady().then(async () => {
     httpServer = await startHttpServer();
   } catch (error) {
     console.error('HTTP 서버 시작 실패:', error);
+  }
+  
+  // 앱 준비 완료 표시
+  isAppReady = true;
+  
+  // 대기 중인 프로토콜 호출 처리
+  if (pendingProtocolCall) {
+    console.log('대기 중이던 프로토콜 호출 처리:', pendingProtocolCall);
+    await handleProtocolCall(pendingProtocolCall);
+    pendingProtocolCall = null;
   }
   
   // 앱이 이미 실행 중일 때 프로토콜 호출 처리
@@ -360,6 +374,7 @@ if (!gotTheLock) {
   if (process.platform === 'win32') {
     const protocolUrl = process.argv.find(arg => arg.startsWith('webprinter://'));
     if (protocolUrl) {
+      console.log('Windows 프로토콜 호출 감지:', protocolUrl);
       handleProtocolCall(protocolUrl);
     }
   }
@@ -368,6 +383,13 @@ if (!gotTheLock) {
 // 프로토콜 호출 처리
 async function handleProtocolCall(protocolUrl) {
   console.log('프로토콜 호출 받음:', protocolUrl);
+  
+  // 앱이 아직 준비되지 않았으면 대기
+  if (!isAppReady) {
+    console.log('앱이 준비 중입니다. 프로토콜 호출을 대기합니다...');
+    pendingProtocolCall = protocolUrl;
+    return;
+  }
   
   const parsed = parseProtocolUrl(protocolUrl);
   if (!parsed) {
@@ -380,6 +402,7 @@ async function handleProtocolCall(protocolUrl) {
   switch (action) {
     case 'print':
       const sessionId = params.session || generateSessionId();
+      console.log('프린트 윈도우 생성 중...', sessionId);
       await createPrintWindow(sessionId);
       
       // 웹에게 서버 정보 응답 (콘솔 출력으로 웹 개발자가 확인 가능)
@@ -442,7 +465,18 @@ ipcMain.handle('get-printers', async () => {
   }
 });
 
-// URL 인쇄 실행
+// URL이 PDF인지 확인
+function isPdfUrl(url) {
+  if (!url) return false;
+  
+  const urlLower = url.toLowerCase();
+  // PDF 파일 확장자 또는 키워드로 판단
+  return urlLower.includes('.pdf') || 
+         urlLower.includes('pdf') || 
+         urlLower.includes('document');
+}
+
+// URL 인쇄 실행 (웹페이지 또는 PDF 지원)
 ipcMain.handle('print-url', async (event, options) => {
   try {
     const { url, printerName, copies = 1, silent = false, paperSize = null } = options;
@@ -451,12 +485,16 @@ ipcMain.handle('print-url', async (event, options) => {
       throw new Error('인쇄할 URL이 없습니다');
     }
     
+    const isPdf = isPdfUrl(url);
+    console.log(`인쇄 시작: ${isPdf ? 'PDF 문서' : '웹페이지'} - ${url}`);
+    
     // 숨겨진 윈도우에서 URL 로드 및 인쇄
     const hiddenWindow = new BrowserWindow({
       show: false,
       webPreferences: {
         nodeIntegration: false,
-        contextIsolation: true
+        contextIsolation: true,
+        plugins: true, // PDF 뷰어 플러그인 활성화
       }
     });
 
@@ -467,8 +505,9 @@ ipcMain.handle('print-url', async (event, options) => {
       hiddenWindow.webContents.once('did-finish-load', resolve);
     });
 
-    // 추가 대기 시간 (동적 콘텐츠 로딩)
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    // PDF와 웹페이지에 따른 다른 대기 시간
+    const waitTime = isPdf ? 2000 : 3000; // PDF는 조금 더 빠르게
+    await new Promise(resolve => setTimeout(resolve, waitTime));
 
     // 용지 사이즈 설정
     let pageSizeConfig = { pageSize: 'A4' };
@@ -489,11 +528,11 @@ ipcMain.handle('print-url', async (event, options) => {
       deviceName: printerName,
       copies: copies,
       ...pageSizeConfig,
-      marginsType: 1, // 최소 여백
+      marginsType: isPdf ? 0 : 1, // PDF는 여백 없음, 웹페이지는 최소 여백
       scaleFactor: 100
     };
 
-    console.log('인쇄 옵션:', printOptions);
+    console.log(`${isPdf ? 'PDF' : '웹페이지'} 인쇄 옵션:`, printOptions);
     const success = await hiddenWindow.webContents.print(printOptions);
     hiddenWindow.close();
     
