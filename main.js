@@ -108,14 +108,16 @@ function startHttpServer() {
         console.log(`- 요청 sessionId: ${sessionId}`);
         console.log(`- 세션 일치: ${currentSession === sessionId}`);
         
-        if (printWindow && currentSession === sessionId) {
+        if (printWindow && !printWindow.isDestroyed() && currentSession === sessionId) {
           // 렌더러가 준비될 때까지 대기 후 전송
           if (printWindow.webContents.isLoading()) {
             console.log('⏳ 렌더러 로딩 중 - 로드 완료 후 전송');
             printWindow.webContents.once('did-finish-load', () => {
               setTimeout(() => {
-                console.log('✅ 실시간 IPC 메시지 전송: urls-received');
-                printWindow.webContents.send('urls-received', urlData);
+                if (printWindow && !printWindow.isDestroyed()) {
+                  console.log('✅ 실시간 IPC 메시지 전송: urls-received');
+                  printWindow.webContents.send('urls-received', urlData);
+                }
               }, 500);
             });
           } else {
@@ -221,8 +223,41 @@ function generateSessionId() {
 
 // 인쇄 미리보기 창 생성
 async function createPrintWindow(sessionId = null) {
-  if (printWindow) {
-    printWindow.close();
+  // 프로그램 실행 시마다 업데이트 체크 (출력하기 버튼 클릭 시)
+  console.log('🔄 WebPrinter 실행 - 업데이트 확인 중...');
+  try {
+    autoUpdater.checkForUpdates();
+  } catch (error) {
+    console.warn('업데이트 체크 실패 (무시됨):', error.message);
+  }
+  
+  // 기존 창이 있고 숨겨져 있으면 재사용
+  if (printWindow && !printWindow.isDestroyed()) {
+    console.log('🔄 기ㅈ존 창 재사용 - 숨겨진 상태에서 복원');
+    printWindow.show();
+    printWindow.focus();
+    
+    // 세션 ID만 업데이트
+    if (sessionId) {
+      currentSession = sessionId;
+    }
+    
+    // 서버 정보 다시 전송
+    setTimeout(() => {
+      if (printWindow && !printWindow.isDestroyed()) {
+        printWindow.webContents.send('server-info', {
+          port: serverPort,
+          session: currentSession
+        });
+      }
+    }, 500);
+    
+    return;
+  }
+  
+  // 기존 창이 파괴된 상태면 정리
+  if (printWindow && printWindow.isDestroyed()) {
+    printWindow = null;
   }
 
   // 세션 ID가 없으면 새로 생성
@@ -261,7 +296,9 @@ async function createPrintWindow(sessionId = null) {
   printWindow.loadFile('print-preview.html');
 
   printWindow.once('ready-to-show', () => {
-    printWindow.show();
+    if (printWindow && !printWindow.isDestroyed()) {
+      printWindow.show();
+    }
     
     // 렌더러가 완전히 로드될 때까지 대기 후 IPC 전송
     printWindow.webContents.once('did-finish-load', () => {
@@ -272,11 +309,13 @@ async function createPrintWindow(sessionId = null) {
         console.log('📡 IPC 메시지 전송 시작');
         
         // 서버 정보와 세션 ID를 렌더러 프로세스로 전송
-        printWindow.webContents.send('server-info', {
-          port: serverPort,
-          session: sessionId
-        });
-        console.log('✅ server-info 전송 완료');
+        if (printWindow && !printWindow.isDestroyed()) {
+          printWindow.webContents.send('server-info', {
+            port: serverPort,
+            session: sessionId
+          });
+          console.log('✅ server-info 전송 완료');
+        }
 
         // 이미 받은 URL이 있으면 로드
         console.log(`🔍 윈도우 생성 후 URL 확인:`);
@@ -286,8 +325,10 @@ async function createPrintWindow(sessionId = null) {
         if (receivedUrls[sessionId]) {
           console.log('✅ 이미 받은 URL 데이터를 윈도우로 전송');
           console.log('📤 전송할 데이터:', receivedUrls[sessionId]);
-          printWindow.webContents.send('urls-received', receivedUrls[sessionId]);
-          console.log('✅ urls-received 전송 완료');
+          if (printWindow && !printWindow.isDestroyed()) {
+            printWindow.webContents.send('urls-received', receivedUrls[sessionId]);
+            console.log('✅ urls-received 전송 완료');
+          }
         } else {
           console.log('⚠️ 아직 URL 데이터가 없음 - 대기 중');
         }
@@ -311,15 +352,17 @@ async function createPrintWindow(sessionId = null) {
   return sessionId;
 }
 
-// 자동 업데이트 설정
+// 자동 업데이트 설정 (적극적 자동 업데이트)
 function setupAutoUpdater() {
-  // 더 적극적인 업데이트 체크 설정
-  autoUpdater.checkForUpdatesAndNotify();
+  // 앱 시작 시 즉시 업데이트 체크 (자동 다운로드)
+  console.log('🔄 시작 시 업데이트 확인 중...');
+  autoUpdater.checkForUpdates();
   
-  // 5분마다 업데이트 체크
+  // 10분마다 업데이트 체크 (백그라운드)
   setInterval(() => {
-    autoUpdater.checkForUpdatesAndNotify();
-  }, 5 * 60 * 1000);
+    console.log('🔄 정기 업데이트 확인 중...');
+    autoUpdater.checkForUpdates();
+  }, 10 * 60 * 1000);
   
   // 개발 모드에서는 업데이트 비활성화
   if (process.env.NODE_ENV === 'development') {
@@ -332,30 +375,47 @@ function setupAutoUpdater() {
   });
   
   autoUpdater.on('update-available', (info) => {
-    console.log('업데이트 발견됨:', info.version);
+    console.log('🆕 업데이트 발견됨:', info.version);
+    console.log('📥 자동 다운로드를 시작합니다...');
     
-    // 사용자에게 업데이트 알림 (프린터 창이 있는 경우)
-    if (printWindow) {
+    // 사용자에게 업데이트 시작 알림
+    if (printWindow && !printWindow.isDestroyed()) {
       printWindow.webContents.send('update-available', {
         version: info.version,
-        releaseDate: info.releaseDate
+        releaseDate: info.releaseDate,
+        autoDownload: true
       });
     }
+    
+    // 자동으로 업데이트 다운로드 시작
+    autoUpdater.downloadUpdate();
   });
   
   autoUpdater.on('update-not-available', () => {
-    console.log('최신 버전입니다.');
+    console.log('✅ 최신 버전입니다.');
+    
+    // 사용자에게 최신 버전임을 알림 (선택적)
+    if (printWindow && !printWindow.isDestroyed()) {
+      printWindow.webContents.send('update-not-available');
+    }
   });
   
   autoUpdater.on('error', (error) => {
-    console.error('업데이트 오류:', error);
+    console.error('❌ 업데이트 오류:', error);
+    
+    // 사용자에게 업데이트 오류 알림
+    if (printWindow && !printWindow.isDestroyed()) {
+      printWindow.webContents.send('update-error', {
+        message: error.message
+      });
+    }
   });
   
   autoUpdater.on('download-progress', (progressObj) => {
     const message = `다운로드 진행률: ${Math.round(progressObj.percent)}%`;
     console.log(message);
     
-    if (printWindow) {
+    if (printWindow && !printWindow.isDestroyed()) {
       printWindow.webContents.send('update-progress', {
         percent: Math.round(progressObj.percent),
         transferred: progressObj.transferred,
@@ -365,18 +425,27 @@ function setupAutoUpdater() {
   });
   
   autoUpdater.on('update-downloaded', (info) => {
-    console.log('업데이트 다운로드 완료, 재시작 준비됨');
+    console.log('✅ 업데이트 다운로드 완료, 자동 재시작 준비');
     
-    // 사용자에게 재시작 확인
-    if (printWindow) {
+    // 사용자에게 업데이트 완료 알림 및 자동 재시작 안내
+    if (printWindow && !printWindow.isDestroyed()) {
       printWindow.webContents.send('update-downloaded', {
-        version: info.version
+        version: info.version,
+        autoRestart: true,
+        countdown: 5
       });
+      
+      // 5초 후 자동 재시작
+      setTimeout(() => {
+        console.log('🔄 업데이트 적용을 위해 앱을 재시작합니다...');
+        autoUpdater.quitAndInstall();
+      }, 5000);
     } else {
-      // 프린터 창이 없으면 바로 재시작
+      // 프린터 창이 없으면 1초 후 바로 재시작
+      console.log('🔄 백그라운드에서 업데이트 적용 중...');
       setTimeout(() => {
         autoUpdater.quitAndInstall();
-      }, 3000);
+      }, 1000);
     }
   });
 }
@@ -473,7 +542,7 @@ async function handleProtocolCall(protocolUrl) {
           app.dock.show();
         } else if (process.platform === 'win32') {
           // Windows: 앱을 전면으로 가져오기
-          if (printWindow) {
+          if (printWindow && !printWindow.isDestroyed()) {
             printWindow.show();
             printWindow.focus();
           }
@@ -576,7 +645,7 @@ app.on('before-quit', () => {
 // 프린터 목록 가져오기
 ipcMain.handle('get-printers', async () => {
   try {
-    const printers = printWindow ? await printWindow.webContents.getPrintersAsync() : [];
+    const printers = (printWindow && !printWindow.isDestroyed()) ? await printWindow.webContents.getPrintersAsync() : [];
     return { success: true, printers };
   } catch (error) {
     console.error('프린터 목록 가져오기 실패:', error);
@@ -584,18 +653,9 @@ ipcMain.handle('get-printers', async () => {
   }
 });
 
-// URL이 PDF인지 확인
-function isPdfUrl(url) {
-  if (!url) return false;
-  
-  const urlLower = url.toLowerCase();
-  // PDF 파일 확장자 또는 키워드로 판단
-  return urlLower.includes('.pdf') || 
-         urlLower.includes('pdf') || 
-         urlLower.includes('document');
-}
+// PDF 관련 함수 제거됨
 
-// URL 인쇄 실행 (웹페이지 또는 PDF 지원)
+// URL 인쇄 실행 (웹페이지 전용)
 ipcMain.handle('print-url', async (event, options) => {
   try {
     const { url, printerName, copies = 1, silent = false, paperSize = null } = options;
@@ -604,8 +664,7 @@ ipcMain.handle('print-url', async (event, options) => {
       throw new Error('인쇄할 URL이 없습니다');
     }
     
-    const isPdf = isPdfUrl(url);
-    console.log(`인쇄 시작: ${isPdf ? 'PDF 문서' : '웹페이지'} - ${url}`);
+    console.log(`인쇄 시작: 웹페이지 - ${url}`);
     
     // 숨겨진 윈도우에서 URL 로드 및 인쇄
     const hiddenWindow = new BrowserWindow({
@@ -613,7 +672,7 @@ ipcMain.handle('print-url', async (event, options) => {
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
-        plugins: true, // PDF 뷰어 플러그인 활성화
+        plugins: true, // 플러그인 활성화
       }
     });
 
@@ -624,8 +683,8 @@ ipcMain.handle('print-url', async (event, options) => {
       hiddenWindow.webContents.once('did-finish-load', resolve);
     });
 
-    // PDF와 웹페이지에 따른 다른 대기 시간
-    const waitTime = isPdf ? 2000 : 3000; // PDF는 조금 더 빠르게
+    // 웹페이지 로딩 대기 시간
+    const waitTime = 3000; // 웹페이지 로딩 완료 대기
     await new Promise(resolve => setTimeout(resolve, waitTime));
 
     // 용지 사이즈 설정
@@ -660,13 +719,13 @@ ipcMain.handle('print-url', async (event, options) => {
       deviceName: selectedPrinter ? printerName : undefined, // 프린터가 없으면 기본값 사용
       copies: copies,
       ...pageSizeConfig,
-      marginsType: isPdf ? 0 : 1, // PDF는 여백 없음, 웹페이지는 최소 여백
+      marginsType: 1, // 최소 여백
       scaleFactor: 100,
       printBackground: true, // 배경 인쇄 활성화
       headerFooter: false // 헤더/푸터 비활성화
     };
 
-    console.log(`${isPdf ? 'PDF' : '웹페이지'} 인쇄 시작:`, {
+    console.log('웹페이지 인쇄 시작:', {
       ...printOptions,
       url: url,
       printerCount: availablePrinters.length
@@ -715,9 +774,28 @@ ipcMain.handle('get-server-info', () => {
   };
 });
 
-// 앱 종료
+// 앱을 백그라운드로 숨기기 (서비스 모드 유지)
+ipcMain.handle('hide-to-background', () => {
+  console.log('🔄 사용자 요청에 의한 백그라운드 이동');
+  
+  if (printWindow && !printWindow.isDestroyed()) {
+    printWindow.hide(); // 창만 숨기기
+    isBackgroundService = true; // 백그라운드 서비스 활성화
+    
+    if (process.platform === 'darwin') {
+      // macOS: 독에서 앱 숨기기
+      if (app.dock) {
+        app.dock.hide();
+      }
+    }
+    
+    console.log('✅ 백그라운드 서비스 모드로 전환 완료 - HTTP 서버 유지 중...');
+  }
+});
+
+// 앱 완전 종료
 ipcMain.handle('quit-app', () => {
-  console.log('🚪 사용자 요청에 의한 앱 종료');
+  console.log('🚪 사용자 요청에 의한 앱 완전 종료');
   isBackgroundService = false; // 백그라운드 서비스 비활성화
   app.quit();
 });

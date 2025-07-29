@@ -257,11 +257,7 @@
             border: 1px solid #93c5fd;
         }
 
-        .pdf-viewer {
-            width: 100%;
-            height: 100%;
-            border: none;
-        }
+        /* PDF viewer CSS 제거됨 */
 
         .hidden {
             display: none !important;
@@ -281,7 +277,7 @@
 <body>
     <div class="header">
         <h1>🖨️ WebPrinter</h1>
-        <p id="status-text">PDF 파일을 기다리는 중...</p>
+        <p id="status-text">웹페이지를 기다리는 중...</p>
     </div>
 
     <div class="main-content">
@@ -298,7 +294,7 @@
                     <div class="spinner"></div>
                     <div id="loading-text">웹에서 URL 정보를 전송하기를 기다리는 중...</div>
                 </div>
-                <embed class="pdf-viewer hidden" id="pdf-viewer" type="application/pdf">
+                <!-- PDF viewer 제거됨 -->
             </div>
         </div>
 

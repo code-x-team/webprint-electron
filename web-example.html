@@ -182,13 +182,13 @@
         
         <div class="content">
             <div class="form-group">
-                <label for="preview-url">미리보기 URL (웹페이지 또는 PDF):</label>
-                <input type="url" id="preview-url" placeholder="https://example.com/preview.html 또는 https://example.com/document.pdf" value="https://print-seven-nu.vercel.app/preview.html">
+                <label for="preview-url">미리보기 URL (웹페이지):</label>
+                <input type="url" id="preview-url" placeholder="https://example.com/preview.html" value="https://print-seven-nu.vercel.app/preview.html">
             </div>
             
             <div class="form-group">
-                <label for="print-url">인쇄 URL (웹페이지 또는 PDF):</label>
-                <input type="url" id="print-url" placeholder="https://example.com/print.html 또는 https://example.com/document.pdf" value="https://print-seven-nu.vercel.app/print.html">
+                <label for="print-url">인쇄 URL (웹페이지):</label>
+                <input type="url" id="print-url" placeholder="https://example.com/print.html" value="https://print-seven-nu.vercel.app/print.html">
             </div>
            
             <div class="size-group">
@@ -445,6 +445,98 @@
             }
         }
 
+        // 최신 버전 다운로드 함수
+        function downloadLatestVersion(latestRelease) {
+            const os = detectOS();
+            const releaseVersion = latestRelease.tag_name;
+            
+            try {
+                let downloadUrl = null;
+                let fileName = '';
+                
+                if (os === 'mac-arm64' || os === 'mac-intel') {
+                    // macOS 다운로드
+                    let asset;
+                    if (os === 'mac-intel') {
+                        // Intel Mac 우선 선택
+                        asset = latestRelease.assets.find(asset => 
+                            asset.name.includes('.dmg') && !asset.name.includes('arm64')
+                        );
+                        fileName = `WebPrinter-${releaseVersion}-Intel-Mac.dmg`;
+                    }
+                    
+                    if (!asset) {
+                        // Apple Silicon 또는 Intel이 없는 경우
+                        asset = latestRelease.assets.find(asset => 
+                            asset.name.includes('.dmg')
+                        );
+                        fileName = asset ? asset.name : `WebPrinter-${releaseVersion}-Mac.dmg`;
+                    }
+                    
+                    downloadUrl = asset ? asset.browser_download_url : null;
+                } else if (os === 'windows') {
+                    // Windows 다운로드
+                    const asset = latestRelease.assets.find(asset => 
+                        asset.name.includes('.exe')
+                    );
+                    downloadUrl = asset ? asset.browser_download_url : null;
+                    fileName = asset ? asset.name : `WebPrinter-${releaseVersion}-Windows.exe`;
+                }
+                
+                if (downloadUrl) {
+                    console.log('📥 최신 버전 다운로드 시작:', downloadUrl);
+                    
+                    // 다운로드 버튼 상태 변경
+                    const updateBtn = document.getElementById('update-download-btn');
+                    if (updateBtn) {
+                        updateBtn.innerHTML = '📥 다운로드 중...';
+                        updateBtn.style.background = '#6c757d';
+                        updateBtn.disabled = true;
+                    }
+                    
+                    // 새 창에서 다운로드 시작
+                    const downloadLink = document.createElement('a');
+                    downloadLink.href = downloadUrl;
+                    downloadLink.download = fileName;
+                    downloadLink.target = '_blank';
+                    downloadLink.style.display = 'none';
+                    document.body.appendChild(downloadLink);
+                    downloadLink.click();
+                    document.body.removeChild(downloadLink);
+                    
+                    // 상태 메시지 표시
+                    showStatus(`📥 최신 버전 ${releaseVersion} 다운로드를 시작했습니다!`, 'success');
+                    
+                    // 3초 후 버튼 복원
+                    setTimeout(() => {
+                        if (updateBtn) {
+                            updateBtn.innerHTML = `🔄 최신 버전 ${releaseVersion} 다운로드`;
+                            updateBtn.style.background = 'linear-gradient(135deg, #ff6b35, #f7931e)';
+                            updateBtn.disabled = false;
+                        }
+                    }, 3000);
+                    
+                } else {
+                    // 다운로드 링크를 찾을 수 없는 경우
+                    showStatus('⚠️ 해당 운영체제용 설치 파일을 찾을 수 없습니다.', 'warning');
+                    
+                    // GitHub Releases 페이지로 이동
+                    setTimeout(() => {
+                        window.open('https://github.com/code-x-team/webprint-electron/releases/latest', '_blank');
+                    }, 1000);
+                }
+                
+            } catch (error) {
+                console.error('다운로드 실패:', error);
+                showStatus('❌ 다운로드 중 오류가 발생했습니다. GitHub Releases 페이지를 확인해주세요.', 'error');
+                
+                // GitHub Releases 페이지로 이동
+                setTimeout(() => {
+                    window.open('https://github.com/code-x-team/webprint-electron/releases/latest', '_blank');
+                }, 2000);
+            }
+        }
+
         // 설치된 WebPrinter 버전 정보 표시
         async function displayVersionInfo(statusData) {
             const versionInfo = document.getElementById('version-info');
@@ -461,6 +553,39 @@
                     
                     if (statusData.version !== latestVersion) {
                         installedVersion.innerHTML += ` <span style="color: #ff6b35; font-weight: bold;">(최신: v${latestVersion})</span>`;
+                        
+                        // 기존 업데이트 버튼 제거 (중복 방지)
+                        const existingBtn = document.getElementById('update-download-btn');
+                        if (existingBtn) {
+                            existingBtn.parentElement.remove();
+                        }
+                        
+                        // 최신 버전 다운로드 버튼 추가
+                        const updateButtonContainer = document.createElement('div');
+                        updateButtonContainer.style.marginTop = '10px';
+                        updateButtonContainer.innerHTML = `
+                            <button id="update-download-btn" style="
+                                background: linear-gradient(135deg, #ff6b35, #f7931e);
+                                color: white;
+                                border: none;
+                                padding: 8px 16px;
+                                border-radius: 6px;
+                                font-size: 14px;
+                                font-weight: 600;
+                                cursor: pointer;
+                                transition: transform 0.2s;
+                                box-shadow: 0 2px 8px rgba(255, 107, 53, 0.3);
+                            " onmouseover="this.style.transform='translateY(-2px)'" 
+                               onmouseout="this.style.transform='translateY(0)'">
+                                🔄 최신 버전 v${latestVersion} 다운로드
+                            </button>
+                        `;
+                        versionInfo.appendChild(updateButtonContainer);
+                        
+                        // 다운로드 버튼 클릭 이벤트
+                        document.getElementById('update-download-btn').addEventListener('click', () => {
+                            downloadLatestVersion(latestRelease);
+                        });
                     } else {
                         installedVersion.innerHTML += ` <span style="color: #28a745;">✓ 최신</span>`;
                     }

@@ -10,7 +10,6 @@ const elements = {
     serverDisplay: document.getElementById('server-display'),
     previewLoading: document.getElementById('preview-loading'),
     loadingText: document.getElementById('loading-text'),
-    pdfViewer: document.getElementById('pdf-viewer'),
     printerSelect: document.getElementById('printer-select'),
     refreshPrintersBtn: document.getElementById('refresh-printers'),
     copiesInput: document.getElementById('copies'),
@@ -48,24 +47,50 @@ async function initializeUpdater() {
         const version = await window.electronAPI.getAppVersion();
         console.log('현재 앱 버전:', version);
         
-        // 업데이트 이벤트 리스너 등록
+        // 자동 업데이트 이벤트 리스너 등록
         window.electronAPI.onUpdateAvailable((info) => {
-            showStatus(`새 버전 ${info.version}이 발견되었습니다. 업데이트를 다운로드합니다.`, 'info');
+            console.log('🆕 업데이트 발견:', info);
+            if (info.autoDownload) {
+                showStatus(`🆕 v${info.version} 업데이트 발견! 자동 다운로드를 시작합니다...`, 'info');
+            } else {
+                showStatus(`새 버전 ${info.version}이 발견되었습니다.`, 'info');
+            }
         });
         
         window.electronAPI.onUpdateProgress((progress) => {
-            showStatus(`업데이트 다운로드 중... ${progress.percent}%`, 'info');
+            const percent = Math.round(progress.percent);
+            showStatus(`📥 업데이트 다운로드 중... ${percent}% (${Math.round(progress.transferred / 1024 / 1024)}MB / ${Math.round(progress.total / 1024 / 1024)}MB)`, 'info');
+            console.log(`다운로드 진행률: ${percent}%`);
         });
         
         window.electronAPI.onUpdateDownloaded((info) => {
-            showStatus(`업데이트 다운로드 완료! 버전 ${info.version}으로 업데이트하려면 재시작이 필요합니다.`, 'success');
+            console.log('✅ 업데이트 다운로드 완료:', info);
             
-            // 3초 후 자동 재시작 확인
-            setTimeout(() => {
-                if (confirm('업데이트를 적용하기 위해 앱을 재시작하시겠습니까?')) {
-                    window.electronAPI.installUpdate();
-                }
-            }, 3000);
+            if (info.autoRestart) {
+                // 자동 재시작 카운트다운
+                let countdown = info.countdown || 5;
+                const countdownInterval = setInterval(() => {
+                    showStatus(`✅ v${info.version} 다운로드 완료! ${countdown}초 후 자동 재시작됩니다...`, 'success');
+                    countdown--;
+                    
+                    if (countdown <= 0) {
+                        clearInterval(countdownInterval);
+                        showStatus(`🔄 업데이트 적용 중... 잠시만 기다려주세요.`, 'info');
+                    }
+                }, 1000);
+            } else {
+                showStatus(`✅ v${info.version} 다운로드 완료! 재시작이 필요합니다.`, 'success');
+            }
+        });
+        
+        window.electronAPI.onUpdateNotAvailable(() => {
+            console.log('✅ 최신 버전 사용 중');
+            // 최신 버전일 때는 별도 알림 표시하지 않음 (콘솔에만 기록)
+        });
+        
+        window.electronAPI.onUpdateError((error) => {
+            console.warn('⚠️ 업데이트 확인 실패:', error.message);
+            // 업데이트 오류는 사용자에게 표시하지 않음 (백그라운드 작업)
         });
         
     } catch (error) {
@@ -142,27 +167,7 @@ async function handleUrlsReceived() {
     updateUI();
 }
 
-// URL이 PDF인지 확인
-function isPdfUrl(url) {
-    if (!url) return false;
-    
-    // PDF 파일 확장자 체크
-    const pdfExtensions = ['.pdf'];
-    const urlLower = url.toLowerCase();
-    
-    // 확장자로 판단
-    if (pdfExtensions.some(ext => urlLower.includes(ext))) {
-        return true;
-    }
-    
-    // Content-Type으로 판단 (나중에 확장 가능)
-    // URL에 pdf 키워드가 있는지 확인
-    if (urlLower.includes('pdf') || urlLower.includes('document')) {
-        return true;
-    }
-    
-    return false;
-}
+// PDF 관련 함수 제거됨
 
 // 미리보기 URL 표시 (디버깅 강화)
 async function showPreviewUrl() {
@@ -177,50 +182,16 @@ async function showPreviewUrl() {
     
     try {
         const url = receivedUrls.previewUrl;
-        const isPdf = isPdfUrl(url);
-        
         console.log(`🔍 URL 분석: ${url}`);
-        console.log(`📄 PDF 여부: ${isPdf}`);
-        
-        if (isPdf) {
-            console.log('📄 PDF 미리보기 시작');
-            showPdfPreview(url);
-        } else {
-            console.log('🌐 웹페이지 미리보기 시작');
-            await showHtmlPreview(url);
-        }
+        console.log('🌐 웹페이지 미리보기 시작');
+        await showHtmlPreview(url);
     } catch (error) {
         console.error('❌ 미리보기 표시 실패:', error);
         showStatus('미리보기를 표시할 수 없습니다.', 'error');
     }
 }
 
-// PDF 미리보기 (iframe 사용)
-function showPdfPreview(url) {
-    showStatus('📄 PDF 문서를 로드하는 중...', 'info');
-    
-    const iframe = document.createElement('iframe');
-    iframe.src = url;
-    iframe.style.width = '100%';
-    iframe.style.height = '100%';
-    iframe.style.border = 'none';
-    iframe.style.borderRadius = '4px';
-    iframe.style.backgroundColor = '#525659';
-    iframe.title = 'PDF 미리보기';
-    
-    iframe.onload = () => {
-        showStatus('📄 PDF 미리보기 완료! 인쇄를 진행하세요.', 'success');
-    };
-    
-    iframe.onerror = () => {
-        showStatus('❌ PDF 로드 실패. URL을 확인해주세요.', 'error');
-    };
-    
-    elements.pdfViewer.classList.add('hidden');
-    elements.previewContainer = document.querySelector('.preview-container');
-    elements.previewContainer.innerHTML = '';
-    elements.previewContainer.appendChild(iframe);
-}
+// PDF 미리보기 함수 제거됨
 
 // HTML 웹페이지 미리보기 (iframe 사용 - 안정적)
 async function showHtmlPreview(url) {
@@ -259,8 +230,7 @@ async function showHtmlPreview(url) {
         showStatus('⚠️ 웹페이지 로드가 느립니다. 네트워크를 확인해주세요.', 'warning');
     }, 15000);
     
-    // 기존 뷰어 숨기고 iframe 표시
-    elements.pdfViewer.classList.add('hidden');
+    // iframe 표시 준비
     elements.previewContainer = document.querySelector('.preview-container');
     
     console.log('🎨 previewContainer 찾음:', elements.previewContainer);
@@ -338,10 +308,19 @@ async function executePrint() {
         return;
     }
     
+    console.log('🖨️ 인쇄 실행 시작:', {
+        printerName,
+        copies,
+        printUrl,
+        silent,
+        paperSize: currentPaperSize
+    });
+    
     showStatus('인쇄를 실행하는 중...', 'info');
     elements.printButton.disabled = true;
     
     try {
+        console.log('📤 메인 프로세스로 인쇄 요청 전송 중...');
         const result = await window.electronAPI.printUrl({
             url: printUrl,
             printerName: printerName,
@@ -349,6 +328,8 @@ async function executePrint() {
             silent: silent,
             paperSize: currentPaperSize // 용지 사이즈 정보 전달
         });
+        
+        console.log('📥 메인 프로세스 응답:', result);
         
         if (result.success) {
             if (result.message) {
@@ -365,9 +346,9 @@ async function executePrint() {
                 }
             }
             
-            // 인쇄 대화상자가 열린 후 즉시 앱 종료 (1초만 대기)
+            // 인쇄 대화상자가 열린 후 백그라운드로 이동 (1초만 대기)
             setTimeout(() => {
-                showStatus('🖨️ 인쇄 대화상자가 열렸습니다. WebPrinter를 종료합니다.', 'info');
+                showStatus('🖨️ 인쇄 대화상자가 열렸습니다. WebPrinter를 백그라운드로 이동합니다.', 'info');
                 setTimeout(() => {
                     closeApp();
                 }, 500); // 메시지 표시 후 0.5초만 더 대기
@@ -376,15 +357,28 @@ async function executePrint() {
             throw new Error(result.error);
         }
     } catch (error) {
-        console.error('인쇄 실패:', error);
-        showStatus('인쇄에 실패했습니다.', 'error');
+        console.error('❌ 인쇄 실패 (상세):', {
+            name: error.name,
+            message: error.message,
+            stack: error.stack
+        });
+        showStatus(`❌ 인쇄 실패: ${error.message || '알 수 없는 오류'}`, 'error');
         elements.printButton.disabled = false;
+        
+        // 디버깅을 위한 추가 정보
+        console.log('🔍 디버깅 정보:', {
+            receivedUrls,
+            printerName: elements.printerSelect.value,
+            printerOptions: Array.from(elements.printerSelect.options).map(opt => opt.value),
+            availablePrinters
+        });
     }
 }
 
-// 앱 종료
+// 앱을 백그라운드로 이동 (완전 종료하지 않음)
 function closeApp() {
-    window.electronAPI.quitApp();
+    console.log('🔄 앱을 백그라운드로 이동합니다...');
+    window.electronAPI.hideToBackground();
 }
 
 // UI 상태 업데이트

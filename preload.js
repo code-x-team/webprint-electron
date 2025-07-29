@@ -11,7 +11,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 서버 정보 API
   getServerInfo: () => ipcRenderer.invoke('get-server-info'),
   
-  // 앱 종료 API
+  // 앱 제어 API
+  hideToBackground: () => ipcRenderer.invoke('hide-to-background'),
   quitApp: () => ipcRenderer.invoke('quit-app'),
   
   // 업데이트 관련 API
@@ -40,5 +41,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   onUpdateDownloaded: (callback) => {
     ipcRenderer.on('update-downloaded', (event, info) => callback(info));
+  },
+  
+  onUpdateNotAvailable: (callback) => {
+    ipcRenderer.on('update-not-available', (event) => callback());
+  },
+  
+  onUpdateError: (callback) => {
+    ipcRenderer.on('update-error', (event, error) => callback(error));
   }
 }); 
