@@ -172,6 +172,18 @@
         
         <div class="status" id="status"></div>
         
+        <div class="version-info" id="version-info" style="
+            margin-top: 15px;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 6px;
+            font-size: 14px;
+            color: #666;
+            display: none;
+        ">
+            <strong>설치된 WebPrinter:</strong> <span id="installed-version">확인 중...</span>
+        </div>
+        
         <div class="install-guide" id="install-guide">
             <h3>📥 WebPrinter 설치 필요</h3>
             <p>WebPrinter가 설치되지 않았습니다. 아래 링크에서 다운로드하여 설치하세요:</p>
@@ -271,6 +283,9 @@
                         signal: AbortSignal.timeout(1000)
                     });
                     if (response.ok) {
+                        // 버전 정보도 함께 가져오기
+                        const statusData = await response.json();
+                        displayVersionInfo(statusData);
                         return port;
                     }
                 } catch (error) {
@@ -278,6 +293,32 @@
                 }
             }
             return null;
+        }
+
+        // 설치된 WebPrinter 버전 정보 표시
+        async function displayVersionInfo(statusData) {
+            const versionInfo = document.getElementById('version-info');
+            const installedVersion = document.getElementById('installed-version');
+            
+            if (statusData && statusData.version) {
+                installedVersion.textContent = `v${statusData.version} (${statusData.name || 'WebPrinter'})`;
+                versionInfo.style.display = 'block';
+                
+                // 최신 버전과 비교
+                try {
+                    const latestResponse = await fetch('https://api.github.com/repos/code-x-team/webprint-electron/releases/latest');
+                    const latestRelease = await latestResponse.json();
+                    const latestVersion = latestRelease.tag_name.replace('v', '');
+                    
+                    if (statusData.version !== latestVersion) {
+                        installedVersion.innerHTML += ` <span style="color: #ff6b35; font-weight: bold;">(최신: v${latestVersion})</span>`;
+                    } else {
+                        installedVersion.innerHTML += ` <span style="color: #28a745;">✓ 최신</span>`;
+                    }
+                } catch (error) {
+                    console.log('최신 버전 확인 실패:', error);
+                }
+            }
         }
 
         // URL 정보 전송
@@ -310,6 +351,20 @@
         function generateSessionId() {
             return 'web_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
         }
+
+        // 페이지 로드 시 WebPrinter 설치 여부 및 버전 확인
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                const port = await findWebPrinterServer();
+                if (port) {
+                    showStatus('WebPrinter가 실행 중입니다', 'success');
+                } else {
+                    showStatus('WebPrinter가 설치되지 않았거나 실행되지 않았습니다', 'info');
+                }
+            } catch (error) {
+                console.log('WebPrinter 상태 확인 실패:', error);
+            }
+        });
     </script>
 </body>
 </html> 

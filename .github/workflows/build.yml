@@ -29,6 +29,12 @@ jobs:
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 
+      - name: Set version from git tag
+        run: |
+          TAG_VERSION=${GITHUB_REF#refs/tags/v}
+          npm version $TAG_VERSION --no-git-tag-version
+          echo "Building version: $TAG_VERSION"
+
 
 
       - name: Build Electron app (macOS)

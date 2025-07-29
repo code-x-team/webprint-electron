@@ -1,6 +1,6 @@
 {
   "name": "web-printer",
-  "version": "1.0.0",
+  "version": "1.0.6",
   "description": "웹에서 호출되는 로컬 인쇄 프로그램",
   "main": "main.js",
   "scripts": {

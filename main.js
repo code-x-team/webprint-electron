@@ -103,7 +103,25 @@ function startHttpServer() {
     
     // 서버 상태 확인 엔드포인트
     app.get('/status', (req, res) => {
-      res.json({ status: 'running', session: currentSession });
+      const packageInfo = require('./package.json');
+      res.json({ 
+        status: 'running', 
+        session: currentSession,
+        version: packageInfo.version,
+        name: packageInfo.name
+      });
+    });
+
+    // 버전 정보 전용 엔드포인트
+    app.get('/version', (req, res) => {
+      const packageInfo = require('./package.json');
+      res.json({
+        version: packageInfo.version,
+        name: packageInfo.name,
+        description: packageInfo.description,
+        author: packageInfo.author,
+        homepage: `https://github.com/code-x-team/webprint-electron`
+      });
     });
     
     // 사용 가능한 포트 찾기 (50000-50010 범위)
@@ -240,8 +258,13 @@ async function createPrintWindow(sessionId = null) {
 
 // 자동 업데이트 설정
 function setupAutoUpdater() {
-  // 업데이트 체크 설정
+  // 더 적극적인 업데이트 체크 설정
   autoUpdater.checkForUpdatesAndNotify();
+  
+  // 5분마다 업데이트 체크
+  setInterval(() => {
+    autoUpdater.checkForUpdatesAndNotify();
+  }, 5 * 60 * 1000);
   
   // 개발 모드에서는 업데이트 비활성화
   if (process.env.NODE_ENV === 'development') {
