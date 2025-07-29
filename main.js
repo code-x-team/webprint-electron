@@ -352,6 +352,13 @@ app.whenReady().then(async () => {
     console.error('[DEBUG] ❌ HTTP 서버 시작 실패:', error);
   }
   
+  // 개발 모드에서는 자동으로 미리보기 창 열기
+  if (process.env.NODE_ENV !== 'production' && !app.isPackaged) {
+    console.log('[DEBUG] 🚀 개발 모드: 미리보기 창 자동 열기');
+    const devSessionId = await createPrintWindow();
+    console.log('[DEBUG] ✅ 개발 세션 생성됨:', devSessionId);
+  }
+  
   // 앱이 이미 실행 중일 때 프로토콜 호출 처리
   app.on('second-instance', (event, commandLine, workingDirectory) => {
     const protocolUrl = commandLine.find(arg => arg.startsWith('webprinter://'));
