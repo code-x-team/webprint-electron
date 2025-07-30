@@ -315,18 +315,8 @@
                 </div>
 
                 <div class="control-group">
-                    <label class="control-label" for="copies">매수:</label>
-                    <input type="number" class="control-input" id="copies" value="1" min="1" max="99">
-                </div>
-
-                <div class="control-group">
-                    <label class="control-label">
-                        <input type="checkbox" id="silent-print" style="margin-right: 8px;">
-                        🔇 바로 인쇄 (대화상자 없이)
-                    </label>
-                    <small style="display: block; margin-top: 4px; color: #666; font-size: 0.85rem;">
-                        ⚠️ 체크 시 확인 없이 즉시 인쇄됩니다 (최대 5매)
-                    </small>
+                    <label for="copies">📄 복사본 수:</label>
+                    <input type="number" id="copies" min="1" max="99" value="1">
                 </div>
 
                 <div class="status-message" id="status-message"></div>

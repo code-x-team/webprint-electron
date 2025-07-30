@@ -394,7 +394,6 @@ function startHttpServer() {
         const paperWidth = parseFloat(req.body.paper_width);
         const paperHeight = parseFloat(req.body.paper_height);
         const paperSize = req.body.paper_size || 'Custom';
-        const silentPrint = Boolean(req.body.silent_print); // Silent 인쇄 옵션
         const printSelector = req.body.print_selector || '#print_wrap'; // 기본값: #print_wrap
         
         // 용지 사이즈 검증
@@ -432,7 +431,6 @@ function startHttpServer() {
         }
         
         console.log(`📏 웹에서 전달받은 용지 사이즈: ${paperWidth}mm × ${paperHeight}mm (${paperSize})`);
-        console.log(`🔇 Silent 인쇄 모드: ${silentPrint ? '활성화' : '비활성화'}`);
         
         const urlData = {
           paperSize: {
@@ -440,7 +438,6 @@ function startHttpServer() {
             width: paperWidth,
             height: paperHeight
           },
-          silentPrint: silentPrint,  // Silent 모드 저장
           printSelector: printSelector  // 인쇄 영역 선택자 저장
         };
         
@@ -1063,12 +1060,12 @@ ipcMain.handle('get-printers', async () => {
   }
 });
 
-// 인쇄 실행 (커스텀 용지 사이즈 지원 개선)
+// 인쇄 실행 (안정화된 일반 인쇄 전용)
 ipcMain.handle('print-url', async (event, options) => {
   let tempPrintWindow = null;
   
   try {
-    const { url, printerName, copies = 1, silent = false, paperSize = null, printSelector = '#print_wrap' } = options;
+    const { url, printerName, copies = 1, paperSize = null, printSelector = '#print_wrap' } = options;
     
     if (!url) {
       throw new Error('인쇄할 URL이 없습니다');
@@ -1076,8 +1073,8 @@ ipcMain.handle('print-url', async (event, options) => {
     
     console.log(`🖨️ Electron 인쇄 시작: ${url}`);
     console.log(`📏 용지 사이즈: ${paperSize?.width}mm × ${paperSize?.height}mm`);
-    console.log(`🔇 Silent 모드: ${silent ? '활성화 (바로 인쇄)' : '비활성화 (대화상자 표시)'}`);
     console.log(`🎯 인쇄 영역: ${printSelector}`);
+    console.log(`📄 복사본: ${copies}매`);
     
     // 프린트 윈도우 생성
     tempPrintWindow = new BrowserWindow({
@@ -1102,32 +1099,82 @@ ipcMain.handle('print-url', async (event, options) => {
     
     tempPrintWindow.on('closed', () => tempPrintWindow = null);
     
-    // URL 로딩
+    // URL 로딩 (타임아웃 추가)
     console.log('📄 URL 로딩 중...');
     
     try {
-      await tempPrintWindow.loadURL(url);
+      // 30초 타임아웃으로 URL 로딩
+      await Promise.race([
+        tempPrintWindow.loadURL(url),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('URL 로딩 타임아웃 (30초)')), 30000)
+        )
+      ]);
       console.log('✅ URL 로딩 완료');
     } catch (loadError) {
-      console.error('❌ URL 로딩 실패:', loadError);
-      throw loadError;
+      console.error('❌ URL 로딩 실패:', loadError.message);
+      throw new Error(`URL 로딩 실패: ${loadError.message}`);
     }
     
-    // 페이지 완전 로딩 대기
-    console.log('⏳ 페이지 렌더링 대기 중...');
-    await tempPrintWindow.webContents.executeJavaScript(`
-      new Promise((resolve) => {
-        if (document.readyState === 'complete') {
-          setTimeout(resolve, 2000); // 2초 추가 대기
-        } else {
-          window.addEventListener('load', () => {
-            setTimeout(resolve, 2000); // 2초 추가 대기
-          });
-        }
-      })
-    `);
+    // 페이지 완전 로딩 대기 (개선된 버전)
+    console.log('⏳ 페이지 렌더링 및 JavaScript 실행 대기 중...');
     
-    console.log('✅ 페이지 렌더링 완료');
+    try {
+      await Promise.race([
+        tempPrintWindow.webContents.executeJavaScript(`
+          new Promise((resolve) => {
+            // DOM 상태 확인 함수
+            const checkPageReady = () => {
+              const isReady = document.readyState === 'complete';
+              const hasBody = !!document.body;
+              const bodyHasContent = document.body && document.body.innerHTML.length > 100;
+              
+              console.log('📊 페이지 상태:', {
+                readyState: document.readyState,
+                hasBody: hasBody,
+                bodyContentLength: document.body?.innerHTML?.length || 0,
+                title: document.title || 'no title'
+              });
+              
+              return isReady && hasBody && bodyHasContent;
+            };
+            
+            // 이미 준비되었으면 추가 대기
+            if (checkPageReady()) {
+              console.log('✅ 페이지가 이미 준비됨 - 1초 추가 대기');
+              setTimeout(resolve, 1000);
+            } else {
+              // 로드 이벤트 대기
+              const handleLoad = () => {
+                console.log('✅ 로드 이벤트 발생 - 2초 추가 대기');
+                setTimeout(resolve, 2000);
+              };
+              
+              if (document.readyState === 'complete') {
+                handleLoad();
+              } else {
+                window.addEventListener('load', handleLoad, { once: true });
+                
+                // DOMContentLoaded도 함께 대기
+                if (document.readyState === 'loading') {
+                  document.addEventListener('DOMContentLoaded', () => {
+                    console.log('✅ DOMContentLoaded 완료');
+                  }, { once: true });
+                }
+              }
+            }
+          })
+        `),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('페이지 렌더링 타임아웃 (15초)')), 15000)
+        )
+      ]);
+      
+      console.log('✅ 페이지 렌더링 및 JavaScript 실행 완료');
+    } catch (renderError) {
+      console.warn('⚠️ 페이지 렌더링 타임아웃 - 현재 상태로 진행:', renderError.message);
+      // 타임아웃이어도 진행 (부분적으로 로드된 페이지라도 인쇄 시도)
+    }
     
     // 선택적 인쇄 처리 (#print_wrap 요소 확인)
     console.log(`🎯 인쇄 영역 적용 중: ${printSelector}`);
@@ -1136,19 +1183,48 @@ ipcMain.handle('print-url', async (event, options) => {
       const elementFound = await tempPrintWindow.webContents.executeJavaScript(`
         (() => {
           const selector = '${printSelector.replace(/'/g, "\\'")}'; // 문자열 이스케이프
-          console.log('🔍 선택자 검색 중:', selector);
+          console.log('🔍 선택자 검색 시작:', selector);
           
           try {
+            // DOM 완전 로드 확인
+            if (document.readyState !== 'complete') {
+              console.warn('⚠️ DOM이 아직 완전히 로드되지 않았습니다');
+            }
+            
+            // 요소 검색
             const targetElement = document.querySelector(selector);
             
             if (!targetElement) {
-              console.warn('⚠️ #print_wrap 요소를 찾을 수 없습니다. 전체 페이지를 인쇄합니다.');
+              console.warn('⚠️ ${printSelector} 요소를 찾을 수 없습니다.');
+              console.log('📄 페이지 구조 분석:');
+              console.log('- 전체 body HTML 길이:', document.body?.innerHTML?.length || 0);
+              console.log('- ID가 있는 요소들:', Array.from(document.querySelectorAll('[id]')).map(el => '#' + el.id).slice(0, 10));
+              console.log('- 클래스가 있는 요소들:', Array.from(document.querySelectorAll('[class]')).map(el => '.' + el.className.split(' ')[0]).slice(0, 10));
+              
               return { success: false, error: '요소를 찾을 수 없음', fallbackToFullPage: true };
             }
             
-            console.log('✅ 대상 요소 발견:', targetElement.tagName);
+                         console.log('✅ 대상 요소 발견:', {
+               tagName: targetElement.tagName,
+               id: targetElement.id || 'none',
+               className: targetElement.className || 'none',
+               contentLength: targetElement.innerHTML?.length || 0
+             });
             
-            // 1. 인쇄용 스타일 생성
+            // 요소가 비어있는지 확인
+            const hasContent = targetElement.innerHTML.trim().length > 0 || targetElement.textContent.trim().length > 0;
+            if (!hasContent) {
+              console.warn('⚠️ 대상 요소가 비어있습니다. 전체 페이지를 인쇄합니다.');
+              return { success: false, error: '요소가 비어있음', fallbackToFullPage: true };
+            }
+            
+            // 기존 스타일 제거 (중복 방지)
+            const existingStyle = document.getElementById('webprinter-selective-print');
+            if (existingStyle) {
+              existingStyle.remove();
+            }
+            
+            // 인쇄용 스타일 생성
             const printStyle = document.createElement('style');
             printStyle.id = 'webprinter-selective-print';
             printStyle.textContent = \`
@@ -1181,61 +1257,38 @@ ipcMain.handle('print-url', async (event, options) => {
                 .webprinter-print-target * {
                   visibility: visible !important;
                 }
+                
+                /* 부모 요소 경로 표시 */
+                .webprinter-parent-visible {
+                  display: block !important;
+                  visibility: visible !important;
+                  opacity: 1 !important;
+                }
               }
             \`;
             document.head.appendChild(printStyle);
             
-            // 2. 대상 요소에 특별 클래스 추가
+            // 대상 요소에 클래스 추가
             targetElement.classList.add('webprinter-print-target');
             
-            // 3. 부모 요소들에도 표시 클래스 추가 (경로 확보)
+            // 부모 요소 경로 확보
             let parent = targetElement.parentElement;
-            while (parent && parent !== document.body) {
-              parent.style.setProperty('display', 'block', 'important');
+            let parentCount = 0;
+            while (parent && parent !== document.body && parentCount < 20) {
+              parent.classList.add('webprinter-parent-visible');
               parent = parent.parentElement;
+              parentCount++;
             }
             
-            console.log('🎨 선택적 인쇄 스타일 적용 완료');
+            console.log('🎨 선택적 인쇄 스타일 적용 완료 (부모 요소 ' + parentCount + '개 처리)');
             
-            return { 
-              success: true, 
-              elementTag: targetElement.tagName,
-              elementId: targetElement.id || '',
-              elementClass: targetElement.className || ''
-            };
-            
-          } catch (error) {
-            console.error('❌ 선택자 처리 오류:', error);
-            return { success: false, error: error.message };
-          }
-        })()
-      `);
-      
-      if (elementFound.success) {
-        console.log(`✅ 선택적 인쇄 설정 완료:`, elementFound);
-      } else if (elementFound.fallbackToFullPage) {
-        console.log(`⚠️ #print_wrap을 찾을 수 없어 전체 페이지를 인쇄합니다.`);
-      } else {
-        console.warn(`⚠️ 선택적 인쇄 실패: ${elementFound.error}`);
-        // 실패해도 전체 페이지 인쇄로 계속 진행
-      }
-      
-    } catch (jsError) {
-      console.error('❌ 선택적 인쇄 JavaScript 실행 실패:', jsError);
-      // 실패해도 전체 페이지 인쇄로 계속 진행
-    }
-    
     // 프린터 목록 가져오기
     let printers = [];
     let selectedPrinter = null;
     
     try {
       printers = await tempPrintWindow.webContents.getPrintersAsync();
-      console.log(`📋 사용 가능한 프린터: ${printers.length}개`);
-      
-      if (silent && printers.length === 0) {
-        throw new Error('Silent 모드에서 사용 가능한 프린터가 없습니다.');
-      }
+      console.log(`📋 사용 가능한 프린터: ${printers.length}대`);
       
       // 프린터 선택 로직 개선
       if (printerName && printers.length > 0) {
@@ -1262,54 +1315,35 @@ ipcMain.handle('print-url', async (event, options) => {
         }
       }
       
-      if (silent && !selectedPrinter) {
-        throw new Error('Silent 모드에서 사용할 프린터를 찾을 수 없습니다.');
-      }
-      
     } catch (e) {
       console.warn('프린터 목록 조회 실패:', e.message);
-      if (silent) {
-        throw new Error(`Silent 모드 실패: ${e.message}`);
-      }
+      // 프린터 목록 조회 실패 시 사용자가 대화상자에서 직접 선택
     }
     
-    // 인쇄 옵션 설정 (Silent 모드 최적화)
+    // 인쇄 옵션 설정 (일반 인쇄 전용)
     const printOptions = {
-      silent: silent,
+      silent: false,  // 항상 대화상자 표시
       printBackground: true,
       color: true,
       margins: {
-        marginType: silent ? 'none' : 'default'  // Silent 모드에서는 여백 최소화
+        marginType: 'default'
       },
       landscape: false,
-      copies: Math.max(1, Math.min(copies, silent ? 5 : 100)),  // Silent 모드에서는 최대 5매 제한
+      copies: Math.max(1, Math.min(copies, 10)),  // 최대 10매 제한
       collate: true,
       scaleFactor: 100,
-      duplexMode: 'simplex'  // 단면 인쇄
+      duplexMode: 'simplex',  // 단면 인쇄
+      shouldPrintBackgrounds: true,
+      shouldPrintSelectionOnly: false
     };
-    
-    // Silent 모드 추가 설정
-    if (silent) {
-      printOptions.shouldPrintBackgrounds = true;
-      printOptions.shouldPrintSelectionOnly = false;
-      
-      // 안전장치: Silent 모드에서는 복사본 제한
-      if (printOptions.copies > 5) {
-        console.warn('⚠️ Silent 모드에서 복사본이 5매로 제한됩니다.');
-        printOptions.copies = 5;
-      }
-    }
     
     // 프린터 지정
     if (selectedPrinter) {
       printOptions.deviceName = selectedPrinter.name;
       console.log(`🖨️ 사용할 프린터: ${selectedPrinter.name}`);
-      
-      // Silent 모드에서는 프린터 상태 추가 확인
-      if (silent) {
-        console.log(`📊 프린터 상태: ${selectedPrinter.status || '알 수 없음'}`);
-        console.log(`🔧 프린터 설명: ${selectedPrinter.description || '없음'}`);
-      }
+      console.log(`📊 프린터 상태: ${selectedPrinter.status || '알 수 없음'}`);
+    } else {
+      console.log(`🖨️ 프린터 미지정 - 사용자가 대화상자에서 선택`);
     }
     
     // 커스텀 용지 사이즈 설정 (중요!)
@@ -1358,18 +1392,11 @@ ipcMain.handle('print-url', async (event, options) => {
     
     console.log('🖨️ 최종 프린트 옵션:', JSON.stringify(printOptions, null, 2));
     
-    // Silent 모드 추가 로그
-    if (silent) {
-      console.log('🔇 Silent 모드 활성화 - 사용자 확인 없이 즉시 인쇄를 시작합니다.');
-      console.log(`📋 인쇄 매수: ${printOptions.copies}매`);
-      console.log(`🎯 대상 프린터: ${printOptions.deviceName || '시스템 기본값'}`);
-    }
-    
     // 프린트 실행
     return new Promise((resolve, reject) => {
       console.log('🚀 프린트 명령 실행...');
       
-      const timeoutDuration = silent ? 30000 : 60000;  // Silent 모드에서는 30초 타임아웃
+      const timeoutDuration = 60000;  // 60초 타임아웃
       const timeoutId = setTimeout(() => {
         cleanupWindow();
         reject(new Error(`프린트 실행 타임아웃 (${timeoutDuration/1000}초)`));
@@ -1382,37 +1409,28 @@ ipcMain.handle('print-url', async (event, options) => {
           console.log('=== 인쇄 결과 ===');
           console.log('성공 여부:', success);
           console.log('실패 이유:', failureReason);
-          console.log('Silent 모드:', silent);
           console.log('================');
           
-          // 창 정리
-          setTimeout(cleanupWindow, silent ? 500 : 1000);  // Silent 모드에서는 빠른 정리
+          // 창 정리 (1초 후)
+          setTimeout(cleanupWindow, 1000);
           
           if (success) {
-            const resultMessage = silent 
-              ? '바로 인쇄가 완료되었습니다.' 
-              : '프린트 대화상자가 열렸습니다.';
+            const resultMessage = '프린트 대화상자가 열렸습니다.';
               
             console.log(`✅ ${resultMessage}`);
             resolve({
               success: true,
               message: resultMessage,
-              method: silent ? 'Silent 자동 인쇄' : 'Electron 대화상자 인쇄',
+              method: 'Electron 대화상자 인쇄',
               printerName: selectedPrinter?.name || '기본 프린터',
               paperSize: `${paperSize.width}mm × ${paperSize.height}mm`,
               copies: printOptions.copies,
-              silent: silent,
               printSelector: printSelector === '#print_wrap' ? '#print_wrap (기본)' : printSelector
             });
           } else {
             const errorMsg = failureReason || '사용자가 취소했거나 알 수 없는 오류';
             console.error('❌ 프린트 실패:', errorMsg);
-            
-            if (silent) {
-              reject(new Error(`Silent 인쇄 실패: ${errorMsg}`));
-            } else {
-              reject(new Error(`프린트 실패: ${errorMsg}`));
-            }
+            reject(new Error(`프린트 실패: ${errorMsg}`));
           }
         });
         
@@ -1434,7 +1452,7 @@ ipcMain.handle('print-url', async (event, options) => {
     return { 
       success: false, 
       error: error.message,
-      method: options.silent ? 'Silent 자동 인쇄' : 'Electron 대화상자 인쇄'
+      method: 'Electron 대화상자 인쇄'
     };
   }
 });

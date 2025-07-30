@@ -13,7 +13,6 @@ const elements = {
     printerSelect: document.getElementById('printer-select'),
     refreshPrintersBtn: document.getElementById('refresh-printers'),
     copiesInput: document.getElementById('copies'),
-    silentPrintCheckbox: document.getElementById('silent-print'),
     statusMessage: document.getElementById('status-message'),
     printButton: document.getElementById('print-button'),
     cancelButton: document.getElementById('cancel-button')
@@ -480,14 +479,9 @@ async function handleUrlsReceived() {
         `;
     }
     
-    // Silent 인쇄 옵션 반영
+    // Silent 인쇄 정보 표시 (로그만)
     if (typeof receivedUrls.silentPrint === 'boolean') {
-        elements.silentPrintCheckbox.checked = receivedUrls.silentPrint;
-        console.log(`🔇 Silent 인쇄 모드: ${receivedUrls.silentPrint ? '활성화' : '비활성화'}`);
-        
-        if (receivedUrls.silentPrint) {
-            showToast('🔇 웹에서 바로 인쇄 모드가 요청되었습니다', 'warning', 3000);
-        }
+        console.log(`ℹ️ 웹에서 전달된 Silent 설정: ${receivedUrls.silentPrint} (무시됨 - 일반 인쇄만 지원)`);
     }
     
     // 인쇄 영역 선택자 표시
@@ -724,44 +718,37 @@ function updatePrinterSelect() {
 
 
 
+// 인쇄 중복 실행 방지 플래그
+let isPrinting = false;
+
 // 인쇄 실행
 async function executePrint() {
+    // 중복 실행 방지
+    if (isPrinting) {
+        showToast('⚠️ 이미 인쇄가 진행 중입니다', 'warning', 3000);
+        console.warn('⚠️ 인쇄 중복 실행 방지');
+        return;
+    }
+    
+    // 필수 정보 확인
+    if (!receivedUrls.printUrl) {
+        showToast('❌ 인쇄할 URL이 없습니다', 'error', 5000);
+        return;
+    }
+
     const printerName = elements.printerSelect.value;
     const copies = parseInt(elements.copiesInput.value) || 1;
-    const silent = elements.silentPrintCheckbox.checked; // 체크박스에서 읽기
+    const silent = false; // 기본값 설정 (일반 인쇄만 사용)
     
-    console.log(`🖨️ 인쇄 실행 준비: silent=${silent}, copies=${copies}, printer=${printerName}`);
+    console.log(`🖨️ 인쇄 실행 준비: copies=${copies}, printer=${printerName}`);
     
-    // Silent 모드 안전장치
-    if (silent) {
-        const maxSilentCopies = 5;
-        if (copies > maxSilentCopies) {
-            showToast(`⚠️ 바로 인쇄는 최대 ${maxSilentCopies}매까지만 가능합니다`, 'warning', 4000);
-            elements.copiesInput.value = maxSilentCopies;
-            return;
-        }
-        
-        // 사용자 최종 확인 (Silent 모드 첫 사용 시)
-        const silentWarningShown = localStorage.getItem('webprinter-silent-warning-shown');
-        if (!silentWarningShown) {
-            const confirmed = confirm(
-                '⚠️ 바로 인쇄 모드 안내\n\n' +
-                '• 프린트 대화상자 없이 즉시 인쇄됩니다\n' +
-                '• 프린터와 용지 설정을 미리 확인하세요\n' +
-                '• 최대 5매까지만 인쇄 가능합니다\n\n' +
-                '계속 진행하시겠습니까?'
-            );
-            
-            if (!confirmed) {
-                elements.silentPrintCheckbox.checked = false;
-                showToast('🔇 바로 인쇄가 취소되었습니다', 'info', 3000);
-                return;
-            }
-            
-            localStorage.setItem('webprinter-silent-warning-shown', 'true');
-        }
-        
-        showToast('🔇 바로 인쇄 모드 - 즉시 인쇄를 시작합니다', 'warning', 3000);
+    // 인쇄 플래그 설정
+    isPrinting = true;
+    
+    // 버튼 비활성화
+    if (elements.printButton) {
+        elements.printButton.disabled = true;
+        elements.printButton.textContent = '🔄 인쇄 중...';
     }
     
     // 인쇄 전 IPC 통신 상태 재확인
@@ -797,7 +784,6 @@ async function executePrint() {
         
         showToast('🖨️ 인쇄 요청 전송 중...', 'info', 3000);
         showStatus('🖨️ 웹페이지 로딩 및 프린트 준비 중...', 'info');
-        elements.printButton.disabled = true;
         
         // 진행 상태를 단계별로 표시
         setTimeout(() => {
@@ -822,7 +808,6 @@ async function executePrint() {
                 url: printUrl,
                 printerName: printerName,
                 copies: copies,
-                silent: silent,
                 paperSize: currentPaperSize, // 용지 사이즈 정보 전달
                 printSelector: receivedUrls.printSelector // 선택적 인쇄 영역 정보 전달
             });
@@ -830,40 +815,27 @@ async function executePrint() {
             console.log('📥 Electron 직접 프린트 응답:', result);
             
             if (result.success) {
-                const toastMessage = result.silent 
-                    ? '✅ 바로 인쇄가 완료되었습니다!' 
-                    : '✅ 프린트 대화상자가 열렸습니다!';
-                    
-                showToast(toastMessage, 'success', 4000);
-                showStatus(`✅ ${result.message}`, 'success');
+                console.log('✅ 인쇄 작업이 성공적으로 시작되었습니다:', result);
+                showToast('🖨️ 인쇄 작업이 시작되었습니다!', 'success', 4000);
                 
-                // 추가 정보 표시
+                // 성공 정보 표시
                 const statusElement = document.getElementById('status');
                 if (statusElement) {
-                    statusElement.innerHTML += `<br><small>📋 방식: ${result.method}</small>`;
-                    statusElement.innerHTML += `<br><small>🖨️ 프린터: ${result.printerName}</small>`;
-                    statusElement.innerHTML += `<br><small>📏 용지: ${result.paperSize}</small>`;
-                    statusElement.innerHTML += `<br><small>📄 매수: ${result.copies}매</small>`;
-                    if (result.silent) {
-                        statusElement.innerHTML += `<br><small>🔇 바로 인쇄 모드</small>`;
-                    }
+                    statusElement.innerHTML = `
+                        <strong>✅ 인쇄 시작 완료</strong><br>
+                        🖨️ 프린터: ${result.printerName}<br>
+                        📄 복사본: ${result.copies}매<br>
+                        📄 용지: ${result.paperSize}
+                    `;
                     if (result.printSelector) {
                         statusElement.innerHTML += `<br><small>🎯 인쇄 영역: ${result.printSelector}</small>`;
                     }
                 }
                 
-                // 백그라운드 이동 타이밍 조정
-                const delayTime = result.silent ? 500 : 1000;  // Silent 모드에서는 더 빨리
-                const finalMessage = result.silent 
-                    ? '🖨️ 바로 인쇄가 완료되었습니다. WebPrinter를 백그라운드로 이동합니다.'
-                    : '🖨️ 인쇄 대화상자가 열렸습니다. WebPrinter를 백그라운드로 이동합니다.';
-                
+                // 인쇄 시작 후 창 숨기기 (1초 후)
                 setTimeout(() => {
-                    showStatus(finalMessage, 'info');
-                    setTimeout(() => {
-                        closeApp();
-                    }, result.silent ? 300 : 500);  // Silent 모드에서는 더 빨리 닫기
-                }, delayTime);
+                    closeApp();
+                }, 1000);
             } else {
                 throw new Error(result.error);
             }
@@ -895,6 +867,17 @@ async function executePrint() {
         
         // IPC 복구 시도
         attemptIpcRecovery();
+    } finally {
+        // 인쇄 플래그 리셋
+        isPrinting = false;
+        
+        // 버튼 상태 복원
+        if (elements.printButton) {
+            elements.printButton.disabled = false;
+            elements.printButton.textContent = '🖨️ 인쇄하기';
+        }
+        
+        console.log('🔄 인쇄 프로세스 정리 완료');
     }
 }
 
