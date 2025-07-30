@@ -2,25 +2,60 @@
 ;; electron-builder 호환 버전
 
 !macro customInstall
-  ; 설치 전 기존 프로세스 종료
-  DetailPrint "기존 WebPrinter 프로세스 확인 중..."
+  ; 설치 전 기존 프로세스 종료 (강화된 버전)
+  DetailPrint "기존 WebPrinter 프로세스 강제 종료 중..."
   
-  ; 모든 가능한 프로세스명으로 종료 시도
+  ; 1단계: 기본 taskkill
   nsExec::ExecToLog 'taskkill /f /im "WebPrinter.exe" /t'
   nsExec::ExecToLog 'taskkill /f /im "web-printer.exe" /t'
   nsExec::ExecToLog 'taskkill /f /im "webprint*.exe" /t'
+  nsExec::ExecToLog 'taskkill /f /im "electron.exe" /t'
   
-  ; 포트 점유 프로세스 확인 및 종료 (18731-18740)
-  DetailPrint "포트 점유 확인 중..."
-  nsExec::ExecToLog 'cmd /c "for /l %i in (18731,1,18740) do netstat -ano | findstr :%i | findstr LISTENING"'
+  ; 2단계: WMI를 통한 강제 종료
+  DetailPrint "WMI를 통한 프로세스 강제 종료..."
+  nsExec::ExecToLog 'wmic process where "name like ''%webprint%''" delete'
+  nsExec::ExecToLog 'wmic process where "name like ''%WebPrinter%''" delete'
+  nsExec::ExecToLog 'wmic process where "CommandLine like ''%webprinter%''" delete'
   
-  ; 잠시 대기 (프로세스 종료 완료)
-  Sleep 3000
+  ; 3단계: 서비스 확인 및 종료
+  DetailPrint "WebPrinter 서비스 확인 및 중지..."
+  nsExec::ExecToLog 'sc stop "WebPrinter" 2>nul'
+  nsExec::ExecToLog 'sc stop "web-printer" 2>nul'
+  nsExec::ExecToLog 'sc delete "WebPrinter" 2>nul'
+  nsExec::ExecToLog 'sc delete "web-printer" 2>nul'
   
-  ; 레지스트리 정리 (이전 설치 흔적)
+  ; 4단계: 포트 점유 프로세스 강제 종료
+  DetailPrint "포트 점유 프로세스 강제 종료..."
+  nsExec::ExecToLog 'cmd /c "for /l %i in (18731,1,18740) do (for /f "tokens=5" %p in (''netstat -ano ^| findstr :%i'') do taskkill /f /pid %p 2>nul)"'
+  
+  ; 5단계: Node.js 프로세스 정리
+  DetailPrint "Node.js 프로세스 정리..."
+  nsExec::ExecToLog 'wmic process where "CommandLine like ''%18731%'' or CommandLine like ''%18732%'' or CommandLine like ''%18733%''" delete'
+  
+  ; 6단계: 충분한 대기 시간
+  DetailPrint "프로세스 종료 대기 중... (10초)"
+  Sleep 5000
+  DetailPrint "프로세스 종료 확인 중... (5초 더)"
+  Sleep 5000
+  
+  ; 7단계: 레지스트리 정리 (이전 설치 흔적)
   DetailPrint "이전 설치 흔적 정리 중..."
   DeleteRegKey HKCU "Software\WebPrinter"
   DeleteRegKey HKLM "Software\WebPrinter"
+  DeleteRegKey HKCU "Software\Classes\webprinter"
+  DeleteRegKey HKLM "Software\Classes\webprinter"
+  DeleteRegKey HKCR "webprinter"
+  
+  ; 8단계: 시작 프로그램에서 제거
+  DetailPrint "기존 시작 프로그램 제거..."
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "WebPrinter"
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "web-printer"
+  DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "WebPrinter"
+  DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "web-printer"
+  
+  ; 9단계: 파일 잠금 해제
+  DetailPrint "파일 잠금 해제 시도..."
+  nsExec::ExecToLog 'cmd /c "handle -p WebPrinter -y 2>nul || echo 파일 핸들 확인 완료"'
   
   DetailPrint "WebPrinter 설치를 시작합니다..."
 !macroend

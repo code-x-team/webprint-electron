@@ -250,12 +250,46 @@ function cleanupAndExit(reason = '수동 종료') {
 
 // 시스템 트레이 생성 (개선된 버전)
 function createTray() {
-  if (process.platform === 'win32' || process.platform === 'linux') {
-    const iconPath = path.join(__dirname, 'icon.png'); // 트레이 아이콘 필요
+  try {
+    let iconPath;
     
-    try {
-      tray = new Tray(iconPath);
-      const contextMenu = Menu.buildFromTemplate([
+    // 플랫폼별 아이콘 경로 설정
+    if (process.platform === 'win32') {
+      // Windows - 여러 경로 시도
+      const possiblePaths = [
+        path.join(__dirname, 'icon-32.png'),  // 작은 아이콘 우선
+        path.join(__dirname, 'icon.png'),
+        path.join(process.resourcesPath, 'icon-32.png'),
+        path.join(process.resourcesPath, 'icon.png')
+      ];
+      
+      iconPath = possiblePaths.find(p => {
+        try {
+          return require('fs').existsSync(p);
+        } catch {
+          return false;
+        }
+      }) || possiblePaths[0]; // 없으면 첫 번째 경로 사용
+      
+    } else if (process.platform === 'linux') {
+      iconPath = path.join(__dirname, 'icon.png');
+    } else {
+      // macOS는 트레이 아이콘 생성하지 않음 (Dock 사용)
+      console.log('🍎 macOS - Dock 아이콘 사용, 트레이 아이콘 생성 안함');
+      return;
+    }
+    
+    console.log('🎯 트레이 아이콘 경로:', iconPath);
+    
+    // 파일 존재 확인
+    if (!require('fs').existsSync(iconPath)) {
+      console.warn('⚠️ 트레이 아이콘 파일이 없음:', iconPath);
+      console.log('📁 현재 디렉토리:', __dirname);
+      console.log('📂 파일 목록:', require('fs').readdirSync(__dirname).filter(f => f.includes('icon')));
+    }
+    
+    tray = new Tray(iconPath);
+    const contextMenu = Menu.buildFromTemplate([
         {
           label: '📂 WebPrinter 열기',
           click: () => {
@@ -486,9 +520,10 @@ function startHttpServer() {
         const paperSize = req.body.paper_size || 'Custom';
         const printSelector = req.body.print_selector || '#print_wrap'; // 기본값: #print_wrap
         
-        // 용지 사이즈 검증 (엄격)
+        // 용지 사이즈 검증 (완화된 버전)
         if (isNaN(paperWidth) || isNaN(paperHeight)) {
           console.error('❌ 용지 사이즈가 숫자가 아님:', { paperWidth, paperHeight });
+          console.error('❌ 원본 데이터:', { paper_width: req.body.paper_width, paper_height: req.body.paper_height });
           return res.status(400).json({ 
             error: 'paper_width와 paper_height는 숫자여야 합니다.',
             received: { paper_width: req.body.paper_width, paper_height: req.body.paper_height }
@@ -503,27 +538,19 @@ function startHttpServer() {
           });
         }
         
-        // 용지 크기 범위 검증
-        const minSize = 10; // 최소 10mm
-        const maxSize = 2000; // 최대 2000mm
+        // 용지 크기 범위 검증 (경고만 출력, 중단하지 않음)
+        const minSize = 5; // 최소 5mm (완화)
+        const maxSize = 3000; // 최대 3000mm (완화)
         
         if (paperWidth < minSize || paperHeight < minSize) {
-          console.error('❌ 용지 사이즈가 너무 작음:', { paperWidth, paperHeight, minSize });
-          return res.status(400).json({ 
-            error: `용지 크기가 너무 작습니다. 최소 ${minSize}mm 이상이어야 합니다.`,
-            received: { paperWidth, paperHeight },
-            requirement: { minSize }
-          });
+          console.warn('⚠️ 용지 사이즈가 작음 (계속 진행):', { paperWidth, paperHeight, minSize });
         }
         
         if (paperWidth > maxSize || paperHeight > maxSize) {
-          console.error('❌ 용지 사이즈가 너무 큼:', { paperWidth, paperHeight, maxSize });
-          return res.status(400).json({ 
-            error: `용지 크기가 너무 큽니다. 최대 ${maxSize}mm 이하여야 합니다.`,
-            received: { paperWidth, paperHeight },
-            requirement: { maxSize }
-          });
+          console.warn('⚠️ 용지 사이즈가 큼 (계속 진행):', { paperWidth, paperHeight, maxSize });
         }
+        
+        console.log('✅ 용지 크기 검증 통과:', { paperWidth, paperHeight });
         
         // CSS 선택자 기본 검증 (보안 목적)
         if (printSelector && printSelector !== '#print_wrap') {
@@ -1302,17 +1329,19 @@ ipcMain.handle('print-url', async (event, options) => {
       throw new Error(`용지 크기가 유효하지 않습니다. width: ${paperSize.width}mm, height: ${paperSize.height}mm. 양수 값이어야 합니다.`);
     }
     
-    // 용지 크기 범위 검증 (너무 작거나 큰 값 방지)
-    const minSize = 10; // 최소 10mm
-    const maxSize = 2000; // 최대 2000mm (A0 용지도 841×1189mm)
+    // 용지 크기 범위 검증 (경고만 출력, 중단하지 않음)
+    const minSize = 5; // 최소 5mm (완화)
+    const maxSize = 3000; // 최대 3000mm (완화)
     
     if (paperSize.width < minSize || paperSize.height < minSize) {
-      throw new Error(`용지 크기가 너무 작습니다. width: ${paperSize.width}mm, height: ${paperSize.height}mm. 최소 ${minSize}mm 이상이어야 합니다.`);
+      console.warn(`⚠️ 용지 크기가 작음 (계속 진행): width: ${paperSize.width}mm, height: ${paperSize.height}mm. 권장 최소: ${minSize}mm`);
     }
     
     if (paperSize.width > maxSize || paperSize.height > maxSize) {
-      throw new Error(`용지 크기가 너무 큽니다. width: ${paperSize.width}mm, height: ${paperSize.height}mm. 최대 ${maxSize}mm 이하여야 합니다.`);
+      console.warn(`⚠️ 용지 크기가 큼 (계속 진행): width: ${paperSize.width}mm, height: ${paperSize.height}mm. 권장 최대: ${maxSize}mm`);
     }
+    
+    console.log('✅ 용지 크기 검증 통과:', { width: paperSize.width, height: paperSize.height });
     
     // printSelector 안전 처리
     const safePrintSelector = printSelector || '#print_wrap';
@@ -1487,33 +1516,40 @@ ipcMain.handle('print-url', async (event, options) => {
         '    // CSS 텍스트를 배열로 구성 후 조인',
         '    const cssRules = [',
         '      "@media print {",',
-        '      "  /* 용지 크기 설정 */",',
-        '      "  @page { size: ${effectiveWidth}mm ${effectiveHeight}mm; margin: 0; }",',
+        '      "  /* A4 용지 설정 (모든 여백 제거) */",',
+        '      "  @page { size: A4; margin: 0; }",',
         '      "  ",',
         '      "  /* 모든 요소 숨기기 */",',
         '      "  body > * { display: none !important; }",',
         '      "  ",',
-        '      "  /* 선택된 요소와 부모 경로만 표시 */",',
-        '      "  body { ",',
+        '      "  /* body 설정: A4 용지 기준 */",',
+        '      "  html, body { ",',
         '      "    margin: 0 !important; ",',
         '      "    padding: 0 !important; ",',
+        '      "    width: 210mm !important; ",',
+        '      "    height: 297mm !important; ",',
         '      "    transform: rotate(180deg) !important; ",',
         '      "    transform-origin: 50% 50% !important; ",',
-        '      "    width: 100% !important; ",',
-        '      "    height: 100% !important; ",',
+        '      "    position: relative !important;",',
+        '      "    background: white !important;",
         '      "  }",',
         '      "  ",',
+        '      "  /* 선택된 인쇄 영역: 가로 중앙, 세로 맨위 배치 */",',
         '      "  .webprinter-print-target {",',
         '      "    display: block !important;",',
         '      "    visibility: visible !important;",',
         '      "    opacity: 1 !important;",',
-        '      "    position: static !important;",',
-        '      "    width: 100% !important;",',
-        '      "    height: auto !important;",',
-        '      "    margin: 0 !important;",',
-        '      "    padding: 10px !important;",',
-        '      "    background: white !important;",',
-        '      "    color: black !important;",',
+        '      "    position: absolute !important;",',
+        '      "    top: 0 !important;",
+        '      "    left: 50% !important;",
+        '      "    transform: translateX(-50%) !important;",
+        '      "    width: auto !important;",
+        '      "    height: auto !important;",
+        '      "    margin: 0 !important;",
+        '      "    padding: 5mm !important;",
+        '      "    background: transparent !important;",
+        '      "    color: black !important;",
+        '      "    text-align: center !important;",
         '      "  }",',
         '      "  ",',
         '      "  /* 부모 요소들도 표시되도록 */",',
@@ -1521,15 +1557,15 @@ ipcMain.handle('print-url', async (event, options) => {
         '      "  ",',
         '      "  /* 부모 요소 경로 표시 */",',
         '      "  .webprinter-parent-visible {",',
-        '      "    display: block !important;",',
-        '      "    visibility: visible !important;",',
-        '      "    opacity: 1 !important;",',
+        '      "    display: block !important;",
+        '      "    visibility: visible !important;",
+        '      "    opacity: 1 !important;",
         '      "  }",',
         '      "  ",',
         '      "  /* 색상 정확도 보장 */",',
         '      "  * {",',
-        '      "    -webkit-print-color-adjust: exact !important;",',
-        '      "    print-color-adjust: exact !important;",',
+        '      "    -webkit-print-color-adjust: exact !important;",
+        '      "    print-color-adjust: exact !important;",
         '      "  }",',
         '      "}"',
         '    ];',
@@ -1630,7 +1666,7 @@ ipcMain.handle('print-url', async (event, options) => {
       shouldPrintSelectionOnly: false
     };
     
-    // 프린터 지정
+    // 프린트 지정
     if (selectedPrinter) {
       printOptions.deviceName = selectedPrinter.name;
       console.log(`🖨️ 사용할 프린터: ${selectedPrinter.name}`);
@@ -1689,6 +1725,16 @@ ipcMain.handle('print-url', async (event, options) => {
     }
     
     console.log('🖨️ 최종 프린트 옵션:', JSON.stringify(printOptions, null, 2));
+    
+    // 디버깅을 위한 상세 정보 출력
+    console.log('🔍 프린트 디버깅 정보:');
+    console.log('  📄 pageSize 타입:', typeof printOptions.pageSize);
+    console.log('  📄 pageSize 값:', printOptions.pageSize);
+    console.log('  🖨️ deviceName:', printOptions.deviceName || '(기본 프린터)');
+    console.log('  🔇 silent 모드:', printOptions.silent);
+    console.log('  📐 margins:', JSON.stringify(printOptions.margins));
+    console.log('  📊 scaleFactor:', printOptions.scaleFactor);
+    console.log('  🔄 landscape:', printOptions.landscape);
     
     // 프린트 실행
     return new Promise((resolve, reject) => {
