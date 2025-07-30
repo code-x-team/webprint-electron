@@ -726,6 +726,15 @@ async function createPrintWindow(sessionId = null, isForced = false) {
           }
         } else {
           console.log('⚠️ 아직 URL 데이터가 없음 - 대기 중');
+          
+          // 데이터가 없을 때 안내 메시지 표시
+          if (printWindow && !printWindow.isDestroyed()) {
+            printWindow.webContents.send('show-waiting-message', {
+              title: '인쇄 데이터 대기 중',
+              message: '웹페이지에서 인쇄 요청을 기다리고 있습니다.',
+              details: '웹페이지에서 WebPrinter를 통해 인쇄를 요청하면 자동으로 미리보기가 표시됩니다.'
+            });
+          }
         }
       }, 1000); // 1초 대기
     });
@@ -901,8 +910,13 @@ app.whenReady().then(async () => {
     }
   } else {
     console.log('🖥️ 일반 모드로 시작');
-    // 일반 시작 시 창 생성
-    createPrintWindow();
+    // 시작 시에는 창을 생성하지 않음 - 데이터를 받았을 때만 창 생성
+    console.log('💡 인쇄 데이터를 기다리는 중... (트레이 아이콘에서 대기)');
+    
+    // macOS의 경우 Dock 아이콘 숨기기 (트레이 전용 앱으로 동작)
+    if (process.platform === 'darwin' && app.dock) {
+      app.dock.hide();
+    }
   }
   
   // 대기 중인 프로토콜 호출 처리
@@ -1065,7 +1079,10 @@ ipcMain.handle('print-url', async (event, options) => {
   let tempPrintWindow = null;
   
   try {
-    const { url, printerName, copies = 1, paperSize = null, printSelector = '#print_wrap' } = options;
+    const { url, printerName, copies = 1, paperSize = null, printSelector = '#print_wrap' } = options || {};
+    
+    // printSelector 안전 처리
+    const safePrintSelector = printSelector || '#print_wrap';
     
     if (!url) {
       throw new Error('인쇄할 URL이 없습니다');
@@ -1073,7 +1090,7 @@ ipcMain.handle('print-url', async (event, options) => {
     
     console.log(`🖨️ Electron 인쇄 시작: ${url}`);
     console.log(`📏 용지 사이즈: ${paperSize?.width}mm × ${paperSize?.height}mm`);
-    console.log(`🎯 인쇄 영역: ${printSelector}`);
+    console.log(`🎯 인쇄 영역: ${safePrintSelector}`);
     console.log(`📄 복사본: ${copies}매`);
     
     // 프린트 윈도우 생성
@@ -1182,7 +1199,7 @@ ipcMain.handle('print-url', async (event, options) => {
     try {
       const elementFound = await tempPrintWindow.webContents.executeJavaScript(`
         (() => {
-          const selector = '${printSelector.replace(/'/g, "\\'")}'; // 문자열 이스케이프
+          const selector = '${printSelector ? printSelector.replace(/'/g, "\\'") : '#print_wrap'}'; // 문자열 이스케이프 및 기본값 설정
           console.log('🔍 선택자 검색 시작:', selector);
           
           try {

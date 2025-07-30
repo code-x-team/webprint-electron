@@ -18,6 +18,75 @@ const elements = {
     cancelButton: document.getElementById('cancel-button')
 };
 
+// 대기 메시지 표시 함수
+function showWaitingMessage(messageData) {
+    const { title, message, details } = messageData;
+    
+    // 프리뷰 영역에 대기 메시지 표시
+    const previewFrame = document.getElementById('preview-frame');
+    const previewContainer = previewFrame.parentElement;
+    
+    // 기존 내용 숨기기
+    previewFrame.style.display = 'none';
+    
+    // 대기 메시지 HTML 생성
+    const waitingMessageHtml = `
+        <div style="
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        ">
+            <div style="
+                font-size: 48px;
+                margin-bottom: 20px;
+                animation: pulse 2s infinite;
+            ">⏳</div>
+            <h2 style="
+                font-size: 24px;
+                color: #333;
+                margin-bottom: 10px;
+            ">${title}</h2>
+            <p style="
+                font-size: 16px;
+                color: #666;
+                margin-bottom: 10px;
+            ">${message}</p>
+            <p style="
+                font-size: 14px;
+                color: #999;
+                max-width: 400px;
+            ">${details}</p>
+        </div>
+        <style>
+            @keyframes pulse {
+                0% { opacity: 0.5; transform: scale(1); }
+                50% { opacity: 1; transform: scale(1.1); }
+                100% { opacity: 0.5; transform: scale(1); }
+            }
+        </style>
+    `;
+    
+    // 대기 메시지 컨테이너 생성 또는 업데이트
+    let waitingContainer = document.getElementById('waiting-message-container');
+    if (!waitingContainer) {
+        waitingContainer = document.createElement('div');
+        waitingContainer.id = 'waiting-message-container';
+        waitingContainer.style.cssText = 'width: 100%; height: 100%; background: #f5f5f5;';
+        previewContainer.appendChild(waitingContainer);
+    }
+    
+    waitingContainer.innerHTML = waitingMessageHtml;
+    waitingContainer.style.display = 'block';
+    
+    // 상태 메시지도 업데이트
+    showStatus(message, 'info');
+}
+
 // Toast 알림 기능
 function showToast(message, type = 'info', duration = 3000) {
     // 기존 toast 제거
@@ -295,6 +364,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         showToast('🔄 세션 복구 완료', 'info', 2000);
     });
     
+    // 대기 메시지 이벤트 리스너 등록
+    window.electronAPI.onShowWaitingMessage((messageData) => {
+        console.log('⏳ 대기 메시지 표시:', messageData);
+        showWaitingMessage(messageData);
+    });
+    
     console.log('✅ 이벤트 리스너 등록 완료');
 });
 
@@ -465,6 +540,18 @@ function displayServerInfo() {
 // URL 정보 수신 처리
 async function handleUrlsReceived() {
     console.log('✅ URL 정보 수신됨:', receivedUrls);
+    
+    // 대기 메시지 숨기기
+    const waitingContainer = document.getElementById('waiting-message-container');
+    if (waitingContainer) {
+        waitingContainer.style.display = 'none';
+    }
+    
+    // 프리뷰 프레임 다시 표시
+    const previewFrame = document.getElementById('preview-frame');
+    if (previewFrame) {
+        previewFrame.style.display = 'block';
+    }
     
     // 용지 사이즈 정보 저장
     if (receivedUrls.paperSize) {
