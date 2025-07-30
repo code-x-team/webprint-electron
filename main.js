@@ -1195,7 +1195,7 @@ ipcMain.handle('print-url', async (event, options) => {
             const targetElement = document.querySelector(selector);
             
             if (!targetElement) {
-              console.warn('⚠️ ${printSelector} 요소를 찾을 수 없습니다.');
+              console.warn(`WARNING: ${printSelector} element not found.`);
               console.log('📄 페이지 구조 분석:');
               console.log('- 전체 body HTML 길이:', document.body?.innerHTML?.length || 0);
               console.log('- ID가 있는 요소들:', Array.from(document.querySelectorAll('[id]')).map(el => '#' + el.id).slice(0, 10));
