@@ -194,22 +194,13 @@
             <div class="size-group">
                 <div class="form-group">
                     <label for="paper-width">가로 (mm):</label>
-                    <input type="number" id="paper-width" value="244" min="10" max="1000" step="0.1">
+                    <input type="number" id="paper-width" value="88" min="10" max="1000" step="0.1">
                 </div>
                 <div class="form-group">
                     <label for="paper-height">세로 (mm):</label>
-                    <input type="number" id="paper-height" value="88" min="10" max="1000" step="0.1">
+                    <input type="number" id="paper-height" value="244" min="10" max="1000" step="0.1">
                 </div>
-                
-                <div class="form-group">
-                    <div style="background: #e8f5e8; padding: 12px; border-radius: 6px; border-left: 4px solid #4caf50;">
-                        <strong>🎯 인쇄 영역:</strong> 입력한 URL에서 <code>#print_wrap</code> ID 요소만 인쇄됩니다
-                        <br><small style="color: #2e7d32; margin-top: 4px; display: block;">
-                            💡 인쇄할 웹페이지에서 &lt;div id="print_wrap"&gt;...&lt;/div&gt;로 영역을 지정해주세요
-                            <br>📄 #print_wrap이 없으면 전체 페이지가 인쇄됩니다
-                        </small>
-                    </div>
-                </div>
+
             </div>
             
             <button class="print-button" onclick="startPrint()">
