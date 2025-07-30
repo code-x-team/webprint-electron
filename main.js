@@ -1194,118 +1194,139 @@ ipcMain.handle('print-url', async (event, options) => {
     }
     
     // 선택적 인쇄 처리 (#print_wrap 요소 확인)
-    console.log(`🎯 인쇄 영역 적용 중: ${printSelector}`);
+    console.log(`🎯 인쇄 영역 적용 중: ${safePrintSelector}`);
     
     try {
-      const elementFound = await tempPrintWindow.webContents.executeJavaScript(`
-        (() => {
-          const selector = '${printSelector ? printSelector.replace(/'/g, "\\'") : '#print_wrap'}'; // 문자열 이스케이프 및 기본값 설정
-          console.log('🔍 선택자 검색 시작:', selector);
-          
-          try {
-            // DOM 완전 로드 확인
-            if (document.readyState !== 'complete') {
-              console.warn('⚠️ DOM이 아직 완전히 로드되지 않았습니다');
-            }
-            
-            // 요소 검색
-            const targetElement = document.querySelector(selector);
-            
-            if (!targetElement) {
-              console.warn(`WARNING: ${printSelector} element not found.`);
-              console.log('📄 페이지 구조 분석:');
-              console.log('- 전체 body HTML 길이:', document.body?.innerHTML?.length || 0);
-              console.log('- ID가 있는 요소들:', Array.from(document.querySelectorAll('[id]')).map(el => '#' + el.id).slice(0, 10));
-              console.log('- 클래스가 있는 요소들:', Array.from(document.querySelectorAll('[class]')).map(el => '.' + el.className.split(' ')[0]).slice(0, 10));
-              
-              return { success: false, error: '요소를 찾을 수 없음', fallbackToFullPage: true };
-            }
-            
-                         console.log('✅ 대상 요소 발견:', {
-               tagName: targetElement.tagName,
-               id: targetElement.id || 'none',
-               className: targetElement.className || 'none',
-               contentLength: targetElement.innerHTML?.length || 0
-             });
-            
-            // 요소가 비어있는지 확인
-            const hasContent = targetElement.innerHTML.trim().length > 0 || targetElement.textContent.trim().length > 0;
-            if (!hasContent) {
-              console.warn('⚠️ 대상 요소가 비어있습니다. 전체 페이지를 인쇄합니다.');
-              return { success: false, error: '요소가 비어있음', fallbackToFullPage: true };
-            }
-            
-            // 기존 스타일 제거 (중복 방지)
-            const existingStyle = document.getElementById('webprinter-selective-print');
-            if (existingStyle) {
-              existingStyle.remove();
-            }
-            
-            // 인쇄용 스타일 생성
-            const printStyle = document.createElement('style');
-            printStyle.id = 'webprinter-selective-print';
-            printStyle.textContent = \`
-              @media print {
-                /* 모든 요소 숨기기 */
-                body > * {
-                  display: none !important;
-                }
-                
-                /* 선택된 요소와 부모 경로만 표시 */
-                body {
-                  margin: 0 !important;
-                  padding: 0 !important;
-                }
-                
-                .webprinter-print-target {
-                  display: block !important;
-                  visibility: visible !important;
-                  opacity: 1 !important;
-                  position: static !important;
-                  width: 100% !important;
-                  height: auto !important;
-                  margin: 0 !important;
-                  padding: 10px !important;
-                  background: white !important;
-                  color: black !important;
-                }
-                
-                /* 부모 요소들도 표시되도록 */
-                .webprinter-print-target * {
-                  visibility: visible !important;
-                }
-                
-                /* 부모 요소 경로 표시 */
-                .webprinter-parent-visible {
-                  display: block !important;
-                  visibility: visible !important;
-                  opacity: 1 !important;
-                }
-              }
-            \`;
-            document.head.appendChild(printStyle);
-            
-            // 대상 요소에 클래스 추가
-            targetElement.classList.add('webprinter-print-target');
-            
-            // 부모 요소 경로 확보
-            let parent = targetElement.parentElement;
-            let parentCount = 0;
-            while (parent && parent !== document.body && parentCount < 20) {
-              parent.classList.add('webprinter-parent-visible');
-              parent = parent.parentElement;
-              parentCount++;
-            }
-            
-            console.log('🎨 선택적 인쇄 스타일 적용 완료 (부모 요소 ' + parentCount + '개 처리)');
-            
-    // 프린터 목록 가져오기
+      // JavaScript 코드를 문자열로 구성 (백틱 중첩 문제 해결)
+      const jsCode = [
+        '(() => {',
+        `  const selector = '${safePrintSelector.replace(/'/g, "\\'")}';`,
+        '  console.log("🔍 선택자 검색 시작:", selector);',
+        '  ',
+        '  try {',
+        '    // DOM 완전 로드 확인',
+        '    if (document.readyState !== "complete") {',
+        '      console.warn("⚠️ DOM이 아직 완전히 로드되지 않았습니다");',
+        '    }',
+        '    ',
+        '    // 요소 검색',
+        '    const targetElement = document.querySelector(selector);',
+        '    ',
+        '    if (!targetElement) {',
+        '      console.log("📄 페이지 구조 분석:");',
+        '      console.log("- 전체 body HTML 길이:", document.body?.innerHTML?.length || 0);',
+        '      console.log("- ID가 있는 요소들:", Array.from(document.querySelectorAll("[id]")).map(el => "#" + el.id).slice(0, 10));',
+        '      console.log("- 클래스가 있는 요소들:", Array.from(document.querySelectorAll("[class]")).map(el => "." + el.className.split(" ")[0]).slice(0, 10));',
+        '      ',
+        '      return { success: false, error: "요소를 찾을 수 없음", fallbackToFullPage: true };',
+        '    }',
+        '    ',
+        '    console.log("✅ 대상 요소 발견:", {',
+        '      tagName: targetElement.tagName,',
+        '      id: targetElement.id || "none",',
+        '      className: targetElement.className || "none",',
+        '      contentLength: targetElement.innerHTML?.length || 0',
+        '    });',
+        '    ',
+        '    // 요소가 비어있는지 확인',
+        '    const hasContent = targetElement.innerHTML.trim().length > 0 || targetElement.textContent.trim().length > 0;',
+        '    if (!hasContent) {',
+        '      console.warn("⚠️ 대상 요소가 비어있습니다. 전체 페이지를 인쇄합니다.");',
+        '      return { success: false, error: "요소가 비어있음", fallbackToFullPage: true };',
+        '    }',
+        '    ',
+        '    // 기존 스타일 제거 (중복 방지)',
+        '    const existingStyle = document.getElementById("webprinter-selective-print");',
+        '    if (existingStyle) {',
+        '      existingStyle.remove();',
+        '    }',
+        '    ',
+        '    // 인쇄용 스타일 생성',
+        '    const printStyle = document.createElement("style");',
+        '    printStyle.id = "webprinter-selective-print";',
+        '    ',
+        '    // CSS 텍스트를 배열로 구성 후 조인',
+        '    const cssRules = [',
+        '      "@media print {",',
+        '      "  /* 모든 요소 숨기기 */",',
+        '      "  body > * { display: none !important; }",',
+        '      "  ",',
+        '      "  /* 선택된 요소와 부모 경로만 표시 */",',
+        '      "  body { margin: 0 !important; padding: 0 !important; }",',
+        '      "  ",',
+        '      "  .webprinter-print-target {",',
+        '      "    display: block !important;",',
+        '      "    visibility: visible !important;",',
+        '      "    opacity: 1 !important;",',
+        '      "    position: static !important;",',
+        '      "    width: 100% !important;",',
+        '      "    height: auto !important;",',
+        '      "    margin: 0 !important;",',
+        '      "    padding: 10px !important;",',
+        '      "    background: white !important;",',
+        '      "    color: black !important;",',
+        '      "  }",',
+        '      "  ",',
+        '      "  /* 부모 요소들도 표시되도록 */",',
+        '      "  .webprinter-print-target * { visibility: visible !important; }",',
+        '      "  ",',
+        '      "  /* 부모 요소 경로 표시 */",',
+        '      "  .webprinter-parent-visible {",',
+        '      "    display: block !important;",',
+        '      "    visibility: visible !important;",',
+        '      "    opacity: 1 !important;",',
+        '      "  }",',
+        '      "}"',
+        '    ];',
+        '    ',
+        '    printStyle.textContent = cssRules.join("\\n");',
+        '    document.head.appendChild(printStyle);',
+        '    ',
+        '    // 대상 요소에 클래스 추가',
+        '    targetElement.classList.add("webprinter-print-target");',
+        '    ',
+        '    // 부모 요소 경로 확보',
+        '    let parent = targetElement.parentElement;',
+        '    let parentCount = 0;',
+        '    while (parent && parent !== document.body && parentCount < 20) {',
+        '      parent.classList.add("webprinter-parent-visible");',
+        '      parent = parent.parentElement;',
+        '      parentCount++;',
+        '    }',
+        '    ',
+        '    console.log("🎨 선택적 인쇄 스타일 적용 완료 (부모 요소 " + parentCount + "개 처리)");',
+        '    return { success: true };',
+        '    ',
+        '  } catch (error) {',
+        '    console.error("선택적 인쇄 처리 중 오류:", error);',
+        '    return { success: false, error: error.message, fallbackToFullPage: true };',
+        '  }',
+        '})()'
+      ].join('\n');
+      
+      const elementFound = await tempPrintWindow.webContents.executeJavaScript(jsCode);
+      
+      if (!elementFound.success && elementFound.fallbackToFullPage) {
+        console.log('⚠️ 선택적 인쇄 실패 - 전체 페이지로 대체');
+        // 미리보기 창에 메시지 전송 (showToast는 renderer process에서만 사용 가능)
+        if (printWindow && !printWindow.isDestroyed()) {
+          printWindow.webContents.send('show-toast', {
+            message: '⚠️ 지정된 영역을 찾을 수 없어 전체 페이지를 인쇄합니다',
+            type: 'warning',
+            duration: 4000
+          });
+        }
+      }
+      
+    } catch (error) {
+      console.error('🚨 선택적 인쇄 적용 중 치명적 오류:', error);
+      // 오류 발생 시에도 인쇄는 계속 진행
+    }
     let printers = [];
     let selectedPrinter = null;
     
     try {
       printers = await tempPrintWindow.webContents.getPrintersAsync();
-      console.log(`📋 사용 가능한 프린터: ${printers.length}대`);
       
       // 프린터 선택 로직 개선
       if (printerName && printers.length > 0) {
@@ -1314,7 +1335,7 @@ ipcMain.handle('print-url', async (event, options) => {
         if (selectedPrinter) {
           console.log(`✅ 지정된 프린터 선택됨: ${selectedPrinter.name}`);
         } else {
-          console.warn(`⚠️ 프린터 '${printerName}'를 찾을 수 없습니다.`);
+          console.warn(`⚠️ 프린터 ${printerName}를 찾을 수 없습니다.`);
         }
       }
       
@@ -1442,7 +1463,7 @@ ipcMain.handle('print-url', async (event, options) => {
               printerName: selectedPrinter?.name || '기본 프린터',
               paperSize: `${paperSize.width}mm × ${paperSize.height}mm`,
               copies: printOptions.copies,
-              printSelector: printSelector === '#print_wrap' ? '#print_wrap (기본)' : printSelector
+              printSelector: safePrintSelector === '#print_wrap' ? '#print_wrap (기본)' : safePrintSelector
             });
           } else {
             const errorMsg = failureReason || '사용자가 취소했거나 알 수 없는 오류';

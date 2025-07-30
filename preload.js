@@ -38,6 +38,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('show-waiting-message', (event, messageData) => callback(messageData));
   },
   
+  onShowToast: (callback) => {
+    ipcRenderer.on('show-toast', (event, toastData) => callback(toastData));
+  },
+  
   // 업데이트 이벤트 리스너
   onUpdateAvailable: (callback) => {
     ipcRenderer.on('update-available', (event, info) => callback(info));

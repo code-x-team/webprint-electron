@@ -370,6 +370,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         showWaitingMessage(messageData);
     });
     
+    // Toast 메시지 이벤트 리스너 등록
+    window.electronAPI.onShowToast((toastData) => {
+        const { message, type, duration } = toastData;
+        showToast(message, type, duration);
+    });
+    
     console.log('✅ 이벤트 리스너 등록 완료');
 });
 
