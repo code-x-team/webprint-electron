@@ -103,7 +103,95 @@ function cleanOldSessions() {
   }
 }
 
-// 시스템 트레이 생성
+// 언인스톨 감지 및 정리 함수들
+function setupUninstallDetection() {
+  // 5분마다 앱 실행 파일이 존재하는지 확인
+  setInterval(() => {
+    try {
+      const appPath = process.execPath;
+      const parentDir = path.dirname(appPath);
+      
+      // 실행 파일이나 주요 디렉토리가 삭제되었는지 확인
+      if (!fs.existsSync(appPath) || !fs.existsSync(parentDir)) {
+        console.log('🚨 앱이 언인스톨된 것을 감지했습니다.');
+        cleanupAndExit('언인스톨 감지');
+        return;
+      }
+      
+      // 패키지 리소스 확인 (프로덕션 빌드인 경우)
+      if (!process.defaultApp && process.resourcesPath) {
+        const resourcesExist = fs.existsSync(process.resourcesPath);
+        if (!resourcesExist) {
+          console.log('🚨 앱 리소스가 삭제된 것을 감지했습니다.');
+          cleanupAndExit('리소스 삭제 감지');
+          return;
+        }
+      }
+      
+      // 정상 상태
+      console.log('✅ 앱 무결성 체크 완료');
+      
+    } catch (error) {
+      console.warn('⚠️ 언인스톨 감지 체크 오류:', error.message);
+    }
+  }, 5 * 60 * 1000); // 5분마다 체크
+  
+  console.log('🔍 언인스톨 자동 감지 시스템 활성화 (5분 간격)');
+}
+
+function cleanupAndExit(reason = '수동 종료') {
+  console.log(`📴 앱 완전 종료 시작... (사유: ${reason})`);
+  
+  try {
+    // 1. 시작 프로그램에서 제거
+    app.setLoginItemSettings({
+      openAtLogin: false,
+      openAsHidden: false
+    });
+    console.log('✅ 시작 프로그램에서 제거 완료');
+    
+    // 2. 세션 데이터 정리
+    if (fs.existsSync(sessionDataPath)) {
+      fs.unlinkSync(sessionDataPath);
+      console.log('✅ 세션 데이터 정리 완료');
+    }
+    
+    // 3. HTTP 서버 정리
+    if (httpServer) {
+      stopHttpServer();
+      console.log('✅ HTTP 서버 정리 완료');
+    }
+    
+    // 4. 트레이 정리
+    if (tray) {
+      tray.destroy();
+      console.log('✅ 시스템 트레이 정리 완료');
+    }
+    
+    // 5. 모든 창 강제 종료
+    BrowserWindow.getAllWindows().forEach(window => {
+      if (!window.isDestroyed()) {
+        window.destroy();
+      }
+    });
+    console.log('✅ 모든 창 정리 완료');
+    
+  } catch (error) {
+    console.error('⚠️ 정리 중 오류 발생:', error.message);
+  }
+  
+  // 6. 완전 종료
+  isQuitting = true;
+  console.log('🔚 WebPrinter 완전 종료');
+  app.quit();
+  
+  // 강제 종료 (마지막 수단)
+  setTimeout(() => {
+    process.exit(0);
+  }, 2000);
+}
+
+// 시스템 트레이 생성 (개선된 버전)
 function createTray() {
   if (process.platform === 'win32' || process.platform === 'linux') {
     const iconPath = path.join(__dirname, 'icon.png'); // 트레이 아이콘 필요
@@ -112,7 +200,7 @@ function createTray() {
       tray = new Tray(iconPath);
       const contextMenu = Menu.buildFromTemplate([
         {
-          label: '열기',
+          label: '📂 WebPrinter 열기',
           click: () => {
             if (printWindow) {
               printWindow.show();
@@ -123,15 +211,109 @@ function createTray() {
           }
         },
         {
-          label: '종료',
+          label: '📊 상태 정보',
           click: () => {
-            isQuitting = true;
-            app.quit();
+            const statusInfo = [
+              `버전: ${app.getVersion()}`,
+              `서버 포트: ${serverPort || '미실행'}`,
+              `활성 세션: ${Object.keys(receivedUrls).length}개`,
+              `메모리 사용: ${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB`,
+              `실행 시간: ${Math.round(process.uptime() / 60)}분`
+            ].join('\n');
+            
+            dialog.showMessageBox(null, {
+              type: 'info',
+              title: 'WebPrinter 상태',
+              message: '현재 상태 정보',
+              detail: statusInfo,
+              buttons: ['확인']
+            });
+          }
+        },
+        { type: 'separator' },
+        {
+          label: '⚙️ 백그라운드 모드 해제',
+          click: () => {
+            dialog.showMessageBox(null, {
+              type: 'question',
+              title: '백그라운드 모드 해제',
+              message: '부팅 시 자동 실행을 해제하시겠습니까?',
+              detail: '다음 부팅부터는 수동으로 실행해야 합니다.',
+              buttons: ['해제', '취소'],
+              defaultId: 1,
+              cancelId: 1
+            }).then((result) => {
+              if (result.response === 0) {
+                app.setLoginItemSettings({
+                  openAtLogin: false
+                });
+                
+                dialog.showMessageBox(null, {
+                  type: 'info',
+                  title: 'WebPrinter',
+                  message: '백그라운드 자동 실행이 해제되었습니다.',
+                  detail: '다음 부팅부터는 자동으로 시작되지 않습니다.',
+                  buttons: ['확인']
+                });
+              }
+            });
+          }
+        },
+        {
+          label: '🔄 앱 재시작',
+          click: () => {
+            dialog.showMessageBox(null, {
+              type: 'question',
+              title: 'WebPrinter 재시작',
+              message: 'WebPrinter를 재시작하시겠습니까?',
+              detail: '모든 세션이 초기화됩니다.',
+              buttons: ['재시작', '취소'],
+              defaultId: 1,
+              cancelId: 1
+            }).then((result) => {
+              if (result.response === 0) {
+                app.relaunch();
+                cleanupAndExit('사용자 재시작');
+              }
+            });
+          }
+        },
+        { type: 'separator' },
+        {
+          label: '🛑 완전 종료 (프로세스 종료)',
+          click: () => {
+            dialog.showMessageBox(null, {
+              type: 'warning',
+              title: 'WebPrinter 완전 종료',
+              message: '정말로 WebPrinter를 완전히 종료하시겠습니까?',
+              detail: [
+                '• 백그라운드 서비스가 완전히 중지됩니다',
+                '• 웹에서 더 이상 호출할 수 없게 됩니다', 
+                '• 다시 사용하려면 수동으로 실행해야 합니다',
+                '• 시작 프로그램에서도 제거됩니다'
+              ].join('\n'),
+              buttons: ['완전 종료', '취소'],
+              defaultId: 1,
+              cancelId: 1
+            }).then((result) => {
+              if (result.response === 0) {
+                cleanupAndExit('사용자 완전 종료');
+              }
+            });
+          }
+        },
+        { type: 'separator' },
+        {
+          label: '🔽 창 숨기기',
+          click: () => {
+            if (printWindow && !printWindow.isDestroyed()) {
+              printWindow.hide();
+            }
           }
         }
       ]);
       
-      tray.setToolTip('WebPrinter');
+      tray.setToolTip('WebPrinter - 우클릭으로 메뉴 열기');
       tray.setContextMenu(contextMenu);
       
       // 트레이 더블클릭 시 창 열기
@@ -144,7 +326,7 @@ function createTray() {
         }
       });
       
-      console.log('✅ 시스템 트레이 생성 완료');
+      console.log('✅ 시스템 트레이 생성 완료 (개선된 메뉴)');
     } catch (error) {
       console.warn('⚠️ 시스템 트레이 생성 실패:', error.message);
     }
@@ -212,6 +394,7 @@ function startHttpServer() {
         const paperWidth = parseFloat(req.body.paper_width);
         const paperHeight = parseFloat(req.body.paper_height);
         const paperSize = req.body.paper_size || 'Custom';
+        const silentPrint = Boolean(req.body.silent_print); // Silent 인쇄 옵션
         
         // 용지 사이즈 검증
         if (!paperWidth || !paperHeight || paperWidth <= 0 || paperHeight <= 0) {
@@ -223,13 +406,15 @@ function startHttpServer() {
         }
         
         console.log(`📏 웹에서 전달받은 용지 사이즈: ${paperWidth}mm × ${paperHeight}mm (${paperSize})`);
+        console.log(`🔇 Silent 인쇄 모드: ${silentPrint ? '활성화' : '비활성화'}`);
         
         const urlData = {
           paperSize: {
             name: paperSize,
             width: paperWidth,
             height: paperHeight
-          }
+          },
+          silentPrint: silentPrint  // Silent 모드 저장
         };
         
         if (previewUrl) {
@@ -665,6 +850,7 @@ app.whenReady().then(async () => {
   setupAutoUpdater();
   setupAutoLaunch();
   createTray();
+  setupUninstallDetection(); // 언인스톨 감지 시스템 활성화
   
   // HTTP 서버 시작
   try {
@@ -863,6 +1049,7 @@ ipcMain.handle('print-url', async (event, options) => {
     
     console.log(`🖨️ Electron 인쇄 시작: ${url}`);
     console.log(`📏 용지 사이즈: ${paperSize?.width}mm × ${paperSize?.height}mm`);
+    console.log(`🔇 Silent 모드: ${silent ? '활성화 (바로 인쇄)' : '비활성화 (대화상자 표시)'}`);
     
     // 프린트 윈도우 생성
     tempPrintWindow = new BrowserWindow({
@@ -916,46 +1103,94 @@ ipcMain.handle('print-url', async (event, options) => {
     
     // 프린터 목록 가져오기
     let printers = [];
+    let selectedPrinter = null;
+    
     try {
       printers = await tempPrintWindow.webContents.getPrintersAsync();
       console.log(`📋 사용 가능한 프린터: ${printers.length}개`);
+      
+      if (silent && printers.length === 0) {
+        throw new Error('Silent 모드에서 사용 가능한 프린터가 없습니다.');
+      }
+      
+      // 프린터 선택 로직 개선
+      if (printerName && printers.length > 0) {
+        // 지정된 프린터 이름으로 검색
+        selectedPrinter = printers.find(p => p.name === printerName);
+        if (selectedPrinter) {
+          console.log(`✅ 지정된 프린터 선택됨: ${selectedPrinter.name}`);
+        } else {
+          console.warn(`⚠️ 프린터 '${printerName}'를 찾을 수 없습니다.`);
+        }
+      }
+      
+      // 프린터가 지정되지 않았거나 찾을 수 없는 경우
+      if (!selectedPrinter && printers.length > 0) {
+        // 기본 프린터 찾기
+        selectedPrinter = printers.find(p => p.isDefault);
+        
+        if (selectedPrinter) {
+          console.log(`🎯 기본 프린터 자동 선택됨: ${selectedPrinter.name}`);
+        } else {
+          // 기본 프린터가 없으면 첫 번째 프린터 사용
+          selectedPrinter = printers[0];
+          console.log(`📌 첫 번째 프린터 자동 선택됨: ${selectedPrinter.name}`);
+        }
+      }
+      
+      if (silent && !selectedPrinter) {
+        throw new Error('Silent 모드에서 사용할 프린터를 찾을 수 없습니다.');
+      }
+      
     } catch (e) {
       console.warn('프린터 목록 조회 실패:', e.message);
-    }
-    
-    // 프린터 선택
-    let selectedPrinter = null;
-    if (printerName && printers.length > 0) {
-      selectedPrinter = printers.find(p => p.name === printerName);
-      if (selectedPrinter) {
-        console.log(`✅ 프린터 선택됨: ${selectedPrinter.name}`);
-      } else {
-        console.warn(`⚠️ 프린터 '${printerName}'를 찾을 수 없습니다. 기본 프린터 사용.`);
+      if (silent) {
+        throw new Error(`Silent 모드 실패: ${e.message}`);
       }
     }
     
-    // 인쇄 옵션 설정
+    // 인쇄 옵션 설정 (Silent 모드 최적화)
     const printOptions = {
       silent: silent,
       printBackground: true,
       color: true,
       margins: {
-        marginType: 'none'  // 여백 없음 (라벨 프린터용)
+        marginType: silent ? 'none' : 'default'  // Silent 모드에서는 여백 최소화
       },
       landscape: false,
-      copies: Math.max(1, Math.min(copies, 100)),
+      copies: Math.max(1, Math.min(copies, silent ? 5 : 100)),  // Silent 모드에서는 최대 5매 제한
       collate: true,
-      scaleFactor: 100
+      scaleFactor: 100,
+      duplexMode: 'simplex'  // 단면 인쇄
     };
+    
+    // Silent 모드 추가 설정
+    if (silent) {
+      printOptions.shouldPrintBackgrounds = true;
+      printOptions.shouldPrintSelectionOnly = false;
+      
+      // 안전장치: Silent 모드에서는 복사본 제한
+      if (printOptions.copies > 5) {
+        console.warn('⚠️ Silent 모드에서 복사본이 5매로 제한됩니다.');
+        printOptions.copies = 5;
+      }
+    }
     
     // 프린터 지정
     if (selectedPrinter) {
       printOptions.deviceName = selectedPrinter.name;
+      console.log(`🖨️ 사용할 프린터: ${selectedPrinter.name}`);
+      
+      // Silent 모드에서는 프린터 상태 추가 확인
+      if (silent) {
+        console.log(`📊 프린터 상태: ${selectedPrinter.status || '알 수 없음'}`);
+        console.log(`🔧 프린터 설명: ${selectedPrinter.description || '없음'}`);
+      }
     }
     
     // 커스텀 용지 사이즈 설정 (중요!)
     if (paperSize?.width && paperSize?.height) {
-      // 표준 용지 사이즈 확인
+      // 표준 용지 사이즈 확인 (확장된 목록)
       const standardSizes = {
         '210x297': 'A4',
         '297x420': 'A3', 
@@ -964,7 +1199,16 @@ ipcMain.handle('print-url', async (event, options) => {
         '216x356': 'Legal',
         '105x148': 'A6',
         '74x105': 'A7',
-        '52x74': 'A8'
+        '52x74': 'A8',
+        '88x105': 'A9',
+        '26x37': 'A10',
+        '279x432': 'Tabloid',
+        '102x152': '4x6',
+        '127x203': '5x8',
+        '80x120': 'Label 80x120',  // 라벨 프린터용
+        '100x150': 'Label 100x150',
+        '57x32': 'Receipt 57mm',   // 영수증 프린터용
+        '80x80': 'Receipt 80mm'
       };
       
       const sizeKey = `${Math.round(paperSize.width)}x${Math.round(paperSize.height)}`;
@@ -972,7 +1216,7 @@ ipcMain.handle('print-url', async (event, options) => {
       
       if (standardSize) {
         printOptions.pageSize = standardSize;
-        console.log(`📄 표준 용지 사이즈 사용: ${standardSize}`);
+        console.log(`📄 표준 용지 사이즈 사용: ${standardSize} (${paperSize.width}×${paperSize.height}mm)`);
       } else {
         // 커스텀 사이즈 - Electron은 microns (마이크론) 단위 사용
         // 1mm = 1000 microns
@@ -990,14 +1234,22 @@ ipcMain.handle('print-url', async (event, options) => {
     
     console.log('🖨️ 최종 프린트 옵션:', JSON.stringify(printOptions, null, 2));
     
+    // Silent 모드 추가 로그
+    if (silent) {
+      console.log('🔇 Silent 모드 활성화 - 사용자 확인 없이 즉시 인쇄를 시작합니다.');
+      console.log(`📋 인쇄 매수: ${printOptions.copies}매`);
+      console.log(`🎯 대상 프린터: ${printOptions.deviceName || '시스템 기본값'}`);
+    }
+    
     // 프린트 실행
     return new Promise((resolve, reject) => {
       console.log('🚀 프린트 명령 실행...');
       
+      const timeoutDuration = silent ? 30000 : 60000;  // Silent 모드에서는 30초 타임아웃
       const timeoutId = setTimeout(() => {
         cleanupWindow();
-        reject(new Error('프린트 실행 타임아웃 (60초)'));
-      }, 60000);
+        reject(new Error(`프린트 실행 타임아웃 (${timeoutDuration/1000}초)`));
+      }, timeoutDuration);
       
       try {
         tempPrintWindow.webContents.print(printOptions, (success, failureReason) => {
@@ -1006,24 +1258,36 @@ ipcMain.handle('print-url', async (event, options) => {
           console.log('=== 인쇄 결과 ===');
           console.log('성공 여부:', success);
           console.log('실패 이유:', failureReason);
+          console.log('Silent 모드:', silent);
           console.log('================');
           
           // 창 정리
-          setTimeout(cleanupWindow, 1000);
+          setTimeout(cleanupWindow, silent ? 500 : 1000);  // Silent 모드에서는 빠른 정리
           
           if (success) {
-            console.log('✅ 프린트 성공');
+            const resultMessage = silent 
+              ? '바로 인쇄가 완료되었습니다.' 
+              : '프린트 대화상자가 열렸습니다.';
+              
+            console.log(`✅ ${resultMessage}`);
             resolve({
               success: true,
-              message: '프린트가 완료되었습니다.',
-              method: 'Electron 직접 프린트',
+              message: resultMessage,
+              method: silent ? 'Silent 자동 인쇄' : 'Electron 대화상자 인쇄',
               printerName: selectedPrinter?.name || '기본 프린터',
-              paperSize: `${paperSize.width}mm × ${paperSize.height}mm`
+              paperSize: `${paperSize.width}mm × ${paperSize.height}mm`,
+              copies: printOptions.copies,
+              silent: silent
             });
           } else {
             const errorMsg = failureReason || '사용자가 취소했거나 알 수 없는 오류';
             console.error('❌ 프린트 실패:', errorMsg);
-            reject(new Error(`프린트 실패: ${errorMsg}`));
+            
+            if (silent) {
+              reject(new Error(`Silent 인쇄 실패: ${errorMsg}`));
+            } else {
+              reject(new Error(`프린트 실패: ${errorMsg}`));
+            }
           }
         });
         
@@ -1045,7 +1309,7 @@ ipcMain.handle('print-url', async (event, options) => {
     return { 
       success: false, 
       error: error.message,
-      method: 'Electron 직접 프린트'
+      method: options.silent ? 'Silent 자동 인쇄' : 'Electron 대화상자 인쇄'
     };
   }
 });
@@ -1077,8 +1341,8 @@ ipcMain.handle('hide-to-background', () => {
 // 앱 완전 종료
 ipcMain.handle('quit-app', () => {
   console.log('🚪 사용자 요청에 의한 앱 완전 종료');
-  isQuitting = true;
-  app.quit();
+  cleanupAndExit('IPC 요청');
+  return { success: true, message: '앱을 완전히 종료합니다.' };
 });
 
 // 업데이트 관련 IPC 핸들러

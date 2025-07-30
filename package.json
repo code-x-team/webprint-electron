@@ -70,7 +70,11 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": false,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "script": "installer.nsh",
+      "include": "installer.nsh",
+      "warningsAsErrors": false,
+      "deleteAppDataOnUninstall": true
     },
     "publish": {
       "provider": "github",

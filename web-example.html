@@ -200,6 +200,16 @@
                     <label for="paper-height">세로 (mm):</label>
                     <input type="number" id="paper-height" value="88" min="10" max="1000" step="0.1">
                 </div>
+                
+                <div class="form-group">
+                    <label style="display: flex; align-items: center; cursor: pointer;">
+                        <input type="checkbox" id="silent-print" style="margin-right: 8px; transform: scale(1.2);">
+                        🔇 바로 인쇄 (대화상자 없이)
+                    </label>
+                    <small style="display: block; margin-top: 8px; color: #6b7280; font-size: 13px; line-height: 1.4;">
+                        ⚠️ 체크 시 확인 없이 즉시 인쇄됩니다 (최대 5매, 프린터 설정 미리 확인 필요)
+                    </small>
+                </div>
             </div>
             
             <button class="print-button" onclick="startPrint()">
@@ -470,6 +480,7 @@
             const printUrl = document.getElementById('print-url').value.trim();
             const paperWidth = parseFloat(document.getElementById('paper-width').value);
             const paperHeight = parseFloat(document.getElementById('paper-height').value);
+            const silentPrint = document.getElementById('silent-print').checked;
 
             // 입력 검증
             if (!previewUrl && !printUrl) {
@@ -515,7 +526,7 @@
                     width: paperWidth,
                     height: paperHeight,
                     name: 'Custom'
-                });
+                }, silentPrint);
 
             } catch (error) {
                 showInstallGuide();
@@ -580,7 +591,7 @@
         }
 
         // 빠른 재시도로 WebPrinter 서버 찾고 데이터 전송
-        async function waitForWebPrinterAndSend(sessionId, previewUrl, printUrl, paperSize) {
+        async function waitForWebPrinterAndSend(sessionId, previewUrl, printUrl, paperSize, silentPrint) {
             const maxAttempts = 8; // 최대 시도 횟수 줄임
             const delayMs = 300; // 더 빠른 재시도 (0.3초)
             
@@ -590,7 +601,7 @@
                 const port = await findWebPrinterServer();
                 if (port) {
                     try {
-                        await sendUrlsToWebPrinter(port, sessionId, previewUrl, printUrl, paperSize);
+                        await sendUrlsToWebPrinter(port, sessionId, previewUrl, printUrl, paperSize, silentPrint);
                         showStatus('WebPrinter로 정보를 전송했습니다!', 'success');
                         return true;
                     } catch (error) {
@@ -809,14 +820,15 @@
         }
 
         // URL 정보 전송
-        async function sendUrlsToWebPrinter(port, sessionId, previewUrl, printUrl, paperSize) {
+        async function sendUrlsToWebPrinter(port, sessionId, previewUrl, printUrl, paperSize, silentPrint) {
             const requestData = {
                 session: sessionId,
                 preview_url: previewUrl,
                 print_url: printUrl,
                 paper_width: paperSize.width,
                 paper_height: paperSize.height,
-                paper_size: paperSize.name
+                paper_size: paperSize.name,
+                silent_print: silentPrint
             };
 
             const response = await fetch(`http://localhost:${port}/send-urls`, {
