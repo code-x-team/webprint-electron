@@ -105,16 +105,31 @@ function cleanOldSessions() {
 
 // 언인스톨 감지 및 정리 함수들
 function setupUninstallDetection() {
-  // 5분마다 앱 실행 파일이 존재하는지 확인
-  setInterval(() => {
+  // 언인스톨 감지 상태
+  let failureCount = 0;
+  const maxFailures = 3;
+  
+  // 3분마다 앱 실행 파일이 존재하는지 확인 (더 빠른 감지)
+  const detectionInterval = setInterval(() => {
     try {
       const appPath = process.execPath;
       const parentDir = path.dirname(appPath);
       
+      // 개발 모드에서는 체크하지 않음
+      if (process.defaultApp || process.env.NODE_ENV === 'development') {
+        return;
+      }
+      
       // 실행 파일이나 주요 디렉토리가 삭제되었는지 확인
       if (!fs.existsSync(appPath) || !fs.existsSync(parentDir)) {
-        console.log('🚨 앱이 언인스톨된 것을 감지했습니다.');
-        cleanupAndExit('언인스톨 감지');
+        failureCount++;
+        console.log(`🚨 앱 파일 감지 실패 (${failureCount}/${maxFailures})`);
+        
+        if (failureCount >= maxFailures) {
+          console.log('🚨 앱이 언인스톨된 것으로 확인됨');
+          clearInterval(detectionInterval);
+          cleanupAndExit('언인스톨 감지');
+        }
         return;
       }
       
@@ -122,25 +137,49 @@ function setupUninstallDetection() {
       if (!process.defaultApp && process.resourcesPath) {
         const resourcesExist = fs.existsSync(process.resourcesPath);
         if (!resourcesExist) {
-          console.log('🚨 앱 리소스가 삭제된 것을 감지했습니다.');
-          cleanupAndExit('리소스 삭제 감지');
+          failureCount++;
+          console.log(`🚨 앱 리소스 감지 실패 (${failureCount}/${maxFailures})`);
+          
+          if (failureCount >= maxFailures) {
+            console.log('🚨 앱 리소스가 삭제된 것으로 확인됨');
+            clearInterval(detectionInterval);
+            cleanupAndExit('리소스 삭제 감지');
+          }
           return;
         }
       }
       
-      // 정상 상태
-      console.log('✅ 앱 무결성 체크 완료');
+      // 정상 상태면 카운터 리셋
+      if (failureCount > 0) {
+        console.log('✅ 앱 파일 정상 감지됨 - 카운터 리셋');
+        failureCount = 0;
+      }
       
     } catch (error) {
       console.warn('⚠️ 언인스톨 감지 체크 오류:', error.message);
+      // 오류 발생 시에도 카운터 증가
+      failureCount++;
+      
+      if (failureCount >= maxFailures) {
+        console.log('🚨 반복적인 오류로 인한 정리 시작');
+        clearInterval(detectionInterval);
+        cleanupAndExit('반복 오류 감지');
+      }
     }
-  }, 5 * 60 * 1000); // 5분마다 체크
+  }, 3 * 60 * 1000); // 3분마다 체크
   
-  console.log('🔍 언인스톨 자동 감지 시스템 활성화 (5분 간격)');
+  console.log('🔍 언인스톨 자동 감지 시스템 활성화 (3분 간격, 3회 실패 시 정리)');
 }
 
 function cleanupAndExit(reason = '수동 종료') {
   console.log(`📴 앱 완전 종료 시작... (사유: ${reason})`);
+  
+  // 재진입 방지
+  if (global.isCleaningUp) {
+    console.log('⚠️ 이미 정리 중입니다.');
+    return;
+  }
+  global.isCleaningUp = true;
   
   try {
     // 1. 시작 프로그램에서 제거
@@ -150,10 +189,22 @@ function cleanupAndExit(reason = '수동 종료') {
     });
     console.log('✅ 시작 프로그램에서 제거 완료');
     
+    // Windows 레지스트리에서도 제거
+    if (process.platform === 'win32') {
+      const { exec } = require('child_process');
+      exec('reg delete "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v "WebPrinter" /f', (error) => {
+        if (!error) console.log('✅ 레지스트리에서 시작 프로그램 제거 완료');
+      });
+    }
+    
     // 2. 세션 데이터 정리
     if (fs.existsSync(sessionDataPath)) {
-      fs.unlinkSync(sessionDataPath);
-      console.log('✅ 세션 데이터 정리 완료');
+      try {
+        fs.unlinkSync(sessionDataPath);
+        console.log('✅ 세션 데이터 정리 완료');
+      } catch (e) {
+        console.warn('⚠️ 세션 데이터 삭제 실패:', e.message);
+      }
     }
     
     // 3. HTTP 서버 정리
@@ -163,8 +214,9 @@ function cleanupAndExit(reason = '수동 종료') {
     }
     
     // 4. 트레이 정리
-    if (tray) {
+    if (tray && !tray.isDestroyed()) {
       tray.destroy();
+      tray = null;
       console.log('✅ 시스템 트레이 정리 완료');
     }
     
@@ -174,7 +226,12 @@ function cleanupAndExit(reason = '수동 종료') {
         window.destroy();
       }
     });
+    printWindow = null;
     console.log('✅ 모든 창 정리 완료');
+    
+    // 6. IPC 핸들러 정리
+    ipcMain.removeAllListeners();
+    console.log('✅ IPC 핸들러 정리 완료');
     
   } catch (error) {
     console.error('⚠️ 정리 중 오류 발생:', error.message);
@@ -338,18 +395,51 @@ function registerProtocol() {
   const protocolName = 'webprinter';
   
   try {
+    let registrationSuccess = false;
+    
     if (process.defaultApp) {
       if (process.argv.length >= 2) {
-        const result = app.setAsDefaultProtocolClient(protocolName, process.execPath, [path.resolve(process.argv[1])]);
-        console.log(`🔗 프로토콜 핸들러 등록 (개발 모드): ${result ? '성공' : '실패'}`);
+        registrationSuccess = app.setAsDefaultProtocolClient(protocolName, process.execPath, [path.resolve(process.argv[1])]);
+        console.log(`🔗 프로토콜 핸들러 등록 (개발 모드): ${registrationSuccess ? '성공' : '실패'}`);
       }
     } else {
-      const result = app.setAsDefaultProtocolClient(protocolName);
-      console.log(`🔗 프로토콜 핸들러 등록: ${result ? '성공' : '실패'}`);
+      registrationSuccess = app.setAsDefaultProtocolClient(protocolName);
+      console.log(`🔗 프로토콜 핸들러 등록: ${registrationSuccess ? '성공' : '실패'}`);
+      
+      // Windows에서 추가 레지스트리 등록 시도
+      if (process.platform === 'win32' && !registrationSuccess) {
+        console.log('📝 Windows 레지스트리에 수동으로 프로토콜 등록 시도...');
+        const { exec } = require('child_process');
+        const appPath = process.execPath.replace(/\\/g, '\\\\');
+        
+        const commands = [
+          `reg add "HKCR\\webprinter" /ve /d "URL:WebPrinter Protocol" /f`,
+          `reg add "HKCR\\webprinter" /v "URL Protocol" /d "" /f`,
+          `reg add "HKCR\\webprinter\\DefaultIcon" /ve /d "${appPath},0" /f`,
+          `reg add "HKCR\\webprinter\\shell\\open\\command" /ve /d "\\"${appPath}\\" \\"%1\\"" /f`
+        ];
+        
+        commands.forEach(cmd => {
+          exec(cmd, (error) => {
+            if (error) {
+              console.warn(`⚠️ 레지스트리 명령 실패: ${cmd}`);
+            } else {
+              console.log(`✅ 레지스트리 명령 성공: ${cmd}`);
+              registrationSuccess = true;
+            }
+          });
+        });
+      }
       
       // 등록 상태 확인
-      const isDefault = app.isDefaultProtocolClient(protocolName);
-      console.log(`📋 기본 프로토콜 클라이언트 상태: ${isDefault ? '등록됨' : '등록 안됨'}`);
+      setTimeout(() => {
+        const isDefault = app.isDefaultProtocolClient(protocolName);
+        console.log(`📋 기본 프로토콜 클라이언트 최종 상태: ${isDefault ? '등록됨' : '등록 안됨'}`);
+        
+        if (!isDefault && process.platform === 'win32') {
+          console.warn('⚠️ 프로토콜 등록 실패 - 관리자 권한으로 재시도가 필요할 수 있습니다.');
+        }
+      }, 2000);
       
       // 시스템에 등록된 프로토콜 핸들러 정보 표시
       if (process.platform === 'darwin') {
@@ -526,20 +616,64 @@ function startHttpServer() {
     });
     
     // 사용 가능한 포트 찾기 (18731-18740 범위)
-    let portToTry = 18731;
+    const PORT_RANGE_START = 18731;
+    const PORT_RANGE_END = 18740;
+    let portToTry = PORT_RANGE_START;
     
-    const tryPort = (port) => {
+    // 포트 점유 프로세스 확인 및 종료 시도 (Windows)
+    const checkAndKillPortProcess = async (port) => {
+      if (process.platform === 'win32') {
+        const { exec } = require('child_process');
+        return new Promise((resolve) => {
+          // 포트를 사용하는 프로세스 찾기
+          exec(`netstat -ano | findstr :${port}`, (error, stdout) => {
+            if (stdout) {
+              const lines = stdout.trim().split('\n');
+              lines.forEach(line => {
+                const parts = line.trim().split(/\s+/);
+                const pid = parts[parts.length - 1];
+                if (pid && pid !== '0') {
+                  console.log(`⚠️ 포트 ${port}를 사용하는 프로세스 발견 (PID: ${pid})`);
+                  // WebPrinter 프로세스인지 확인 후 종료
+                  exec(`wmic process where ProcessId=${pid} get Name`, (err, procName) => {
+                    if (procName && procName.toLowerCase().includes('webprint')) {
+                      console.log(`🔧 이전 WebPrinter 프로세스 종료 시도 (PID: ${pid})`);
+                      exec(`taskkill /f /pid ${pid}`, () => {
+                        setTimeout(resolve, 1000); // 종료 대기
+                      });
+                    } else {
+                      resolve();
+                    }
+                  });
+                }
+              });
+            } else {
+              resolve();
+            }
+          });
+        });
+      }
+      return Promise.resolve();
+    };
+    
+    const tryPort = async (port) => {
+      // 포트 사용 중인 프로세스 확인 및 정리
+      await checkAndKillPortProcess(port);
+      
       const server = expressApp.listen(port, 'localhost', () => {
         serverPort = server.address().port;
         httpServer = server;
-        console.log(`HTTP 서버 시작됨: http://localhost:${serverPort}`);
+        console.log(`✅ HTTP 서버 시작됨: http://localhost:${serverPort}`);
         resolve(server);
       });
       
-      server.on('error', (err) => {
-        if (err.code === 'EADDRINUSE' && port < 18740) {
-          console.log(`포트 ${port} 사용 중, ${port + 1} 시도`);
-          tryPort(port + 1);
+      server.on('error', async (err) => {
+        if (err.code === 'EADDRINUSE' && port < PORT_RANGE_END) {
+          console.log(`⚠️ 포트 ${port} 사용 중, ${port + 1} 시도`);
+          await tryPort(port + 1);
+        } else if (err.code === 'EADDRINUSE' && port >= PORT_RANGE_END) {
+          console.error(`❌ 모든 포트 (${PORT_RANGE_START}-${PORT_RANGE_END})가 사용 중입니다.`);
+          reject(new Error('사용 가능한 포트가 없습니다'));
         } else {
           reject(err);
         }
@@ -816,6 +950,29 @@ function setupAutoUpdater() {
   
   autoUpdater.on('error', (error) => {
     console.error('❌ 업데이트 오류:', error.message);
+    
+    // 권한 관련 오류 처리
+    if (error.message.includes('EACCES') || error.message.includes('permission') || error.message.includes('Access')) {
+      console.warn('⚠️ 업데이트 권한 오류 감지 - 관리자 권한이 필요할 수 있습니다');
+      
+      if (printWindow && !printWindow.isDestroyed()) {
+        printWindow.webContents.send('update-error', {
+          error: '업데이트 설치에 관리자 권한이 필요합니다',
+          requiresAdmin: true
+        });
+      }
+    }
+    
+    // 네트워크 오류 처리
+    if (error.message.includes('net::') || error.message.includes('ECONNREFUSED')) {
+      console.warn('⚠️ 네트워크 연결 오류 - 나중에 다시 시도합니다');
+      
+      // 30분 후 재시도
+      setTimeout(() => {
+        console.log('🔄 업데이트 재시도...');
+        autoUpdater.checkForUpdates();
+      }, 30 * 60 * 1000);
+    }
   });
   
   autoUpdater.on('download-progress', (progressObj) => {
@@ -856,16 +1013,37 @@ let pendingProtocolCall = null;
 // 시작 프로그램 등록 (OS별 자동 시작 설정)
 function setupAutoLaunch() {
   try {
-    const openAtLogin = app.getLoginItemSettings().openAtLogin;
+    const loginSettings = app.getLoginItemSettings();
+    const openAtLogin = loginSettings.openAtLogin;
+    
+    console.log('🔍 현재 시작 프로그램 설정:', loginSettings);
     
     if (!openAtLogin) {
       console.log('🚀 시작 프로그램에 WebPrinter 등록 중...');
       
+      // 플랫폼별 처리
+      if (process.platform === 'win32') {
+        // Windows: 레지스트리 방식도 함께 시도
+        const { exec } = require('child_process');
+        const appPath = process.execPath;
+        const regCommand = `reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v "WebPrinter" /t REG_SZ /d "${appPath} --hidden" /f`;
+        
+        exec(regCommand, (error) => {
+          if (error) {
+            console.warn('⚠️ 레지스트리 등록 실패:', error.message);
+          } else {
+            console.log('✅ 레지스트리에 시작 프로그램 등록 성공');
+          }
+        });
+      }
+      
+      // Electron API 방식 (모든 플랫폼)
       app.setLoginItemSettings({
         openAtLogin: true,
         openAsHidden: true,  // 숨겨진 상태로 시작
         name: 'WebPrinter',
-        args: ['--hidden'] // 숨겨진 모드로 시작
+        args: ['--hidden'], // 숨겨진 모드로 시작
+        path: process.execPath // 명시적 경로 지정
       });
       
       console.log('✅ 시작 프로그램 등록 완료 - 부팅 시 자동 실행됩니다');

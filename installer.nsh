@@ -4,11 +4,23 @@
 !macro customInstall
   ; 설치 전 기존 프로세스 종료
   DetailPrint "기존 WebPrinter 프로세스 확인 중..."
+  
+  ; 모든 가능한 프로세스명으로 종료 시도
   nsExec::ExecToLog 'taskkill /f /im "WebPrinter.exe" /t'
   nsExec::ExecToLog 'taskkill /f /im "web-printer.exe" /t'
+  nsExec::ExecToLog 'taskkill /f /im "webprint*.exe" /t'
+  
+  ; 포트 점유 프로세스 확인 및 종료 (18731-18740)
+  DetailPrint "포트 점유 확인 중..."
+  nsExec::ExecToLog 'cmd /c "for /l %i in (18731,1,18740) do netstat -ano | findstr :%i | findstr LISTENING"'
   
   ; 잠시 대기 (프로세스 종료 완료)
-  Sleep 2000
+  Sleep 3000
+  
+  ; 레지스트리 정리 (이전 설치 흔적)
+  DetailPrint "이전 설치 흔적 정리 중..."
+  DeleteRegKey HKCU "Software\WebPrinter"
+  DeleteRegKey HKLM "Software\WebPrinter"
   
   DetailPrint "WebPrinter 설치를 시작합니다..."
 !macroend
@@ -20,7 +32,11 @@
   DetailPrint "실행 중인 프로세스 종료 중..."
   nsExec::ExecToLog 'taskkill /f /im "WebPrinter.exe" /t'
   nsExec::ExecToLog 'taskkill /f /im "web-printer.exe" /t'
+  nsExec::ExecToLog 'taskkill /f /im "webprint*.exe" /t'
   nsExec::ExecToLog 'taskkill /f /im "electron.exe" /t'
+  
+  ; WMI를 사용한 프로세스 종료 (더 강력함)
+  nsExec::ExecToLog 'wmic process where "name like ''%webprint%''" delete'
   
   ; 프로세스 종료 대기
   Sleep 3000
@@ -32,46 +48,54 @@
   DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "WebPrinter"
   DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "web-printer"
   
+  ; Task Scheduler에서도 제거
+  nsExec::ExecToLog 'schtasks /delete /tn "WebPrinter" /f'
+  nsExec::ExecToLog 'schtasks /delete /tn "WebPrinterAutoStart" /f'
+  
   ; 3. 프로토콜 핸들러 제거
   DetailPrint "프로토콜 핸들러 제거 중..."
   DeleteRegKey HKCR "webprinter"
   DeleteRegKey HKCU "Software\Classes\webprinter"
+  DeleteRegKey HKLM "Software\Classes\webprinter"
   
-  ; 4. 사용자 데이터 정리
+  ; 4. 앱 레지스트리 정리
+  DetailPrint "레지스트리 정리 중..."
+  DeleteRegKey HKCU "Software\WebPrinter"
+  DeleteRegKey HKLM "Software\WebPrinter"
+  DeleteRegKey HKCU "Software\code-x-team\WebPrinter"
+  DeleteRegKey HKLM "Software\code-x-team\WebPrinter"
+  
+  ; 5. 사용자 데이터 정리
   DetailPrint "사용자 데이터 정리 중..."
   Delete "$PROFILE\.webprinter-sessions.json"
+  Delete "$PROFILE\.webprinter-config.json"
   RMDir /r "$APPDATA\WebPrinter"
   RMDir /r "$APPDATA\web-printer"
   RMDir /r "$LOCALAPPDATA\WebPrinter"
   RMDir /r "$LOCALAPPDATA\web-printer"
+  RMDir /r "$PROGRAMDATA\WebPrinter"
   
-  ; 5. 임시 파일 정리
+  ; 6. 임시 파일 정리
   DetailPrint "임시 파일 정리 중..."
   RMDir /r "$TEMP\WebPrinter"
   RMDir /r "$TEMP\web-printer"
+  RMDir /r "$TEMP\electron-*"
   
-  ; 6. 윈도우 방화벽 규칙 제거 (있다면)
+  ; 7. 윈도우 방화벽 규칙 제거
+  DetailPrint "방화벽 규칙 제거 중..."
   nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="WebPrinter"'
+  nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="WebPrinter HTTP Server"'
   
-  ; 7. 서비스 관련 정리 (혹시 등록되어 있다면)
-  nsExec::ExecToLog 'sc delete "WebPrinter"'
-  nsExec::ExecToLog 'sc delete "web-printer"'
+  ; 8. 캐시 정리
+  DetailPrint "캐시 정리 중..."
+  RMDir /r "$LOCALAPPDATA\electron"
+  RMDir /r "$APPDATA\electron"
   
-  ; 8. 최종 프로세스 확인 및 강제 종료
-  DetailPrint "최종 프로세스 정리 중..."
-  nsExec::ExecToLog 'wmic process where "commandline like ''%WebPrinter%''" delete'
-  nsExec::ExecToLog 'wmic process where "commandline like ''%web-printer%''" delete'
-  
-  DetailPrint "WebPrinter 완전 제거가 완료되었습니다."
-  
-  ; 제거 완료 메시지
-  MessageBox MB_OK "WebPrinter가 성공적으로 제거되었습니다.$\n$\n• 모든 프로세스가 종료되었습니다$\n• 시작 프로그램에서 제거되었습니다$\n• 사용자 데이터가 정리되었습니다"
+  DetailPrint "WebPrinter가 완전히 제거되었습니다."
 !macroend
 
 !macro customHeader
-  ; 인스톨러 헤더 사용자 정의
-  !define MUI_HEADERIMAGE
-  !define MUI_HEADERIMAGE_RIGHT
+  RequestExecutionLevel admin
 !macroend
 
 !macro customWelcomePage
