@@ -1,6 +1,6 @@
 {
   "name": "web-printer",
-  "version": "1.4.9",
+  "version": "1.5.1",
   "description": "웹에서 호출되는 로컬 인쇄 프로그램",
   "main": "main.js",
   "scripts": {
@@ -78,7 +78,10 @@
       "runAfterFinish": false,
       "displayLanguageSelector": false,
       "language": "1042",
-      "installerLanguages": ["ko-KR", "en-US"],
+      "installerLanguages": [
+        "ko-KR",
+        "en-US"
+      ],
       "installerIcon": "icon.ico",
       "uninstallerIcon": "icon.ico",
       "include": "installer.nsh",

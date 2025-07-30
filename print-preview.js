@@ -577,16 +577,16 @@ async function handleUrlsReceived() {
         console.log(`ℹ️ 웹에서 전달된 Silent 설정: ${receivedUrls.silentPrint} (무시됨 - 일반 인쇄만 지원)`);
     }
     
-    // 인쇄 영역 선택자 표시
+    // 인쇄 영역 정보 표시
     if (receivedUrls.printSelector) {
         console.log(`🎯 인쇄 영역: ${receivedUrls.printSelector}`);
         if (receivedUrls.printSelector === '#print_wrap') {
-            showToast(`🎯 #print_wrap 영역만 인쇄됩니다`, 'info', 3000);
+            showToast(`🎯 #print_wrap 영역을 인쇄합니다`, 'info', 3000);
         } else {
-            showToast(`🎯 선택적 인쇄: ${receivedUrls.printSelector}`, 'info', 3000);
+            showToast(`🎯 인쇄 영역: ${receivedUrls.printSelector}`, 'info', 3000);
         }
         
-        // 서버 디스플레이에 선택자 정보 추가
+        // 서버 디스플레이에 인쇄 영역 정보 추가
         if (elements.serverDisplay) {
             const currentHTML = elements.serverDisplay.innerHTML;
             elements.serverDisplay.innerHTML = currentHTML + `<div>인쇄 영역: ${receivedUrls.printSelector}</div>`;
@@ -831,7 +831,7 @@ async function executePrint() {
 
     const printerName = elements.printerSelect.value;
     const copies = parseInt(elements.copiesInput.value) || 1;
-    const silent = false; // 기본값 설정 (일반 인쇄만 사용)
+    const silent = true; // Silent Print 활성화 (대화상자 없이 바로 인쇄)
     
     console.log(`🖨️ 인쇄 실행 준비: copies=${copies}, printer=${printerName}`);
     
@@ -854,8 +854,13 @@ async function executePrint() {
         await window.electronAPI.getPrinters();
         
         if (!printerName) {
-            showToast('⚠️ 프린터를 선택해주세요', 'warning', 3000);
-            showStatus('프린터를 선택해주세요.', 'error');
+            if (silent) {
+                showToast('❌ Silent 모드에서는 프린터를 반드시 선택해야 합니다', 'error', 4000);
+                showStatus('Silent 인쇄를 위해 프린터를 선택해주세요.', 'error');
+            } else {
+                showToast('⚠️ 프린터를 선택해주세요', 'warning', 3000);
+                showStatus('프린터를 선택해주세요.', 'error');
+            }
             return;
         }
         
@@ -875,8 +880,9 @@ async function executePrint() {
             paperSize: currentPaperSize
         });
         
-        showToast('🖨️ 인쇄 요청 전송 중...', 'info', 3000);
-        showStatus('🖨️ 웹페이지 로딩 및 프린트 준비 중...', 'info');
+        const printModeText = silent ? 'Silent 모드 (대화상자 없음)' : '일반 모드 (대화상자 표시)';
+        showToast(`🖨️ ${printModeText}로 인쇄 요청 전송 중...`, 'info', 3000);
+        showStatus(`🖨️ 웹페이지 로딩 및 프린트 준비 중... (${printModeText})`, 'info');
         
         // 진행 상태를 단계별로 표시
         setTimeout(() => {
@@ -892,7 +898,7 @@ async function executePrint() {
         }, 4000);
         
         setTimeout(() => {
-            showStatus('🚀 프린트 대화상자 열기...', 'info');
+            showStatus(silent ? '🚀 프린터로 직접 전송 중...' : '🚀 프린트 대화상자 열기...', 'info');
         }, 5000);
         
         try {
@@ -902,23 +908,28 @@ async function executePrint() {
                 printerName: printerName,
                 copies: copies,
                 paperSize: currentPaperSize, // 용지 사이즈 정보 전달
-                printSelector: receivedUrls.printSelector // 선택적 인쇄 영역 정보 전달
+                printSelector: receivedUrls.printSelector, // 인쇄 영역 정보 전달
+                silent: silent // Silent Print 옵션 전달
             });
             
             console.log('📥 Electron 직접 프린트 응답:', result);
             
             if (result.success) {
                 console.log('✅ 인쇄 작업이 성공적으로 시작되었습니다:', result);
-                showToast('🖨️ 인쇄 작업이 시작되었습니다!', 'success', 4000);
+                const toastMessage = result.silent 
+                    ? '🖨️ 프린터로 직접 전송되었습니다!' 
+                    : '🖨️ 인쇄 대화상자가 열렸습니다!';
+                showToast(toastMessage, 'success', 4000);
                 
                 // 성공 정보 표시
                 const statusElement = document.getElementById('status');
                 if (statusElement) {
                     statusElement.innerHTML = `
-                        <strong>✅ 인쇄 시작 완료</strong><br>
+                        <strong>✅ 인쇄 ${result.silent ? '직접 전송' : '대화상자 열기'} 완료</strong><br>
                         🖨️ 프린터: ${result.printerName}<br>
                         📄 복사본: ${result.copies}매<br>
-                        📄 용지: ${result.paperSize}
+                        📄 용지: ${result.paperSize}<br>
+                        🔇 모드: ${result.silent ? 'Silent (대화상자 없음)' : '일반 (대화상자 표시)'}
                     `;
                     if (result.printSelector) {
                         statusElement.innerHTML += `<br><small>🎯 인쇄 영역: ${result.printSelector}</small>`;

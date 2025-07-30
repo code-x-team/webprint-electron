@@ -1257,10 +1257,14 @@ ipcMain.handle('print-url', async (event, options) => {
   let tempPrintWindow = null;
   
   try {
-    const { url, printerName, copies = 1, paperSize = null, printSelector = '#print_wrap' } = options || {};
+    const { url, printerName, copies = 1, paperSize = null, printSelector = '#print_wrap', silent = false } = options || {};
     
     // printSelector 안전 처리
     const safePrintSelector = printSelector || '#print_wrap';
+    
+    // 세로 방향용 effectiveWidth/Height 계산 (나중에 사용하기 위해 여기서 미리 계산)
+    const effectiveWidth = paperSize ? Math.min(paperSize.width, paperSize.height) : 88;
+    const effectiveHeight = paperSize ? Math.max(paperSize.width, paperSize.height) : 244;
     
     if (!url) {
       throw new Error('인쇄할 URL이 없습니다');
@@ -1270,6 +1274,7 @@ ipcMain.handle('print-url', async (event, options) => {
     console.log(`📏 용지 사이즈: ${paperSize?.width}mm × ${paperSize?.height}mm`);
     console.log(`🎯 인쇄 영역: ${safePrintSelector}`);
     console.log(`📄 복사본: ${copies}매`);
+    console.log(`🔇 Silent 모드: ${silent ? '활성화 (대화상자 없음)' : '비활성화 (대화상자 표시)'}`);
     
     // 프린트 윈도우 생성
     tempPrintWindow = new BrowserWindow({
@@ -1371,7 +1376,7 @@ ipcMain.handle('print-url', async (event, options) => {
       // 타임아웃이어도 진행 (부분적으로 로드된 페이지라도 인쇄 시도)
     }
     
-    // 선택적 인쇄 처리 (#print_wrap 요소 확인)
+    // 인쇄 영역 처리 (#print_wrap 요소 확인)
     console.log(`🎯 인쇄 영역 적용 중: ${safePrintSelector}`);
     
     try {
@@ -1379,7 +1384,7 @@ ipcMain.handle('print-url', async (event, options) => {
       const jsCode = [
         '(() => {',
         `  const selector = '${safePrintSelector.replace(/'/g, "\\'")}';`,
-        '  console.log("🔍 선택자 검색 시작:", selector);',
+        '  console.log("🔍 인쇄 영역 검색 시작:", selector);',
         '  ',
         '  try {',
         '    // DOM 완전 로드 확인',
@@ -1387,7 +1392,7 @@ ipcMain.handle('print-url', async (event, options) => {
         '      console.warn("⚠️ DOM이 아직 완전히 로드되지 않았습니다");',
         '    }',
         '    ',
-        '    // 요소 검색',
+        '    // 인쇄 영역 검색',
         '    const targetElement = document.querySelector(selector);',
         '    ',
         '    if (!targetElement) {',
@@ -1396,7 +1401,7 @@ ipcMain.handle('print-url', async (event, options) => {
         '      console.log("- ID가 있는 요소들:", Array.from(document.querySelectorAll("[id]")).map(el => "#" + el.id).slice(0, 10));',
         '      console.log("- 클래스가 있는 요소들:", Array.from(document.querySelectorAll("[class]")).map(el => "." + el.className.split(" ")[0]).slice(0, 10));',
         '      ',
-        '      return { success: false, error: "요소를 찾을 수 없음", fallbackToFullPage: true };',
+        '      return { success: false, error: "인쇄 영역을 찾을 수 없음" };',
         '    }',
         '    ',
         '    console.log("✅ 대상 요소 발견:", {',
@@ -1409,28 +1414,38 @@ ipcMain.handle('print-url', async (event, options) => {
         '    // 요소가 비어있는지 확인',
         '    const hasContent = targetElement.innerHTML.trim().length > 0 || targetElement.textContent.trim().length > 0;',
         '    if (!hasContent) {',
-        '      console.warn("⚠️ 대상 요소가 비어있습니다. 전체 페이지를 인쇄합니다.");',
-        '      return { success: false, error: "요소가 비어있음", fallbackToFullPage: true };',
+        '      console.warn("⚠️ 인쇄 영역이 비어있습니다.");',
+        '      return { success: false, error: "인쇄 영역이 비어있음" };',
         '    }',
         '    ',
         '    // 기존 스타일 제거 (중복 방지)',
-        '    const existingStyle = document.getElementById("webprinter-selective-print");',
+        '    const existingStyle = document.getElementById("webprinter-print-style");',
         '    if (existingStyle) {',
         '      existingStyle.remove();',
         '    }',
         '    ',
         '    // 인쇄용 스타일 생성',
         '    const printStyle = document.createElement("style");',
-        '    printStyle.id = "webprinter-selective-print";',
+        '    printStyle.id = "webprinter-print-style";',
         '    ',
         '    // CSS 텍스트를 배열로 구성 후 조인',
         '    const cssRules = [',
         '      "@media print {",',
+        '      "  /* 용지 크기 설정 */",',
+        '      "  @page { size: ${effectiveWidth}mm ${effectiveHeight}mm; margin: 0; }",',
+        '      "  ",',
         '      "  /* 모든 요소 숨기기 */",',
         '      "  body > * { display: none !important; }",',
         '      "  ",',
         '      "  /* 선택된 요소와 부모 경로만 표시 */",',
-        '      "  body { margin: 0 !important; padding: 0 !important; }",',
+        '      "  body { ",',
+        '      "    margin: 0 !important; ",',
+        '      "    padding: 0 !important; ",',
+        '      "    transform: rotate(180deg) !important; ",',
+        '      "    transform-origin: 50% 50% !important; ",',
+        '      "    width: 100% !important; ",',
+        '      "    height: 100% !important; ",',
+        '      "  }",',
         '      "  ",',
         '      "  .webprinter-print-target {",',
         '      "    display: block !important;",',
@@ -1454,6 +1469,12 @@ ipcMain.handle('print-url', async (event, options) => {
         '      "    visibility: visible !important;",',
         '      "    opacity: 1 !important;",',
         '      "  }",',
+        '      "  ",',
+        '      "  /* 색상 정확도 보장 */",',
+        '      "  * {",',
+        '      "    -webkit-print-color-adjust: exact !important;",',
+        '      "    print-color-adjust: exact !important;",',
+        '      "  }",',
         '      "}"',
         '    ];',
         '    ',
@@ -1472,24 +1493,24 @@ ipcMain.handle('print-url', async (event, options) => {
         '      parentCount++;',
         '    }',
         '    ',
-        '    console.log("🎨 선택적 인쇄 스타일 적용 완료 (부모 요소 " + parentCount + "개 처리)");',
+        '    console.log("🎨 인쇄 스타일 적용 완료 (부모 요소 " + parentCount + "개 처리)");',
         '    return { success: true };',
         '    ',
         '  } catch (error) {',
-        '    console.error("선택적 인쇄 처리 중 오류:", error);',
-        '    return { success: false, error: error.message, fallbackToFullPage: true };',
+        '    console.error("인쇄 처리 중 오류:", error);',
+        '    return { success: false, error: error.message };',
         '  }',
         '})()'
       ].join('\n');
       
       const elementFound = await tempPrintWindow.webContents.executeJavaScript(jsCode);
       
-      if (!elementFound.success && elementFound.fallbackToFullPage) {
-        console.log('⚠️ 선택적 인쇄 실패 - 전체 페이지로 대체');
-        // 미리보기 창에 메시지 전송 (showToast는 renderer process에서만 사용 가능)
+      if (!elementFound.success) {
+        console.log('⚠️ 인쇄 영역 처리 실패');
+        // 미리보기 창에 메시지 전송
         if (printWindow && !printWindow.isDestroyed()) {
           printWindow.webContents.send('show-toast', {
-            message: '⚠️ 지정된 영역을 찾을 수 없어 전체 페이지를 인쇄합니다',
+            message: '⚠️ 지정된 인쇄 영역을 찾을 수 없습니다',
             type: 'warning',
             duration: 4000
           });
@@ -1497,7 +1518,7 @@ ipcMain.handle('print-url', async (event, options) => {
       }
       
     } catch (error) {
-      console.error('🚨 선택적 인쇄 적용 중 치명적 오류:', error);
+      console.error('🚨 인쇄 영역 처리 중 치명적 오류:', error);
       // 오류 발생 시에도 인쇄는 계속 진행
     }
     let printers = [];
@@ -1536,15 +1557,15 @@ ipcMain.handle('print-url', async (event, options) => {
       // 프린터 목록 조회 실패 시 사용자가 대화상자에서 직접 선택
     }
     
-    // 인쇄 옵션 설정 (일반 인쇄 전용)
+    // 인쇄 옵션 설정
     const printOptions = {
-      silent: false,  // 항상 대화상자 표시
+      silent: silent,  // Silent print 옵션 (true면 대화상자 없이 바로 인쇄)
       printBackground: true,
       color: true,
       margins: {
-        marginType: 'default'
+        marginType: 'none'  // 여백 없음으로 설정 (라벨 프린터에 적합)
       },
-      landscape: false,
+      landscape: false,  // 항상 세로 방향으로 고정
       copies: Math.max(1, Math.min(copies, 10)),  // 최대 10매 제한
       collate: true,
       scaleFactor: 100,
@@ -1559,11 +1580,19 @@ ipcMain.handle('print-url', async (event, options) => {
       console.log(`🖨️ 사용할 프린터: ${selectedPrinter.name}`);
       console.log(`📊 프린터 상태: ${selectedPrinter.status || '알 수 없음'}`);
     } else {
-      console.log(`🖨️ 프린터 미지정 - 사용자가 대화상자에서 선택`);
+      if (silent) {
+        // Silent 모드에서는 기본 프린터 사용
+        console.log(`🖨️ Silent 모드 - 시스템 기본 프린터 사용`);
+        // Windows에서는 빈 문자열이 기본 프린터를 의미함
+        printOptions.deviceName = '';
+      } else {
+        console.log(`🖨️ 프린터 미지정 - 사용자가 대화상자에서 선택`);
+      }
     }
     
-    // 커스텀 용지 사이즈 설정 (중요!)
-    if (paperSize?.width && paperSize?.height) {
+          // 커스텀 용지 사이즈 설정 (중요!)
+      if (paperSize?.width && paperSize?.height) {
+      
       // 표준 용지 사이즈 확인 (확장된 목록)
       const standardSizes = {
         '210x297': 'A4',
@@ -1582,23 +1611,26 @@ ipcMain.handle('print-url', async (event, options) => {
         '80x120': 'Label 80x120',  // 라벨 프린터용
         '100x150': 'Label 100x150',
         '57x32': 'Receipt 57mm',   // 영수증 프린터용
-        '80x80': 'Receipt 80mm'
+        '80x80': 'Receipt 80mm',
+        '88x244': 'Custom 88x244',  // 사용자 정의 라벨
+        '244x88': 'Custom 244x88'   // 사용자 정의 라벨 (가로)
       };
       
-      const sizeKey = `${Math.round(paperSize.width)}x${Math.round(paperSize.height)}`;
+      // 세로 방향 기준으로 sizeKey 생성
+      const sizeKey = `${Math.round(effectiveWidth)}x${Math.round(effectiveHeight)}`;
       const standardSize = standardSizes[sizeKey];
       
       if (standardSize) {
         printOptions.pageSize = standardSize;
-        console.log(`📄 표준 용지 사이즈 사용: ${standardSize} (${paperSize.width}×${paperSize.height}mm)`);
+        console.log(`📄 표준 용지 사이즈 사용: ${standardSize} (${effectiveWidth}×${effectiveHeight}mm)`);
       } else {
         // 커스텀 사이즈 - Electron은 microns (마이크론) 단위 사용
         // 1mm = 1000 microns
         printOptions.pageSize = {
-          width: Math.round(paperSize.width * 1000),   // mm to microns
-          height: Math.round(paperSize.height * 1000)  // mm to microns
+          width: Math.round(effectiveWidth * 1000),   // mm to microns
+          height: Math.round(effectiveHeight * 1000)  // mm to microns
         };
-        console.log(`📐 커스텀 용지 사이즈 설정: ${paperSize.width}mm × ${paperSize.height}mm`);
+        console.log(`📐 커스텀 용지 사이즈 설정: ${effectiveWidth}mm × ${effectiveHeight}mm`);
         console.log(`📐 마이크론 단위: ${printOptions.pageSize.width} × ${printOptions.pageSize.height} microns`);
       }
     } else {
@@ -1631,17 +1663,20 @@ ipcMain.handle('print-url', async (event, options) => {
           setTimeout(cleanupWindow, 1000);
           
           if (success) {
-            const resultMessage = '프린트 대화상자가 열렸습니다.';
+            const resultMessage = silent 
+              ? '프린터로 직접 전송되었습니다.' 
+              : '프린트 대화상자가 열렸습니다.';
               
             console.log(`✅ ${resultMessage}`);
             resolve({
               success: true,
               message: resultMessage,
-              method: 'Electron 대화상자 인쇄',
+              method: silent ? 'Silent 직접 인쇄' : 'Electron 대화상자 인쇄',
               printerName: selectedPrinter?.name || '기본 프린터',
-              paperSize: `${paperSize.width}mm × ${paperSize.height}mm`,
+              paperSize: `${effectiveWidth}mm × ${effectiveHeight}mm`,
               copies: printOptions.copies,
-              printSelector: safePrintSelector === '#print_wrap' ? '#print_wrap (기본)' : safePrintSelector
+              printSelector: safePrintSelector === '#print_wrap' ? '#print_wrap (기본)' : safePrintSelector,
+              silent: silent
             });
           } else {
             const errorMsg = failureReason || '사용자가 취소했거나 알 수 없는 오류';
