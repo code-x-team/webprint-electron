@@ -490,6 +490,31 @@ async function handleUrlsReceived() {
         }
     }
     
+    // 인쇄 영역 선택자 표시
+    if (receivedUrls.printSelector) {
+        console.log(`🎯 인쇄 영역: ${receivedUrls.printSelector}`);
+        if (receivedUrls.printSelector === '#print_wrap') {
+            showToast(`🎯 #print_wrap 영역만 인쇄됩니다`, 'info', 3000);
+        } else {
+            showToast(`🎯 선택적 인쇄: ${receivedUrls.printSelector}`, 'info', 3000);
+        }
+        
+        // 서버 디스플레이에 선택자 정보 추가
+        if (elements.serverDisplay) {
+            const currentHTML = elements.serverDisplay.innerHTML;
+            elements.serverDisplay.innerHTML = currentHTML + `<div>인쇄 영역: ${receivedUrls.printSelector}</div>`;
+        }
+    } else {
+        // 기본값도 #print_wrap 표시
+        console.log('🎯 기본 인쇄 영역: #print_wrap');
+        showToast('🎯 #print_wrap 영역만 인쇄됩니다', 'info', 3000);
+        
+        if (elements.serverDisplay) {
+            const currentHTML = elements.serverDisplay.innerHTML;
+            elements.serverDisplay.innerHTML = currentHTML + `<div>인쇄 영역: #print_wrap</div>`;
+        }
+    }
+    
     // 즉시 로딩 화면 숨김
     hideLoading();
     
@@ -798,7 +823,8 @@ async function executePrint() {
                 printerName: printerName,
                 copies: copies,
                 silent: silent,
-                paperSize: currentPaperSize // 용지 사이즈 정보 전달
+                paperSize: currentPaperSize, // 용지 사이즈 정보 전달
+                printSelector: receivedUrls.printSelector // 선택적 인쇄 영역 정보 전달
             });
             
             console.log('📥 Electron 직접 프린트 응답:', result);
@@ -820,6 +846,9 @@ async function executePrint() {
                     statusElement.innerHTML += `<br><small>📄 매수: ${result.copies}매</small>`;
                     if (result.silent) {
                         statusElement.innerHTML += `<br><small>🔇 바로 인쇄 모드</small>`;
+                    }
+                    if (result.printSelector) {
+                        statusElement.innerHTML += `<br><small>🎯 인쇄 영역: ${result.printSelector}</small>`;
                     }
                 }
                 
