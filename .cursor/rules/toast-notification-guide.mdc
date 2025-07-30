@@ -1,0 +1,333 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# Toast 알림 시스템 가이드
+
+## 개요
+WebPrinter의 Toast 알림 시스템은 사용자에게 실시간으로 시스템 상태와 작업 진행 상황을 시각적으로 알려주는 UI 컴포넌트입니다.
+
+## Toast 시스템 구조
+
+### 위치 및 스타일
+- **위치**: 화면 우측 상단 고정
+- **z-index**: 10000 (최상위 레이어)
+- **애니메이션**: 슬라이드 인/아웃 효과
+- **자동 제거**: 설정된 시간 후 자동 사라짐
+
+### Toast 타입별 색상 체계
+```javascript
+const colors = {
+    success: 'linear-gradient(135deg, #28a745, #20c997)',  // 녹색
+    error: 'linear-gradient(135deg, #dc3545, #fd7e14)',    // 빨간색
+    warning: 'linear-gradient(135deg, #ffc107, #fd7e14)',  // 주황색
+    info: 'linear-gradient(135deg, #007bff, #6f42c1)'      // 파란색
+};
+```
+
+## 기본 사용법
+
+### showToast() 함수
+[print-preview.js](mdc:print-preview.js)에 구현된 전역 함수:
+
+```javascript
+showToast(message, type = 'info', duration = 3000)
+```
+
+**매개변수**:
+- `message`: 표시할 메시지 텍스트
+- `type`: 'success', 'error', 'warning', 'info' 중 하나
+- `duration`: 표시 시간 (밀리초, 기본값: 3000ms)
+
+### 사용 예시
+```javascript
+// 성공 메시지 (4초간 표시)
+showToast('✅ 인쇄가 완료되었습니다!', 'success', 4000);
+
+// 에러 메시지 (5초간 표시)
+showToast('❌ 프린터를 찾을 수 없습니다', 'error', 5000);
+
+// 경고 메시지 (3초간 표시)
+showToast('⚠️ 프린터를 선택해주세요', 'warning', 3000);
+
+// 정보 메시지 (2초간 표시)
+showToast('📡 서버 정보 수신 완료', 'info', 2000);
+```
+
+## 시스템 통합 사례
+
+### 1. IPC 통신 상태 알림
+```javascript
+// IPC 통신 점검 결과
+if (checks.totalPassed === checks.totalTests) {
+    showToast(`✅ IPC 통신 정상 작동 (${successRate}%)`, 'success', 4000);
+} else if (checks.totalPassed >= checks.totalTests * 0.7) {
+    showToast(`⚠️ IPC 통신 부분 작동 (${successRate}%)`, 'warning', 5000);
+} else {
+    showToast(`❌ IPC 통신 심각한 문제 (${successRate}%)`, 'error', 6000);
+}
+```
+
+### 2. 인쇄 프로세스 단계별 알림
+```javascript
+// 인쇄 시작
+showToast('🔍 인쇄 시스템 점검 중...', 'info', 2000);
+
+// 인쇄 요청 전송
+showToast('🖨️ 인쇄 요청 전송 중...', 'info', 3000);
+
+// 인쇄 성공
+showToast('✅ 프린트 대화상자가 열렸습니다!', 'success', 4000);
+
+// 인쇄 실패
+showToast(`❌ 인쇄 실패: ${error.message}`, 'error', 5000);
+```
+
+### 3. 업데이트 프로세스 알림
+```javascript
+// 새 버전 발견
+showToast(`🆕 새 버전 발견: v${info.version}`, 'info', 4000);
+
+// 다운로드 진행률 (25% 간격으로)
+if (percent % 25 === 0) {
+    showToast(`📥 업데이트 다운로드 ${percent}%`, 'info', 1500);
+}
+
+// 다운로드 완료
+showToast('✅ 업데이트 다운로드 완료!', 'success', 4000);
+
+// 설치 시작
+showToast('🔄 업데이트 설치 중...', 'info', 3000);
+```
+
+### 4. 프린터 관리 알림
+```javascript
+// 프린터 목록 로드
+showToast('🖨️ 프린터 목록 확인 중...', 'info', 2000);
+
+// 프린터 발견
+showToast(`✅ 프린터 ${availablePrinters.length}개 발견`, 'success', 2500);
+
+// 프린터 로드 실패
+showToast('❌ 프린터 목록 로드 실패', 'error', 4000);
+```
+
+## 고급 사용법
+
+### 1. 조건부 Toast 표시
+```javascript
+// 중요한 메시지만 Toast로 표시
+function conditionalToast(level, message, type, duration) {
+    if (level >= LOG_LEVEL_TOAST) {
+        showToast(message, type, duration);
+    }
+    console.log(message); // 항상 콘솔에는 기록
+}
+```
+
+### 2. Toast 큐 관리
+```javascript
+// 연속적인 Toast 메시지 관리
+const toastQueue = [];
+let isProcessingToast = false;
+
+function queueToast(message, type, duration) {
+    toastQueue.push({ message, type, duration });
+    if (!isProcessingToast) {
+        processToastQueue();
+    }
+}
+
+async function processToastQueue() {
+    isProcessingToast = true;
+    while (toastQueue.length > 0) {
+        const { message, type, duration } = toastQueue.shift();
+        showToast(message, type, duration);
+        await new Promise(resolve => setTimeout(resolve, duration + 500));
+    }
+    isProcessingToast = false;
+}
+```
+
+### 3. 상태별 Toast 스타일 커스터마이징
+```javascript
+function showStatusToast(status, message, details = null) {
+    const configs = {
+        connecting: { 
+            type: 'info', 
+            duration: 2000, 
+            icon: '🔄' 
+        },
+        connected: { 
+            type: 'success', 
+            duration: 3000, 
+            icon: '✅' 
+        },
+        error: { 
+            type: 'error', 
+            duration: 5000, 
+            icon: '❌' 
+        },
+        warning: { 
+            type: 'warning', 
+            duration: 4000, 
+            icon: '⚠️' 
+        }
+    };
+    
+    const config = configs[status];
+    const fullMessage = `${config.icon} ${message}`;
+    showToast(fullMessage, config.type, config.duration);
+    
+    if (details) {
+        console.log(`${status.toUpperCase()}: ${message}`, details);
+    }
+}
+```
+
+## 사용자 경험 최적화
+
+### 1. 적절한 지속 시간 설정
+```javascript
+// 메시지 타입별 권장 지속 시간
+const TOAST_DURATIONS = {
+    quickInfo: 1500,      // 빠른 정보 (버전 확인 등)
+    normalInfo: 2000,     // 일반 정보 (서버 연결 등)
+    success: 3000,        // 성공 메시지
+    warning: 4000,        // 경고 메시지
+    error: 5000,          // 에러 메시지
+    critical: 8000        // 중요한 오류
+};
+```
+
+### 2. 이모지 활용 가이드
+```javascript
+// 상황별 이모지 권장 사항
+const TOAST_EMOJIS = {
+    // 시스템 상태
+    connecting: '🔄',
+    connected: '✅',
+    disconnected: '📡',
+    
+    // 인쇄 관련
+    printing: '🖨️',
+    printSuccess: '✅',
+    printError: '❌',
+    
+    // 파일 관련
+    loading: '📄',
+    saving: '💾',
+    
+    // 업데이트 관련
+    updateFound: '🆕',
+    downloading: '📥',
+    installing: '🔄',
+    
+    // 에러 레벨
+    info: 'ℹ️',
+    warning: '⚠️',
+    error: '❌',
+    critical: '🚨'
+};
+```
+
+### 3. 접근성 고려사항
+```javascript
+// 스크린 리더 지원
+function accessibleToast(message, type, duration) {
+    showToast(message, type, duration);
+    
+    // ARIA 라이브 리전에 메시지 추가
+    const ariaLive = document.getElementById('aria-live-region');
+    if (ariaLive) {
+        ariaLive.textContent = message;
+        // 메시지 읽기 완료 후 정리
+        setTimeout(() => {
+            ariaLive.textContent = '';
+        }, duration);
+    }
+}
+```
+
+## 디버깅 및 테스트
+
+### 1. Toast 테스트 함수
+```javascript
+// 개발 환경에서 Toast 테스트
+function testAllToastTypes() {
+    const messages = [
+        { msg: '성공 메시지 테스트', type: 'success' },
+        { msg: '에러 메시지 테스트', type: 'error' },
+        { msg: '경고 메시지 테스트', type: 'warning' },
+        { msg: '정보 메시지 테스트', type: 'info' }
+    ];
+    
+    messages.forEach((toast, index) => {
+        setTimeout(() => {
+            showToast(toast.msg, toast.type, 3000);
+        }, index * 1000);
+    });
+}
+```
+
+### 2. Toast 성능 모니터링
+```javascript
+// Toast 표시 성능 측정
+const toastPerformance = {
+    count: 0,
+    totalTime: 0,
+    
+    measure(callback) {
+        const start = performance.now();
+        callback();
+        const end = performance.now();
+        this.count++;
+        this.totalTime += (end - start);
+        
+        if (this.count % 10 === 0) {
+            console.log(`Toast 평균 렌더링 시간: ${this.totalTime / this.count}ms`);
+        }
+    }
+};
+```
+
+## 베스트 프랙티스
+
+### 1. 메시지 작성 가이드
+- **간결성**: 핵심 정보만 포함 (최대 50자 권장)
+- **명확성**: 사용자가 이해하기 쉬운 언어 사용
+- **일관성**: 동일한 상황에서는 동일한 메시지 사용
+- **행동 지향**: 필요시 다음 행동을 안내
+
+### 2. 타이밍 최적화
+```javascript
+// 중요도에 따른 지속 시간 조절
+function smartToastDuration(message, type) {
+    const baseTime = {
+        'info': 2000,
+        'success': 3000,
+        'warning': 4000,
+        'error': 5000
+    };
+    
+    // 메시지 길이에 따른 추가 시간
+    const extraTime = Math.max(0, (message.length - 30) * 50);
+    
+    return baseTime[type] + extraTime;
+}
+```
+
+### 3. 사용자 인터랙션
+```javascript
+// 클릭으로 즉시 닫기 기능 (이미 구현됨)
+toast.addEventListener('click', () => {
+    toast.style.transform = 'translateX(400px)';
+    toast.style.opacity = '0';
+    setTimeout(() => {
+        if (toast.parentNode) {
+            toast.remove();
+        }
+    }, 300);
+});
+```

@@ -1,0 +1,241 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# IPC 통신 디버깅 가이드
+
+## 개요
+WebPrinter의 IPC(Inter-Process Communication) 통신 상태를 점검하고 문제를 해결하는 방법을 안내합니다.
+
+## IPC 통신 구조
+
+### 주요 IPC 채널
+- **Invoke 채널**: `get-printers`, `print-url`, `get-server-info`, `hide-to-background`
+- **Event 채널**: `urls-received`, `server-info`, `session-restored`, `update-available`
+
+### 통신 흐름
+```
+웹페이지 → HTTP Server → main.js → IPC → preload.js → print-preview.js
+```
+
+## 자동 IPC 상태 점검 시스템
+
+### checkIpcCommunication() 함수
+[print-preview.js](mdc:print-preview.js)에서 6단계 점검 수행:
+
+```javascript
+const checks = {
+    electronAPI: false,        // 1. electronAPI 객체 존재 확인
+    getServerInfo: false,      // 2. 서버 정보 API 테스트
+    getPrinters: false,        // 3. 프린터 목록 API 테스트
+    getAppVersion: false,      // 4. 앱 버전 API 테스트
+    printUrl: false,           // 5. printUrl 함수 존재 확인
+    eventListeners: false      // 6. 이벤트 리스너 함수들 확인
+};
+```
+
+### 점검 결과 해석
+- **100%**: ✅ IPC 통신 정상 작동
+- **70% 이상**: ⚠️ IPC 통신 부분 작동
+- **70% 미만**: ❌ IPC 통신 심각한 문제
+
+## 실시간 모니터링 시스템
+
+### startIpcMonitoring() 함수
+```javascript
+// 10초마다 IPC 연결 상태 체크
+setInterval(async () => {
+    try {
+        await window.electronAPI.getAppVersion();
+        consecutiveFailures = 0;
+    } catch (error) {
+        consecutiveFailures++;
+        if (consecutiveFailures >= 3) {
+            // 3회 연속 실패 시 복구 시도
+            attemptIpcRecovery();
+        }
+    }
+}, 10000);
+```
+
+### 자동 복구 메커니즘
+```javascript
+async function attemptIpcRecovery() {
+    // 페이지 새로고침으로 IPC 재연결 시도
+    setTimeout(() => {
+        window.location.reload();
+    }, 3000);
+}
+```
+
+## 디버깅 도구
+
+### 콘솔 로그 분석
+IPC 통신 과정에서 출력되는 주요 로그들:
+
+```javascript
+// 성공적인 IPC 통신
+✅ electronAPI 객체 존재 확인
+✅ getServerInfo API 정상
+✅ getPrinters API 정상
+✅ 모든 IPC 통신 테스트 통과!
+
+// 실패한 IPC 통신
+❌ electronAPI 객체가 존재하지 않습니다
+❌ getServerInfo API 실패: Error message
+❌ IPC 통신에 심각한 문제가 있습니다
+```
+
+### IPC 메시지 전송 확인
+[main.js](mdc:main.js)에서 실시간 IPC 전송 상태:
+
+```javascript
+console.log(`🔍 실시간 IPC 전송 조건 확인:`);
+console.log(`- printWindow 존재: ${!!printWindow}`);
+console.log(`- currentSession: ${currentSession}`);
+console.log(`- 요청 sessionId: ${sessionId}`);
+console.log(`- 세션 일치: ${currentSession === sessionId}`);
+```
+
+## 일반적인 문제 및 해결방법
+
+### 1. electronAPI 객체 없음
+**증상**: `❌ IPC 통신 실패: electronAPI 객체 없음`
+
+**원인**: 
+- [preload.js](mdc:preload.js) 로딩 실패
+- Context isolation 설정 문제
+
+**해결방법**:
+```javascript
+// main.js에서 webPreferences 확인
+webPreferences: {
+    nodeIntegration: false,
+    contextIsolation: true,
+    preload: path.join(__dirname, 'preload.js')
+}
+```
+
+### 2. IPC 메시지 전송 실패
+**증상**: `⚠️ IPC 메시지 전송 조건 불충족`
+
+**원인**:
+- printWindow가 destroy 상태
+- 세션 ID 불일치
+- 렌더러 로딩 중
+
+**해결방법**:
+```javascript
+// 안전한 IPC 전송 패턴
+if (printWindow && !printWindow.isDestroyed() && currentSession === sessionId) {
+    if (printWindow.webContents.isLoading()) {
+        printWindow.webContents.once('did-finish-load', () => {
+            setTimeout(() => {
+                printWindow.webContents.send('urls-received', urlData);
+            }, 500);
+        });
+    } else {
+        printWindow.webContents.send('urls-received', urlData);
+    }
+}
+```
+
+### 3. API 호출 타임아웃
+**증상**: `❌ getServerInfo API 실패: Timeout`
+
+**원인**:
+- 메인 프로세스 블로킹
+- IPC 채널 혼잡
+
+**해결방법**:
+```javascript
+// Promise.race로 타임아웃 설정
+const timeoutPromise = new Promise((_, reject) => 
+    setTimeout(() => reject(new Error('API Timeout')), 5000)
+);
+
+try {
+    const result = await Promise.race([
+        window.electronAPI.getServerInfo(),
+        timeoutPromise
+    ]);
+} catch (error) {
+    console.error('API 호출 실패:', error);
+}
+```
+
+## 프로덕션 환경 모니터링
+
+### 에러 수집
+```javascript
+window.addEventListener('unhandledrejection', (event) => {
+    console.error('미처리 Promise 거부:', event.reason);
+    if (event.reason.message.includes('IPC')) {
+        // IPC 관련 에러 특별 처리
+        attemptIpcRecovery();
+    }
+});
+```
+
+### 성능 모니터링
+```javascript
+// IPC 호출 성능 측정
+const startTime = performance.now();
+await window.electronAPI.printUrl(options);
+const endTime = performance.now();
+console.log(`인쇄 API 호출 시간: ${endTime - startTime}ms`);
+```
+
+## 베스트 프랙티스
+
+### 1. 안전한 IPC 호출
+```javascript
+// 항상 electronAPI 존재 확인
+if (typeof window.electronAPI === 'object' && window.electronAPI !== null) {
+    try {
+        const result = await window.electronAPI.someMethod();
+    } catch (error) {
+        console.error('IPC 호출 실패:', error);
+    }
+} else {
+    console.error('electronAPI를 사용할 수 없습니다');
+}
+```
+
+### 2. 이벤트 리스너 정리
+```javascript
+// 컴포넌트 언마운트 시 리스너 정리
+const removeListener = window.electronAPI.onUrlsReceived((data) => {
+    // 처리 로직
+});
+
+// 정리 시
+removeListener();
+```
+
+### 3. 에러 복구 전략
+```javascript
+// 단계적 복구 시도
+async function gracefulIpcRecovery() {
+    // 1단계: 간단한 API 재시도
+    try {
+        await window.electronAPI.getAppVersion();
+        return true;
+    } catch (error) {
+        console.warn('1단계 복구 실패:', error);
+    }
+    
+    // 2단계: 페이지 새로고침
+    try {
+        window.location.reload();
+        return true;
+    } catch (error) {
+        console.error('2단계 복구 실패:', error);
+    }
+    
+    // 3단계: 사용자에게 앱 재시작 요청
+    alert('시스템 오류가 발생했습니다. 앱을 다시 시작해주세요.');
+    return false;
+}
+```

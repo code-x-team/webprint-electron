@@ -33,15 +33,50 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           TAG_VERSION=${GITHUB_REF#refs/tags/v}
-          npm version $TAG_VERSION --no-git-tag-version
-          echo "Building version: $TAG_VERSION"
+          echo "Git 태그에서 추출한 버전: $TAG_VERSION"
+          
+          # 현재 package.json 버전 확인
+          CURRENT_VERSION=$(node -e "console.log(require('./package.json').version)")
+          echo "현재 package.json 버전: $CURRENT_VERSION"
+          
+          # 버전이 다를 때만 업데이트
+          if [ "$CURRENT_VERSION" != "$TAG_VERSION" ]; then
+            echo "버전 업데이트: $CURRENT_VERSION → $TAG_VERSION"
+            node -e "
+              const fs = require('fs');
+              const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+              pkg.version = '$TAG_VERSION';
+              fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
+              console.log('✅ package.json 버전 업데이트 완료');
+            "
+          else
+            echo "✅ 버전이 이미 동일함 - 업데이트 불필요"
+          fi
+          
+          echo "최종 빌드 버전: $TAG_VERSION"
 
       - name: Set version from git tag (Windows)
         if: runner.os == 'Windows'
         run: |
           $TAG_VERSION = $env:GITHUB_REF -replace 'refs/tags/v', ''
-          npm version $TAG_VERSION --no-git-tag-version
-          Write-Host "Building version: $TAG_VERSION"
+          Write-Host "Git 태그에서 추출한 버전: $TAG_VERSION"
+          
+          # 현재 package.json 버전 확인
+          $CURRENT_VERSION = (Get-Content package.json | ConvertFrom-Json).version
+          Write-Host "현재 package.json 버전: $CURRENT_VERSION"
+          
+          # 버전이 다를 때만 업데이트
+          if ($CURRENT_VERSION -ne $TAG_VERSION) {
+            Write-Host "버전 업데이트: $CURRENT_VERSION → $TAG_VERSION"
+            $pkg = Get-Content package.json | ConvertFrom-Json
+            $pkg.version = $TAG_VERSION
+            $pkg | ConvertTo-Json -Depth 100 | Set-Content package.json
+            Write-Host "✅ package.json 버전 업데이트 완료"
+          } else {
+            Write-Host "✅ 버전이 이미 동일함 - 업데이트 불필요"
+          }
+          
+          Write-Host "최종 빌드 버전: $TAG_VERSION"
 
 
 

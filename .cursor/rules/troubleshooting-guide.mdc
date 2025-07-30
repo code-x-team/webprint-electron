@@ -55,13 +55,23 @@ const findAvailablePort = async (startPort) => {
 **증상**: "개발자를 확인할 수 없음" 또는 실행 거부
 
 **해결 방법**:
-```bash
-# 1. 격리 속성 제거 (Gatekeeper 우회)
-sudo xattr -r -d com.apple.quarantine /Applications/WebPrinter.app
+1. **시스템 환경설정 → 보안 및 개인정보보호 → 일반**에서 "확인된 개발자의 앱 허용" 선택
+2. 터미널에서 격리 속성 제거:
+   ```bash
+   xattr -cr /Applications/WebPrinter.app
+   ```
+3. Gatekeeper 우회 (임시):
+   ```bash
+   sudo spctl --master-disable
+   ```
 
-# 2. 시스템 설정에서 허용
-# 시스템 설정 > 개인정보 보호 및 보안 > 일반 > "확인된 개발자가 아닌 앱 허용"
-```
+### Windows Defender 오탐지
+**증상**: Windows Defender가 WebPrinter를 악성코드로 진단
+
+**해결 방법**:
+1. **Windows 보안 → 바이러스 및 위협 방지 → 제외 항목 관리**
+2. WebPrinter 설치 폴더를 제외 목록에 추가
+3. Microsoft에 오탐 신고: https://www.microsoft.com/security/portal/submission/submit.aspx
 
 ## 빌드 문제
 
@@ -202,4 +212,187 @@ if (isDev) {
     printWindow.webContents.openDevTools();
     console.log('Debug mode enabled');
 }
+```
+
+## IPC 통신 문제
+
+### electronAPI 객체 없음
+**증상**: `❌ IPC 통신 실패: electronAPI 객체 없음` Toast 메시지
+
+**진단 과정**:
+1. **개발자 도구에서 확인**:
+   ```javascript
+   console.log('electronAPI 존재:', typeof window.electronAPI);
+   console.log('electronAPI 내용:', window.electronAPI);
+   ```
+
+2. **preload.js 로딩 확인**:
+   ```bash
+   # 앱 실행 로그에서 확인
+   ✅ preload.js 로드 완료
+   ✅ contextBridge 설정 완료
+   ```
+
+**가능한 원인**:
+1. **preload.js 파일 경로 오류**
+2. **contextIsolation 설정 문제**
+3. **Electron 버전 호환성 문제**
+
+**해결 방법**:
+```javascript
+// [main.js](mdc:main.js)에서 webPreferences 확인
+webPreferences: {
+    nodeIntegration: false,
+    contextIsolation: true,           // 반드시 true
+    enableRemoteModule: false,
+    preload: path.join(__dirname, 'preload.js')  // 절대 경로 사용
+}
+```
+
+### IPC 메시지 전송 실패
+**증상**: `⚠️ IPC 메시지 전송 조건 불충족` 콘솔 로그
+
+**진단**:
+```javascript
+// [main.js](mdc:main.js)에서 상태 확인
+console.log(`printWindow 존재: ${!!printWindow}`);
+console.log(`printWindow destroyed: ${printWindow?.isDestroyed()}`);
+console.log(`currentSession: ${currentSession}`);
+console.log(`요청 sessionId: ${sessionId}`);
+```
+
+**해결 방법**:
+```javascript
+// 안전한 IPC 전송 패턴
+const safeIpcSend = (channel, data) => {
+    if (printWindow && !printWindow.isDestroyed()) {
+        if (printWindow.webContents.isLoading()) {
+            printWindow.webContents.once('did-finish-load', () => {
+                setTimeout(() => {
+                    if (printWindow && !printWindow.isDestroyed()) {
+                        printWindow.webContents.send(channel, data);
+                    }
+                }, 500);
+            });
+        } else {
+            printWindow.webContents.send(channel, data);
+        }
+    }
+};
+```
+
+### IPC API 호출 타임아웃
+**증상**: `❌ getServerInfo API 실패: Timeout` 에러
+
+**원인**:
+- 메인 프로세스 블로킹
+- 과도한 IPC 호출
+- 메모리 부족
+
+**해결 방법**:
+```javascript
+// [print-preview.js](mdc:print-preview.js)에서 타임아웃 설정
+const callIpcWithTimeout = async (method, ...args) => {
+    const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('IPC Timeout')), 5000)
+    );
+    
+    try {
+        return await Promise.race([
+            window.electronAPI[method](...args),
+            timeoutPromise
+        ]);
+    } catch (error) {
+        console.error(`IPC ${method} 호출 실패:`, error);
+        throw error;
+    }
+};
+```
+
+### 실시간 IPC 모니터링 활용
+**Toast 메시지로 상태 확인**:
+- ✅ `IPC 통신 정상 작동 (100%)`: 모든 기능 정상
+- ⚠️ `IPC 통신 부분 작동 (70%)`: 일부 기능 제한
+- ❌ `IPC 통신 심각한 문제 (33%)`: 시스템 재시작 필요
+
+**자동 복구 시스템**:
+```javascript
+// 3회 연속 실패 시 자동 복구 시도
+if (consecutiveFailures >= 3) {
+    showToast('🔧 IPC 통신 복구 시도 중...', 'warning', 3000);
+    setTimeout(() => {
+        window.location.reload();
+    }, 3000);
+}
+```
+
+## 성능 최적화
+
+### 메모리 사용량 증가
+**진단**:
+```javascript
+// [main.js](mdc:main.js)에서 메모리 모니터링
+setInterval(() => {
+    const usage = process.memoryUsage();
+    console.log('메모리 사용량:', {
+        rss: Math.round(usage.rss / 1024 / 1024) + 'MB',
+        heapUsed: Math.round(usage.heapUsed / 1024 / 1024) + 'MB'
+    });
+}, 30000);
+```
+
+**최적화 방법**:
+```javascript
+// 윈도우 정리 자동화
+const cleanupWindow = () => {
+    if (tempPrintWindow && !tempPrintWindow.isDestroyed()) {
+        tempPrintWindow.close();
+        tempPrintWindow = null;
+    }
+};
+
+// 세션 데이터 정리
+const cleanOldSessions = () => {
+    const now = Date.now();
+    const maxAge = 24 * 60 * 60 * 1000; // 24시간
+    
+    Object.keys(receivedUrls).forEach(sessionId => {
+        const sessionData = receivedUrls[sessionId];
+        if (sessionData.timestamp && (now - sessionData.timestamp) > maxAge) {
+            delete receivedUrls[sessionId];
+        }
+    });
+};
+```
+
+## 로그 수집 및 분석
+
+### 디버그 모드 활성화
+```bash
+# 환경 변수 설정으로 상세 로그 활성화
+DEBUG=* npm start
+ELECTRON_ENABLE_LOGGING=1 npm start
+```
+
+### 로그 파일 위치
+- **Windows**: `%APPDATA%\WebPrinter\logs\`
+- **macOS**: `~/Library/Logs/WebPrinter/`
+- **Linux**: `~/.config/WebPrinter/logs/`
+
+### 중요한 로그 패턴
+```bash
+# 성공적인 초기화
+✅ HTTP 서버 시작됨: http://localhost:18731
+✅ 프로토콜 핸들러 등록: 성공
+✅ 시작 프로그램 등록 완료
+
+# IPC 통신 상태
+✅ IPC 통신 정상 작동 (100%)
+📡 IPC 통신 모니터링 시작됨
+
+# 인쇄 과정
+🖨️ Electron 인쇄 시작
+✅ URL 로딩 완료
+✅ 페이지 렌더링 완료
+✅ 프린트 성공
 ```

@@ -8,7 +8,7 @@
     "build": "npm run sync-version && electron-builder",
     "build-win": "npm run sync-version && electron-builder --win --publish=never",
     "build-mac": "npm run sync-version && electron-builder --mac --publish=never",
-    "sync-version": "node -e \"const fs=require('fs'),{execSync}=require('child_process');try{const tag=execSync('git describe --tags --abbrev=0',{encoding:'utf8'}).trim().replace('v','');const pkg=JSON.parse(fs.readFileSync('package.json'));pkg.version=tag;fs.writeFileSync('package.json',JSON.stringify(pkg,null,2));console.log('✅ Version synced to:',tag);}catch(e){console.log('⚠️ Using current version (no git tags found)');}\"",
+    "sync-version": "node -e \"const fs=require('fs'),{execSync}=require('child_process');try{const tag=execSync('git describe --tags --abbrev=0',{encoding:'utf8'}).trim().replace('v','');const pkg=JSON.parse(fs.readFileSync('package.json'));const currentVersion=pkg.version;console.log('🏷️ Git 태그 버전:',tag);console.log('📦 현재 package.json 버전:',currentVersion);if(currentVersion!==tag){pkg.version=tag;fs.writeFileSync('package.json',JSON.stringify(pkg,null,2));console.log('✅ 버전 동기화 완료:',currentVersion,'→',tag);}else{console.log('✅ 버전이 이미 동일함 - 업데이트 불필요');}}catch(e){console.log('⚠️ Git 태그를 찾을 수 없어 현재 버전 유지');console.log('💡 새 태그 생성: git tag v1.x.x && git push origin v1.x.x');}\"",
     "publish": "electron-builder --publish=always"
   },
   "keywords": [

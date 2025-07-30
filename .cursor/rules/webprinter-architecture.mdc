@@ -17,17 +17,23 @@ WebPrinter는 웹페이지에서 로컬 데스크톱 인쇄 프로그램을 호�
 
 ### 통신 흐름
 1. 웹페이지 → `webprinter://` 프로토콜 → Electron 앱 실행
-2. 웹페이지 → HTTP POST `/send-urls` → Express 서버 (포트 18731)
+2. 웹페이지 → HTTP POST `/send-urls` → Express 서버 (포트 18731-18740)
 3. Express 서버 → IPC `urls-received` → 렌더러 프로세스
 4. 렌더러 → IPC `print-url` → 메인 프로세스 → 실제 인쇄
+
+### 새로운 시스템 기능
+- **세션 영구 저장**: `~/.webprinter-sessions.json`에 24시간 보존
+- **백그라운드 서비스**: 시스템 트레이, 자동 시작, 숨겨진 모드 지원
+- **자동 업데이트**: GitHub Releases 연동, 사용자 선택 설치
+- **IPC 통신 모니터링**: 실시간 상태 점검 및 Toast 알림 시스템
 
 ## 핵심 파일 구조
 
 ### 메인 파일들
-- [main.js](mdc:main.js): Electron 메인 프로세스, HTTP 서버, 자동 업데이트
-- [preload.js](mdc:preload.js): IPC 통신 브리지 (printUrl, getServerInfo, quit 등)
+- [main.js](mdc:main.js): Electron 메인 프로세스, HTTP 서버, 자동 업데이트, 세션 관리
+- [preload.js](mdc:preload.js): IPC 통신 브리지 (printUrl, getServerInfo, hideToBackground 등)
 - [print-preview.html](mdc:print-preview.html): 인쇄 미리보기 UI
-- [print-preview.js](mdc:print-preview.js): 미리보기 로직, 프린터 선택, 인쇄 실행
+- [print-preview.js](mdc:print-preview.js): 미리보기 로직, Toast 알림, IPC 통신 점검
 
 ### 웹 통합
 - [web-example.html](mdc:web-example.html): 웹 연동 샘플 페이지
@@ -44,22 +50,65 @@ WebPrinter는 웹페이지에서 로컬 데스크톱 인쇄 프로그램을 호�
 ```javascript
 // preload.js에서 API 노출
 window.electronAPI = {
-    printUrl: (url, options) => ipcRenderer.invoke('print-url', url, options),
-    onUrlsReceived: (callback) => ipcRenderer.on('urls-received', callback)
+    printUrl: (options) => ipcRenderer.invoke('print-url', options),
+    onUrlsReceived: (callback) => ipcRenderer.on('urls-received', callback),
+    hideToBackground: () => ipcRenderer.invoke('hide-to-background')
 };
 
 // main.js에서 핸들러 등록
-ipcMain.handle('print-url', async (event, url, options) => {
-    // 인쇄 로직
+ipcMain.handle('print-url', async (event, options) => {
+    const { url, printerName, copies, silent, paperSize } = options;
+    // 개선된 인쇄 로직: 커스텀 용지 지원, 타임아웃 처리
 });
 ```
 
+### 세션 관리 시스템
+```javascript
+// 세션 데이터 영구 저장
+const sessionDataPath = path.join(os.homedir(), '.webprinter-sessions.json');
+
+function saveSessionData() {
+  const sessionData = {
+    lastSaved: new Date().toISOString(),
+    currentSession: currentSession,
+    receivedUrls: receivedUrls
+  };
+  fs.writeFileSync(sessionDataPath, JSON.stringify(sessionData, null, 2));
+}
+```
+
 ### HTTP API 구조
-- `POST /send-urls`: URL과 용지 크기 수신
+- `POST /send-urls`: URL과 용지 크기 수신 (실시간 IPC 전송 포함)
 - `GET /status`: 앱 상태 및 버전 정보
 - `GET /version`: 상세 앱 정보
 
+### 인쇄 시스템 개선사항
+- **커스텀 용지 사이즈**: mm → microns 변환, 표준 사이즈 자동 매칭
+- **60초 타임아웃**: Promise 기반 비동기 처리
+- **프린터 선택**: `getPrintersAsync()` 활용, 오류 처리 강화
+- **윈도우 정리**: 메모리 누수 방지를 위한 자동 정리
+
+### 백그라운드 서비스 모드
+```javascript
+// 시작 프로그램 등록
+app.setLoginItemSettings({
+  openAtLogin: true,
+  openAsHidden: true,
+  name: 'WebPrinter',
+  args: ['--hidden']
+});
+
+// 백그라운드 모드 전환
+ipcMain.handle('hide-to-background', () => {
+  printWindow.hide();
+  if (process.platform === 'darwin' && app.dock) {
+    app.dock.hide();
+  }
+});
+```
+
 ### 에러 처리 원칙
 - 모든 async 함수에 try-catch 블록 필요
-- 사용자에게 명확한 에러 메시지 표시
+- 사용자에게 Toast 알림으로 명확한 상태 표시
 - 콘솔 로그로 디버깅 정보 제공
+- IPC 통신 실패 시 자동 복구 시도
