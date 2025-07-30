@@ -1515,8 +1515,8 @@ ipcMain.handle('print-url', async (event, options) => {
         '    // CSS 텍스트를 배열로 구성 후 조인',
         '    const cssRules = [',
         '      "@media print {",',
-        '      "  /* 웹에서 전달받은 용지 크기 사용 */",',
-        '      "  @page { size: " + effectiveWidth + "mm " + effectiveHeight + "mm; margin: 0; }",',
+        '      "  /* A4 용지 크기 사용 (프린터 호환성) */",',
+        '      "  @page { size: A4; margin: 0; }",',
         '      "  ",',
         '      "  /* 모든 요소 숨기기 */",',
         '      "  body > * { display: none !important; }",',
@@ -1525,8 +1525,8 @@ ipcMain.handle('print-url', async (event, options) => {
         '      "  html, body { ",',
         '      "    margin: 0 !important; ",',
         '      "    padding: 0 !important; ",',
-        '      "    width: " + effectiveWidth + "mm !important; ",',
-        '      "    height: " + effectiveHeight + "mm !important; ",',
+        '      "    width: 210mm !important; ",',
+        '      "    height: 297mm !important; ",',
         '      "    transform: rotate(180deg) !important; ",',
         '      "    transform-origin: 50% 50% !important; ",',
         '      "    position: relative !important;",',
@@ -1681,47 +1681,13 @@ ipcMain.handle('print-url', async (event, options) => {
       }
     }
     
-              // 용지 사이즈 설정 (웹에서 검증된 값 사용)
-    // 표준 용지 사이즈 확인 (확장된 목록)
-    const standardSizes = {
-      '210x297': 'A4',
-      '297x420': 'A3', 
-      '148x210': 'A5',
-      '216x279': 'Letter',
-      '216x356': 'Legal',
-      '105x148': 'A6',
-      '74x105': 'A7',
-      '52x74': 'A8',
-      '88x105': 'A9',
-      '26x37': 'A10',
-      '279x432': 'Tabloid',
-      '102x152': '4x6',
-      '127x203': '5x8',
-      '80x120': 'Label 80x120',  // 라벨 프린터용
-      '100x150': 'Label 100x150',
-      '57x32': 'Receipt 57mm',   // 영수증 프린터용
-      '80x80': 'Receipt 80mm',
-      '88x244': 'Custom 88x244',  // 사용자 정의 라벨
-      '244x88': 'Custom 244x88'   // 사용자 정의 라벨 (가로)
-    };
+              // 용지 사이즈 설정 (A4 강제 사용으로 단순화)
     
-    // 세로 방향 기준으로 sizeKey 생성
-    const sizeKey = `${Math.round(effectiveWidth)}x${Math.round(effectiveHeight)}`;
-    const standardSize = standardSizes[sizeKey];
-    
-    if (standardSize) {
-      printOptions.pageSize = standardSize;
-      console.log(`📄 표준 용지 사이즈 사용: ${standardSize} (${effectiveWidth}×${effectiveHeight}mm)`);
-    } else {
-      // 커스텀 사이즈 - Electron은 microns (마이크론) 단위 사용
-      // 1mm = 1000 microns
-      printOptions.pageSize = {
-        width: Math.round(effectiveWidth * 1000),   // mm to microns
-        height: Math.round(effectiveHeight * 1000)  // mm to microns
-      };
-      console.log(`📐 커스텀 용지 사이즈 설정: ${effectiveWidth}mm × ${effectiveHeight}mm`);
-      console.log(`📐 마이크론 단위: ${printOptions.pageSize.width} × ${printOptions.pageSize.height} microns`);
-    }
+    // 프린터 호환성을 위해 항상 A4 사용 (CSS에서 내용 배치 조정)
+    printOptions.pageSize = 'A4';
+    console.log(`📄 프린터 호환성을 위해 A4 용지 강제 사용`);
+    console.log(`📐 실제 내용 크기: ${effectiveWidth}mm × ${effectiveHeight}mm (CSS로 배치)`);
+    console.log(`🎯 A4 용지(210x297mm)에 ${effectiveWidth}x${effectiveHeight}mm 내용을 중앙 상단에 배치`);
     
     console.log('🖨️ 최종 프린트 옵션:', JSON.stringify(printOptions, null, 2));
     
