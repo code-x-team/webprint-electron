@@ -486,12 +486,42 @@ function startHttpServer() {
         const paperSize = req.body.paper_size || 'Custom';
         const printSelector = req.body.print_selector || '#print_wrap'; // 기본값: #print_wrap
         
-        // 용지 사이즈 검증
-        if (!paperWidth || !paperHeight || paperWidth <= 0 || paperHeight <= 0) {
-          console.error('❌ 잘못된 용지 사이즈:', { paperWidth, paperHeight });
+        // 용지 사이즈 검증 (엄격)
+        if (isNaN(paperWidth) || isNaN(paperHeight)) {
+          console.error('❌ 용지 사이즈가 숫자가 아님:', { paperWidth, paperHeight });
           return res.status(400).json({ 
-            error: 'Invalid paper size. Width and height must be positive numbers.',
-            received: { paperWidth, paperHeight, paperSize }
+            error: 'paper_width와 paper_height는 숫자여야 합니다.',
+            received: { paper_width: req.body.paper_width, paper_height: req.body.paper_height }
+          });
+        }
+        
+        if (paperWidth <= 0 || paperHeight <= 0) {
+          console.error('❌ 용지 사이즈가 0 이하:', { paperWidth, paperHeight });
+          return res.status(400).json({ 
+            error: '용지 크기는 양수여야 합니다.',
+            received: { paperWidth, paperHeight }
+          });
+        }
+        
+        // 용지 크기 범위 검증
+        const minSize = 10; // 최소 10mm
+        const maxSize = 2000; // 최대 2000mm
+        
+        if (paperWidth < minSize || paperHeight < minSize) {
+          console.error('❌ 용지 사이즈가 너무 작음:', { paperWidth, paperHeight, minSize });
+          return res.status(400).json({ 
+            error: `용지 크기가 너무 작습니다. 최소 ${minSize}mm 이상이어야 합니다.`,
+            received: { paperWidth, paperHeight },
+            requirement: { minSize }
+          });
+        }
+        
+        if (paperWidth > maxSize || paperHeight > maxSize) {
+          console.error('❌ 용지 사이즈가 너무 큼:', { paperWidth, paperHeight, maxSize });
+          return res.status(400).json({ 
+            error: `용지 크기가 너무 큽니다. 최대 ${maxSize}mm 이하여야 합니다.`,
+            received: { paperWidth, paperHeight },
+            requirement: { maxSize }
           });
         }
         
@@ -1259,19 +1289,45 @@ ipcMain.handle('print-url', async (event, options) => {
   try {
     const { url, printerName, copies = 1, paperSize = null, printSelector = '#print_wrap', silent = false } = options || {};
     
+    // 필수 매개변수 검증
+    if (!paperSize) {
+      throw new Error('용지 크기 정보가 누락되었습니다. 웹에서 paperSize 객체를 전달해주세요.');
+    }
+    
+    if (!paperSize.width || !paperSize.height) {
+      throw new Error(`용지 크기가 불완전합니다. width: ${paperSize.width}, height: ${paperSize.height}. 웹에서 paper_width와 paper_height를 모두 전달해주세요.`);
+    }
+    
+    if (paperSize.width <= 0 || paperSize.height <= 0) {
+      throw new Error(`용지 크기가 유효하지 않습니다. width: ${paperSize.width}mm, height: ${paperSize.height}mm. 양수 값이어야 합니다.`);
+    }
+    
+    // 용지 크기 범위 검증 (너무 작거나 큰 값 방지)
+    const minSize = 10; // 최소 10mm
+    const maxSize = 2000; // 최대 2000mm (A0 용지도 841×1189mm)
+    
+    if (paperSize.width < minSize || paperSize.height < minSize) {
+      throw new Error(`용지 크기가 너무 작습니다. width: ${paperSize.width}mm, height: ${paperSize.height}mm. 최소 ${minSize}mm 이상이어야 합니다.`);
+    }
+    
+    if (paperSize.width > maxSize || paperSize.height > maxSize) {
+      throw new Error(`용지 크기가 너무 큽니다. width: ${paperSize.width}mm, height: ${paperSize.height}mm. 최대 ${maxSize}mm 이하여야 합니다.`);
+    }
+    
     // printSelector 안전 처리
     const safePrintSelector = printSelector || '#print_wrap';
     
-    // 세로 방향용 effectiveWidth/Height 계산 (나중에 사용하기 위해 여기서 미리 계산)
-    const effectiveWidth = paperSize ? Math.min(paperSize.width, paperSize.height) : 88;
-    const effectiveHeight = paperSize ? Math.max(paperSize.width, paperSize.height) : 244;
+    // 세로 방향용 effectiveWidth/Height 계산
+    const effectiveWidth = Math.min(paperSize.width, paperSize.height);
+    const effectiveHeight = Math.max(paperSize.width, paperSize.height);
     
     if (!url) {
       throw new Error('인쇄할 URL이 없습니다');
     }
     
     console.log(`🖨️ Electron 인쇄 시작: ${url}`);
-    console.log(`📏 용지 사이즈: ${paperSize?.width}mm × ${paperSize?.height}mm`);
+    console.log(`📏 용지 사이즈: ${paperSize.width}mm × ${paperSize.height}mm (웹에서 전달받음)`);
+    console.log(`📐 세로 방향 변환: ${effectiveWidth}mm × ${effectiveHeight}mm`);
     console.log(`🎯 인쇄 영역: ${safePrintSelector}`);
     console.log(`📄 복사본: ${copies}매`);
     console.log(`🔇 Silent 모드: ${silent ? '활성화 (대화상자 없음)' : '비활성화 (대화상자 표시)'}`);
@@ -1590,52 +1646,46 @@ ipcMain.handle('print-url', async (event, options) => {
       }
     }
     
-          // 커스텀 용지 사이즈 설정 (중요!)
-      if (paperSize?.width && paperSize?.height) {
-      
-      // 표준 용지 사이즈 확인 (확장된 목록)
-      const standardSizes = {
-        '210x297': 'A4',
-        '297x420': 'A3', 
-        '148x210': 'A5',
-        '216x279': 'Letter',
-        '216x356': 'Legal',
-        '105x148': 'A6',
-        '74x105': 'A7',
-        '52x74': 'A8',
-        '88x105': 'A9',
-        '26x37': 'A10',
-        '279x432': 'Tabloid',
-        '102x152': '4x6',
-        '127x203': '5x8',
-        '80x120': 'Label 80x120',  // 라벨 프린터용
-        '100x150': 'Label 100x150',
-        '57x32': 'Receipt 57mm',   // 영수증 프린터용
-        '80x80': 'Receipt 80mm',
-        '88x244': 'Custom 88x244',  // 사용자 정의 라벨
-        '244x88': 'Custom 244x88'   // 사용자 정의 라벨 (가로)
-      };
-      
-      // 세로 방향 기준으로 sizeKey 생성
-      const sizeKey = `${Math.round(effectiveWidth)}x${Math.round(effectiveHeight)}`;
-      const standardSize = standardSizes[sizeKey];
-      
-      if (standardSize) {
-        printOptions.pageSize = standardSize;
-        console.log(`📄 표준 용지 사이즈 사용: ${standardSize} (${effectiveWidth}×${effectiveHeight}mm)`);
-      } else {
-        // 커스텀 사이즈 - Electron은 microns (마이크론) 단위 사용
-        // 1mm = 1000 microns
-        printOptions.pageSize = {
-          width: Math.round(effectiveWidth * 1000),   // mm to microns
-          height: Math.round(effectiveHeight * 1000)  // mm to microns
-        };
-        console.log(`📐 커스텀 용지 사이즈 설정: ${effectiveWidth}mm × ${effectiveHeight}mm`);
-        console.log(`📐 마이크론 단위: ${printOptions.pageSize.width} × ${printOptions.pageSize.height} microns`);
-      }
+              // 용지 사이즈 설정 (웹에서 검증된 값 사용)
+    // 표준 용지 사이즈 확인 (확장된 목록)
+    const standardSizes = {
+      '210x297': 'A4',
+      '297x420': 'A3', 
+      '148x210': 'A5',
+      '216x279': 'Letter',
+      '216x356': 'Legal',
+      '105x148': 'A6',
+      '74x105': 'A7',
+      '52x74': 'A8',
+      '88x105': 'A9',
+      '26x37': 'A10',
+      '279x432': 'Tabloid',
+      '102x152': '4x6',
+      '127x203': '5x8',
+      '80x120': 'Label 80x120',  // 라벨 프린터용
+      '100x150': 'Label 100x150',
+      '57x32': 'Receipt 57mm',   // 영수증 프린터용
+      '80x80': 'Receipt 80mm',
+      '88x244': 'Custom 88x244',  // 사용자 정의 라벨
+      '244x88': 'Custom 244x88'   // 사용자 정의 라벨 (가로)
+    };
+    
+    // 세로 방향 기준으로 sizeKey 생성
+    const sizeKey = `${Math.round(effectiveWidth)}x${Math.round(effectiveHeight)}`;
+    const standardSize = standardSizes[sizeKey];
+    
+    if (standardSize) {
+      printOptions.pageSize = standardSize;
+      console.log(`📄 표준 용지 사이즈 사용: ${standardSize} (${effectiveWidth}×${effectiveHeight}mm)`);
     } else {
-      console.error('❌ 용지 사이즈 정보가 없습니다.');
-      throw new Error('용지 사이즈가 지정되지 않았습니다.');
+      // 커스텀 사이즈 - Electron은 microns (마이크론) 단위 사용
+      // 1mm = 1000 microns
+      printOptions.pageSize = {
+        width: Math.round(effectiveWidth * 1000),   // mm to microns
+        height: Math.round(effectiveHeight * 1000)  // mm to microns
+      };
+      console.log(`📐 커스텀 용지 사이즈 설정: ${effectiveWidth}mm × ${effectiveHeight}mm`);
+      console.log(`📐 마이크론 단위: ${printOptions.pageSize.width} × ${printOptions.pageSize.height} microns`);
     }
     
     console.log('🖨️ 최종 프린트 옵션:', JSON.stringify(printOptions, null, 2));

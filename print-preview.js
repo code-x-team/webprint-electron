@@ -872,6 +872,21 @@ async function executePrint() {
             return;
         }
         
+        // 용지 크기 정보 검증 (필수)
+        if (!currentPaperSize || !currentPaperSize.width || !currentPaperSize.height) {
+            showToast('❌ 용지 크기 정보가 없습니다. 웹에서 올바른 paper_width와 paper_height를 전달해주세요.', 'error', 5000);
+            showStatus('용지 크기 정보가 누락되었습니다.', 'error');
+            console.error('❌ currentPaperSize 누락 또는 불완전:', currentPaperSize);
+            return;
+        }
+        
+        if (currentPaperSize.width <= 0 || currentPaperSize.height <= 0) {
+            showToast(`❌ 용지 크기가 유효하지 않습니다. (${currentPaperSize.width}×${currentPaperSize.height}mm)`, 'error', 5000);
+            showStatus('용지 크기가 유효하지 않습니다.', 'error');
+            console.error('❌ currentPaperSize 유효하지 않음:', currentPaperSize);
+            return;
+        }
+        
         console.log('🖨️ 인쇄 실행 시작:', {
             printerName,
             copies,

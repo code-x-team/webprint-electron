@@ -1,5 +1,5 @@
-; WebPrinter 커스텀 인스톨러/언인스톨러 스크립트
-; 이 파일은 electron-builder에서 자동으로 사용됩니다
+;; WebPrinter 커스텀 인스톨러/언인스톨러 스크립트
+;; electron-builder 호환 버전
 
 !macro customInstall
   ; 설치 전 기존 프로세스 종료
