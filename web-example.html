@@ -623,40 +623,11 @@
             return false;
         }
 
-        // GitHub API 캐싱 (2시간)
-        const CACHE_KEY = 'webprinter_github_releases';
-        const CACHE_DURATION = 2 * 60 * 60 * 1000; // 2시간 (밀리초)
-
+        // GitHub API 호출 (캐싱 제거)
         async function getLatestReleaseFromCache() {
             try {
-                // 로컬 스토리지 접근 안전성 확인
-                if (typeof localStorage === 'undefined') {
-                    throw new Error('localStorage가 지원되지 않습니다');
-                }
-                
-                const cached = localStorage.getItem(CACHE_KEY);
-                if (cached) {
-                    try {
-                        const { data, timestamp } = JSON.parse(cached);
-                        const now = Date.now();
-                        
-                        // 캐시가 유효한지 확인
-                        if (now - timestamp < CACHE_DURATION && data) {
-                            console.log('📦 캐시된 릴리즈 데이터 사용');
-                            return data;
-                        } else {
-                            console.log('🗑️ 만료된 캐시 제거');
-                            localStorage.removeItem(CACHE_KEY);
-                        }
-                    } catch (parseError) {
-                        console.warn('⚠️ 캐시 데이터 파싱 실패:', parseError);
-                        localStorage.removeItem(CACHE_KEY);
-                    }
-                }
-                
                 console.log('🌐 GitHub API 호출 시작');
                 
-                // 캐시가 없거나 만료된 경우 API 호출
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), 10000); // 10초 타임아웃
                 
@@ -680,36 +651,10 @@
                 }
                 
                 console.log('✅ GitHub API 호출 성공:', data.tag_name);
-                
-                // 캐시에 저장
-                try {
-                    const cacheData = {
-                        data: data,
-                        timestamp: Date.now()
-                    };
-                    localStorage.setItem(CACHE_KEY, JSON.stringify(cacheData));
-                } catch (cacheError) {
-                    console.warn('⚠️ 캐시 저장 실패:', cacheError);
-                }
-                
                 return data;
+                
             } catch (error) {
                 console.error('❌ GitHub API 호출 실패:', error.message);
-                
-                // 캐시된 데이터라도 있으면 사용 (만료되었어도)
-                try {
-                    const cached = localStorage.getItem(CACHE_KEY);
-                    if (cached) {
-                        const { data } = JSON.parse(cached);
-                        if (data && data.tag_name) {
-                            console.log('🔄 만료된 캐시 데이터 사용');
-                            return data;
-                        }
-                    }
-                } catch (fallbackError) {
-                    console.error('❌ 캐시 fallback 실패:', fallbackError);
-                }
-                
                 throw error;
             }
         }
