@@ -152,6 +152,7 @@ async function generatePDF(url, paperSize, printSelector, rotate180 = false) {
     // PDF 생성 옵션
     const pdfOptions = {
       pageSize: 'A4',
+      marginsType: 1, // 0=기본, 1=없음, 2=최소
       margins: { 
         top: 0, 
         bottom: 0, 
