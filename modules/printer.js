@@ -124,6 +124,11 @@ async function generatePDF(url, paperSize, printSelector, rotate180 = false) {
               align-items: center !important;
               min-height: 100vh !important;
             \`;
+
+            document.html.style.cssText = \`
+              margin: 0 !important;
+              padding: 0 !important;
+            \`;
           }
           return true;
         })()
@@ -132,7 +137,7 @@ async function generatePDF(url, paperSize, printSelector, rotate180 = false) {
     
     // PDF 생성 옵션
     const pdfOptions = {
-      pageSize: paperSize.format || 'A4',
+      pageSize: 'A4',
       margins: { 
         top: 0, 
         bottom: 0, 
