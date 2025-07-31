@@ -1,47 +1,170 @@
-// Windows용 강화된 모듈 로딩
+// 최강 Express 모듈 로딩 시스템
 let express, cors;
+
+function createExpressFallback() {
+  // Express가 없어도 기본 HTTP 서버로 대체
+  const http = require('http');
+  const url = require('url');
+  const querystring = require('querystring');
+  
+  console.log('⚠️ Express 모듈 없음 - 내장 HTTP 서버로 대체');
+  
+  return function createApp() {
+    const app = {};
+    const middlewares = [];
+    const routes = {};
+    
+    app.use = function(middleware) {
+      middlewares.push(middleware);
+    };
+    
+    app.post = function(path, handler) {
+      routes[`POST:${path}`] = handler;
+    };
+    
+    app.get = function(path, handler) {
+      routes[`GET:${path}`] = handler;
+    };
+    
+    app.listen = function(port, host, callback) {
+      const server = http.createServer((req, res) => {
+        const parsedUrl = url.parse(req.url, true);
+        const method = req.method;
+        const routeKey = `${method}:${parsedUrl.pathname}`;
+        
+        // CORS 헤더 설정
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+        
+        if (method === 'OPTIONS') {
+          res.writeHead(200);
+          res.end();
+          return;
+        }
+        
+        if (routes[routeKey]) {
+          let body = '';
+          req.on('data', chunk => body += chunk);
+          req.on('end', () => {
+            req.body = body ? JSON.parse(body) : {};
+            req.query = parsedUrl.query;
+            
+            const mockRes = {
+              json: (data) => {
+                res.setHeader('Content-Type', 'application/json');
+                res.writeHead(200);
+                res.end(JSON.stringify(data));
+              },
+              status: (code) => ({
+                json: (data) => {
+                  res.setHeader('Content-Type', 'application/json');
+                  res.writeHead(code);
+                  res.end(JSON.stringify(data));
+                }
+              })
+            };
+            
+            routes[routeKey](req, mockRes);
+          });
+        } else {
+          res.writeHead(404);
+          res.end('Not Found');
+        }
+      });
+      
+      server.listen(port, host, callback);
+      return server;
+    };
+    
+    return app;
+  };
+}
 
 function loadModules() {
   const path = require('path');
-  const Module = require('module');
+  const fs = require('fs');
   
-  // Windows에서 절대 경로로 모듈 로딩 시도
-  const modulePaths = [
+  console.log('🔍 Express 모듈 로딩 시작...');
+  
+  // 1. 개발 환경에서 직접 경로 확인
+  if (process.env.NODE_ENV !== 'production') {
+    try {
+      express = require('express');
+      cors = require('cors');
+      console.log('✅ 개발 환경 모듈 로딩 성공');
+      return true;
+    } catch (error) {
+      console.log('⚠️ 개발 환경 모듈 로딩 실패');
+    }
+  }
+  
+  // 2. 프로덕션 환경 - 다중 경로 시도
+  const possiblePaths = [
+    // 앱 내부 경로들
     path.join(__dirname, '..', 'node_modules'),
     path.join(process.cwd(), 'node_modules'),
-    path.join(process.resourcesPath, 'app', 'node_modules')
-  ];
+    
+    // Windows 프로덕션 경로들
+    process.resourcesPath ? path.join(process.resourcesPath, 'app', 'node_modules') : null,
+    process.resourcesPath ? path.join(process.resourcesPath, 'node_modules') : null,
+    
+    // 추가 가능한 경로들
+    path.join(process.execPath, '..', 'resources', 'app', 'node_modules'),
+    path.join(process.execPath, '..', 'resources', 'node_modules'),
+    
+    // 글로벌 경로들
+    path.join(require('os').homedir(), 'node_modules'),
+    '/usr/local/lib/node_modules',
+    'C:\\Program Files\\nodejs\\node_modules'
+  ].filter(Boolean);
   
-  for (const modulePath of modulePaths) {
+  console.log('🔍 시도할 경로들:', possiblePaths);
+  
+  for (const modulePath of possiblePaths) {
     try {
       const expressPath = path.join(modulePath, 'express');
       const corsPath = path.join(modulePath, 'cors');
       
-      express = require(expressPath);
-      cors = require(corsPath);
-      
-      console.log('✅ 모듈 로딩 성공:', modulePath);
-      return true;
+      // 경로 존재 확인
+      if (fs.existsSync(expressPath) && fs.existsSync(corsPath)) {
+        express = require(expressPath);
+        cors = require(corsPath);
+        console.log('✅ 절대 경로 모듈 로딩 성공:', modulePath);
+        return true;
+      }
     } catch (error) {
-      continue;
+      console.log(`❌ 경로 시도 실패: ${modulePath} - ${error.message}`);
     }
   }
   
-  // 표준 방식으로 다시 시도
+  // 3. require.resolve로 시도
+  try {
+    const expressResolved = require.resolve('express');
+    const corsResolved = require.resolve('cors');
+    express = require(expressResolved);
+    cors = require(corsResolved);
+    console.log('✅ require.resolve 모듈 로딩 성공');
+    return true;
+  } catch (error) {
+    console.log('❌ require.resolve 실패:', error.message);
+  }
+  
+  // 4. 표준 방식 최종 시도
   try {
     express = require('express');
     cors = require('cors');
     console.log('✅ 표준 방식 모듈 로딩 성공');
     return true;
   } catch (error) {
-    console.error('❌ 모든 모듈 로딩 시도 실패:', error.message);
-    console.error('현재 디렉토리:', __dirname);
-    console.error('프로세스 디렉토리:', process.cwd());
-    if (process.resourcesPath) {
-      console.error('리소스 경로:', process.resourcesPath);
-    }
-    process.exit(1);
+    console.log('❌ 표준 방식 실패:', error.message);
   }
+  
+  // 5. 최후의 수단 - HTTP 서버로 대체
+  console.log('🚨 Express 모듈을 찾을 수 없음 - 내장 HTTP 서버로 대체');
+  express = createExpressFallback();
+  cors = () => (req, res, next) => next(); // 더미 CORS
+  return true;
 }
 
 loadModules();

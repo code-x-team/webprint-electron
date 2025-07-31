@@ -1,6 +1,6 @@
 {
   "name": "web-printer",
-  "version": "1.6.5",
+  "version": "1.8.5",
   "description": "웹에서 호출되는 로컬 인쇄 프로그램",
   "main": "main.js",
   "scripts": {
@@ -11,7 +11,8 @@
     "build": "npm run prepare && electron-builder",
     "build-win": "npm run prepare && electron-builder --win",
     "build-mac": "npm run prepare && electron-builder --mac",
-    "build-all": "npm run prepare && electron-builder -mw",
+    "build-all": "npm run build-mac && npm run build-win",
+    "build-all-parallel": "npm run prepare && electron-builder -mw",
     "publish": "npm run prepare && electron-builder --publish=always"
   },
   "keywords": [
@@ -84,6 +85,10 @@
       "!test",
       "!scripts"
     ],
+    "asarUnpack": [
+      "node_modules/express/**/*",
+      "node_modules/cors/**/*"
+    ],
     "extraResources": [
       {
         "from": "assets",
@@ -111,8 +116,16 @@
       "artifactName": "${productName}-${version}-${arch}.${ext}"
     },
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "publisherName": "WebPrinter Team",
+      "verifyUpdateCodeSignature": false,
+      "requestedExecutionLevel": "asInvoker"
     },
+    "electronDownload": {
+      "cache": "./electron-cache"
+    },
+    "nodeGypRebuild": false,
+    "buildDependenciesFromSource": false,
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
@@ -130,26 +143,6 @@
       "artifactName": "${productName}-Setup-${version}.${ext}"
     },
     "dmg": {
-      "background": null,
-      "icon": null,
-      "iconSize": 100,
-      "window": {
-        "width": 540,
-        "height": 380
-      },
-      "contents": [
-        {
-          "x": 130,
-          "y": 220,
-          "type": "file"
-        },
-        {
-          "x": 410,
-          "y": 220,
-          "type": "link",
-          "path": "/Applications"
-        }
-      ],
       "title": "${productName} ${version}",
       "artifactName": "${productName}-${version}-${arch}.${ext}"
     },

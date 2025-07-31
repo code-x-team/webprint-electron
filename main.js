@@ -7,16 +7,52 @@ if (process.platform === 'darwin') {
   app.commandLine.appendSwitch('js-flags', '--expose-gc');
 }
 
-// Windows 모듈 해상도 안정화
-process.env.NODE_PATH = path.join(__dirname, 'node_modules');
-if (require('module').globalPaths) {
-  require('module').globalPaths.push(path.join(__dirname, 'node_modules'));
+// 강화된 모듈 해상도 시스템
+function setupModulePaths() {
+  const possibleNodeModulesPaths = [
+    path.join(__dirname, 'node_modules'),
+    path.join(process.cwd(), 'node_modules'),
+    process.resourcesPath ? path.join(process.resourcesPath, 'app', 'node_modules') : null,
+    process.resourcesPath ? path.join(process.resourcesPath, 'node_modules') : null
+  ].filter(Boolean);
+  
+  // NODE_PATH 환경변수 설정
+  const separator = process.platform === 'win32' ? ';' : ':';
+  process.env.NODE_PATH = possibleNodeModulesPaths.join(separator);
+  
+  // Module.globalPaths에 추가
+  if (require('module').globalPaths) {
+    possibleNodeModulesPaths.forEach(modulePath => {
+      if (!require('module').globalPaths.includes(modulePath)) {
+        require('module').globalPaths.push(modulePath);
+      }
+    });
+  }
+  
+  // Windows 전용 추가 설정
+  if (process.platform === 'win32') {
+    // 실행 파일 경로 기반 추가
+    const execDir = path.dirname(process.execPath);
+    const additionalPaths = [
+      path.join(execDir, 'resources', 'app', 'node_modules'),
+      path.join(execDir, 'resources', 'node_modules'),
+      path.join(execDir, '..', 'resources', 'app', 'node_modules')
+    ];
+    
+    additionalPaths.forEach(additionalPath => {
+      if (!process.env.NODE_PATH.includes(additionalPath)) {
+        process.env.NODE_PATH += separator + additionalPath;
+        if (require('module').globalPaths) {
+          require('module').globalPaths.push(additionalPath);
+        }
+      }
+    });
+  }
+  
+  console.log('🔧 설정된 모듈 경로들:', process.env.NODE_PATH.split(separator));
 }
 
-// Windows 경로 처리 개선
-if (process.platform === 'win32') {
-  process.env.NODE_PATH = process.env.NODE_PATH + ';' + path.join(__dirname, 'node_modules');
-}
+setupModulePaths();
 
 const { startHttpServer, stopHttpServer, loadSessionData, cleanOldSessions } = require('./modules/server');
 const { createPrintWindow, setupIpcHandlers, closeAllWindows } = require('./modules/window');

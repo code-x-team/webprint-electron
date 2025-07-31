@@ -3,6 +3,9 @@
 
 !macro customHeader
   RequestExecutionLevel admin
+  
+  ; 설치 디렉토리 정규화
+  InstallDir "$PROGRAMFILES\WebPrinter"
 !macroend
 
 !macro CheckDependencies
