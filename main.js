@@ -424,6 +424,11 @@ if (!gotTheLock) {
 
   app.whenReady().then(async () => {
     try {
+      // 새 인스턴스 시작 시 상태 초기화
+      allowQuit = false;
+      global.isQuitting = false;
+      console.log('🔄 새 인스턴스 시작 - 상태 초기화');
+      
       registerProtocol();
       setupAutoUpdater();
       setupAutoLaunch();

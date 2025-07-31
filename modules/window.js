@@ -96,13 +96,17 @@ async function createPrintWindow(sessionId = null) {
   });
 
   printWindow.on('close', (event) => {
-    // 창을 숨기고 백그라운드로
+    // 트레이에서 완전 종료가 아닌 경우에만 숨기기
     if (!global.isQuitting) {
+      console.log('창 닫기 - 백그라운드로 전환');
       event.preventDefault();
       printWindow.hide();
       if (process.platform === 'darwin' && app.dock) {
         app.dock.hide();
       }
+    } else {
+      console.log('완전 종료 - 창 정리');
+      // 완전 종료 시에는 정상적으로 닫히도록 허용
     }
   });
 
@@ -146,17 +150,25 @@ function notifyWindow(sessionId, urlData) {
     printWindow.show();
     printWindow.focus();
   } else {
-    // 다른 세션이면 새 창으로 교체
+    // 다른 세션이면 기존 창 데이터만 업데이트
     console.log('새 세션으로 창 업데이트:', sessionId);
-    createPrintWindow(sessionId);
+    currentSession = sessionId;
     
-    setTimeout(() => {
-      if (printWindow && !printWindow.isDestroyed()) {
-        printWindow.webContents.send('urls-received', urlData);
-        printWindow.show();
-        printWindow.focus();
-      }
-    }, 1000);
+    // 기존 창에 새 세션 데이터 전송
+    if (printWindow.webContents.isLoading()) {
+      printWindow.webContents.once('did-finish-load', () => {
+        setTimeout(() => {
+          if (printWindow && !printWindow.isDestroyed()) {
+            printWindow.webContents.send('urls-received', urlData);
+          }
+        }, 500);
+      });
+    } else {
+      printWindow.webContents.send('urls-received', urlData);
+    }
+    
+    printWindow.show();
+    printWindow.focus();
   }
 }
 
