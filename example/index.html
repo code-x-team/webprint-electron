@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebPrinter 테스트</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>🖨️ WebPrinter</h1>
+            <p>웹에서 바로 인쇄하기</p>
+        </header>
+        
+        <main class="content">
+            <form id="print-form" class="print-form">
+                <div class="form-group">
+                    <label for="preview-url">미리보기 URL:</label>
+                    <input type="url" id="preview-url" class="form-input" 
+                           placeholder="https://example.com/preview" 
+                           value="https://print-seven-nu.vercel.app/preview.html">
+                </div>
+                
+                <div class="form-group">
+                    <label for="print-url">인쇄 URL:</label>
+                    <input type="url" id="print-url" class="form-input"
+                           placeholder="https://example.com/print" 
+                           value="https://print-seven-nu.vercel.app/print.html">
+                </div>
+               
+                <div class="size-group">
+                    <div class="form-group">
+                        <label for="paper-width">가로 (mm):</label>
+                        <input type="number" id="paper-width" class="form-input"
+                               value="88" min="10" max="1000">
+                    </div>
+                    <div class="form-group">
+                        <label for="paper-height">세로 (mm):</label>
+                        <input type="number" id="paper-height" class="form-input"
+                               value="244" min="10" max="1000">
+                    </div>
+                </div>
+                
+                <button type="submit" class="btn btn-primary" id="print-btn">
+                    🖨️ 출력하기
+                </button>
+            </form>
+            
+            <div class="status" id="status"></div>
+            
+            <div class="install-notice" id="install-notice">
+                <h3>📥 WebPrinter 설치 필요</h3>
+                <p>WebPrinter가 설치되지 않았습니다.</p>
+                <p>
+                    <a href="https://github.com/code-x-team/webprint-electron/releases/latest" 
+                       target="_blank" class="download-link">
+                        여기에서 다운로드
+                    </a>하여 설치 후 다시 시도하세요.
+                </p>
+            </div>
+            
+            <div class="info-box">
+                <h4>테스트 방법:</h4>
+                <ol>
+                    <li>WebPrinter가 설치되어 있어야 합니다</li>
+                    <li>URL을 입력하거나 기본값을 사용하세요</li>
+                    <li>용지 크기를 설정하세요</li>
+                    <li>"출력하기" 버튼을 클릭하세요</li>
+                </ol>
+            </div>
+        </main>
+    </div>
+
+    <script src="js/app.js"></script>
+</body>
+</html>

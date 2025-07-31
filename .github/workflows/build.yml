@@ -4,17 +4,50 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (e.g., 1.6.6)'
+        required: true
+        type: string
 
 permissions:
   contents: write
   discussions: write
 
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION=${GITHUB_REF#refs/tags/v}
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "📦 Build version: $VERSION"
+
   build:
+    needs: prepare
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [macos-latest, windows-latest]
+        include:
+          - os: macos-latest
+            platform: mac
+            arch: universal
+          - os: windows-latest
+            platform: win
+            arch: x64
+      fail-fast: false
 
     steps:
       - name: Checkout
@@ -23,111 +56,116 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
           cache: 'yarn'
 
+      - name: Cache Electron
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: ${{ runner.os }}-electron-${{ hashFiles('**/yarn.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-electron-
+
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: yarn install --frozen-lockfile --network-timeout 300000
 
-      - name: Set version from git tag (Linux/macOS)
-        if: runner.os != 'Windows'
+      - name: Update version
         run: |
-          TAG_VERSION=${GITHUB_REF#refs/tags/v}
-          echo "Git 태그에서 추출한 버전: $TAG_VERSION"
-          
-          # 현재 package.json 버전 확인
-          CURRENT_VERSION=$(node -e "console.log(require('./package.json').version)")
-          echo "현재 package.json 버전: $CURRENT_VERSION"
-          
-          # 버전이 다를 때만 업데이트
-          if [ "$CURRENT_VERSION" != "$TAG_VERSION" ]; then
-            echo "버전 업데이트: $CURRENT_VERSION → $TAG_VERSION"
-            node -e "
-              const fs = require('fs');
-              const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-              pkg.version = '$TAG_VERSION';
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            const newVersion = '${{ needs.prepare.outputs.version }}';
+            if (pkg.version !== newVersion) {
+              pkg.version = newVersion;
               fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
-              console.log('✅ package.json 버전 업데이트 완료');
-            "
-          else
-            echo "✅ 버전이 이미 동일함 - 업데이트 불필요"
-          fi
-          
-          echo "최종 빌드 버전: $TAG_VERSION"
+              console.log('✅ Version updated:', pkg.version);
+            }
+          "
 
-      - name: Set version from git tag (Windows)
-        if: runner.os == 'Windows'
+      - name: Build Electron app
+        run: yarn build-${{ matrix.platform }}
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES: true
+          USE_HARD_LINKS: false
+
+      - name: List build artifacts
         run: |
-          $TAG_VERSION = $env:GITHUB_REF -replace 'refs/tags/v', ''
-          Write-Host "Git 태그에서 추출한 버전: $TAG_VERSION"
-          
-          # 현재 package.json 버전 확인
-          $CURRENT_VERSION = (Get-Content package.json | ConvertFrom-Json).version
-          Write-Host "현재 package.json 버전: $CURRENT_VERSION"
-          
-          # 버전이 다를 때만 업데이트
-          if ($CURRENT_VERSION -ne $TAG_VERSION) {
-            Write-Host "버전 업데이트: $CURRENT_VERSION → $TAG_VERSION"
-            $pkg = Get-Content package.json | ConvertFrom-Json
-            $pkg.version = $TAG_VERSION
-            $pkg | ConvertTo-Json -Depth 100 | Set-Content package.json
-            Write-Host "✅ package.json 버전 업데이트 완료"
-          } else {
-            Write-Host "✅ 버전이 이미 동일함 - 업데이트 불필요"
-          }
-          
-          Write-Host "최종 빌드 버전: $TAG_VERSION"
+          echo "📦 Build artifacts:"
+          ls -la dist/
 
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            dist/*.dmg
+            dist/*.exe
+            dist/*.blockmap
+            dist/latest*.yml
+          retention-days: 7
 
+  release:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    if: success()
+    
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: dist/
 
-      - name: Build Electron app (macOS)
-        if: matrix.os == 'macos-latest'
-        run: yarn build-mac
-        env:
-          # macOS는 서명 없이 빌드
-          CSC_IDENTITY_AUTO_DISCOVERY: false
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # yarn 강제 사용
-          npm_config_package_manager: yarn
-          ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES: true
+      - name: Display structure
+        run: ls -R dist/
 
-      - name: Build Electron app (Windows)
-        if: matrix.os == 'windows-latest'
-        run: yarn build-win
-        env:
-          # Windows도 서명 없이 빌드
-          CSC_IDENTITY_AUTO_DISCOVERY: false
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # yarn 강제 사용
-          npm_config_package_manager: yarn
-          ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES: true
-
-      - name: Upload Release Assets (macOS)
-        if: matrix.os == 'macos-latest'
+      - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
+          tag_name: v${{ needs.prepare.outputs.version }}
+          name: WebPrinter v${{ needs.prepare.outputs.version }}
+          body: |
+            ## WebPrinter v${{ needs.prepare.outputs.version }}
+
+            ### 다운로드
+            - **Windows**: `WebPrinter-Setup-${{ needs.prepare.outputs.version }}.exe`
+            - **macOS Intel**: `WebPrinter-${{ needs.prepare.outputs.version }}-x64.dmg`
+            - **macOS Apple Silicon**: `WebPrinter-${{ needs.prepare.outputs.version }}-arm64.dmg`
+
+            ### 설치 방법
+            1. 위 파일 중 본인의 OS에 맞는 파일을 다운로드
+            2. 다운로드한 파일을 실행하여 설치
+            3. 웹페이지에서 인쇄 기능 사용 가능
+
+            ### 변경사항
+            자동 생성된 릴리즈 노트를 확인하세요.
           files: |
-            dist/*.dmg
-            dist/*.dmg.blockmap
-            dist/latest-mac.yml
+            dist/**/*.dmg
+            dist/**/*.exe
+            dist/**/*.blockmap
+            dist/**/latest*.yml
           draft: false
           prerelease: false
           generate_release_notes: true
-          fail_on_unmatched_files: true
+          fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload Release Assets (Windows)
-        if: matrix.os == 'windows-latest'
-        uses: softprops/action-gh-release@v1
-        with:
-          files: |
-            dist/*.exe
-            dist/*.exe.blockmap
-            dist/latest.yml
-          draft: false
-          prerelease: false
-          generate_release_notes: true
-          fail_on_unmatched_files: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
+  notify:
+    needs: [prepare, release]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+      - name: Send notification
+        run: |
+          if [ "${{ needs.release.result }}" = "success" ]; then
+            echo "✅ Release v${{ needs.prepare.outputs.version }} completed successfully!"
+          else
+            echo "❌ Release v${{ needs.prepare.outputs.version }} failed!"
+            exit 1
+          fi
