@@ -134,7 +134,6 @@
       "deleteAppDataOnUninstall": true,
       "allowElevation": true,
       "perMachine": false,
-      "runAfterFinish": true,
       "displayLanguageSelector": false,
       "language": "1042",
       "include": "installer.nsh",

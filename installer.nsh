@@ -1,15 +1,5 @@
 ;; WebPrinter 커스텀 인스톨러/언인스톨러 스크립트
-;; electron-builder 호환 버전 - 자동 실행 기능 강화
-
-; 전역 변수 정의
-!define PRODUCT_NAME "WebPrinter"
-!define PRODUCT_VERSION "1.8.5"
-!define PRODUCT_PUBLISHER "WebPrinter Team"
-!define PRODUCT_WEB_SITE "https://github.com/code-x-team/webprint-electron"
-!define PRODUCT_DIR_REGKEY "Software\Microsoft\Windows\CurrentVersion\App Paths\WebPrinter.exe"
-!define PRODUCT_UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}"
-!define PRODUCT_UNINST_ROOT_KEY "HKLM"
-!define STARTUP_REG_KEY "Software\Microsoft\Windows\CurrentVersion\Run"
+;; electron-builder 호환 버전
 
 !macro customHeader
   RequestExecutionLevel admin
@@ -18,13 +8,13 @@
   InstallDir "$PROGRAMFILES\WebPrinter"
   
   ; 제품 정보 설정
-  VIProductVersion "${PRODUCT_VERSION}.0"
+  VIProductVersion "${VERSION}.0"
   VIAddVersionKey "ProductName" "${PRODUCT_NAME}"
   VIAddVersionKey "Comments" "웹에서 호출되는 로컬 인쇄 프로그램"
-  VIAddVersionKey "CompanyName" "${PRODUCT_PUBLISHER}"
+  VIAddVersionKey "CompanyName" "${COMPANY_NAME}"
   VIAddVersionKey "LegalTrademarks" "WebPrinter"
   VIAddVersionKey "FileDescription" "${PRODUCT_NAME}"
-  VIAddVersionKey "FileVersion" "${PRODUCT_VERSION}"
+  VIAddVersionKey "FileVersion" "${VERSION}"
 !macroend
 
 !macro CheckDependencies
@@ -126,14 +116,14 @@
   DetailPrint "시작 프로그램 등록 중..."
   
   ; 현재 사용자 레지스트리
-  WriteRegStr HKCU "${STARTUP_REG_KEY}" "WebPrinter" '"$INSTDIR\WebPrinter.exe" --hidden --startup'
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "WebPrinter" '"$INSTDIR\WebPrinter.exe" --hidden --startup'
   
   ; 모든 사용자 레지스트리 (관리자 권한 시)
-  WriteRegStr HKLM "${STARTUP_REG_KEY}" "WebPrinter" '"$INSTDIR\WebPrinter.exe" --hidden --startup'
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "WebPrinter" '"$INSTDIR\WebPrinter.exe" --hidden --startup'
   
   ; App Paths 등록
-  WriteRegStr HKLM "${PRODUCT_DIR_REGKEY}" "" "$INSTDIR\WebPrinter.exe"
-  WriteRegStr HKLM "${PRODUCT_DIR_REGKEY}" "Path" "$INSTDIR"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\App Paths\WebPrinter.exe" "" "$INSTDIR\WebPrinter.exe"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\App Paths\WebPrinter.exe" "Path" "$INSTDIR"
   
   ; 3. 시작 폴더 바로가기
   DetailPrint "시작 폴더 바로가기 생성 중..."
@@ -162,8 +152,8 @@
   
   ; 시작 프로그램 제거 (모든 방식)
   DetailPrint "시작 프로그램에서 제거 중..."
-  DeleteRegValue HKCU "${STARTUP_REG_KEY}" "WebPrinter"
-  DeleteRegValue HKLM "${STARTUP_REG_KEY}" "WebPrinter"
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "WebPrinter"
+  DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "WebPrinter"
   
   ; 시작 폴더 바로가기 제거
   Delete "$SMSTARTUP\WebPrinter.lnk"
@@ -173,7 +163,7 @@
   nsExec::ExecToLog 'schtasks /delete /tn "WebPrinter_AutoStart" /f 2>nul'
   
   ; App Paths 제거
-  DeleteRegKey HKLM "${PRODUCT_DIR_REGKEY}"
+  DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\App Paths\WebPrinter.exe"
   
   ; 프로토콜 핸들러 제거
   DetailPrint "프로토콜 핸들러 제거 중..."
