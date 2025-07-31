@@ -9,6 +9,8 @@ const execAsync = util.promisify(exec);
 
 async function printViaPDF(url, paperSize, printSelector, copies, silent, printerName, outputType = 'pdf', rotate180 = false) {
   try {
+    console.log('PDF 생성 시작:', { url, paperSize, outputType, rotate180 });
+    
     // PDF 생성 (A4 고정)
     const pdfBuffer = await generatePDF(url, paperSize, printSelector, rotate180);
     
@@ -35,17 +37,40 @@ async function printViaPDF(url, paperSize, printSelector, copies, silent, printe
       }
     }
   } catch (error) {
-    throw error;
+    console.error('printViaPDF 오류:', error);
+    
+    // 사용자 친화적 에러 메시지
+    let errorMessage = error.message;
+    if (error.message.includes('ERR_NAME_NOT_RESOLVED')) {
+      errorMessage = 'URL에 접근할 수 없습니다. 인터넷 연결을 확인해주세요.';
+    } else if (error.message.includes('ERR_CONNECTION_REFUSED')) {
+      errorMessage = '서버에 연결할 수 없습니다.';
+    } else if (error.message.includes('macOS PDF')) {
+      errorMessage = 'PDF 생성 중 오류가 발생했습니다. 다시 시도해주세요.';
+    }
+    
+    throw new Error(errorMessage);
   }
 }
 
 async function generatePDF(url, paperSize, printSelector, rotate180 = false) {
+  // macOS에서 가비지 컬렉션 실행
+  if (process.platform === 'darwin' && global.gc) {
+    global.gc();
+  }
+  
   const pdfWindow = new BrowserWindow({
     show: false,
+    width: 1200,
+    height: 1600,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      webSecurity: false
+      webSecurity: false,
+      offscreen: true,
+      backgroundThrottling: false,
+      webgl: false,
+      enableWebSQL: false
     }
   });
   
@@ -56,9 +81,22 @@ async function generatePDF(url, paperSize, printSelector, rotate180 = false) {
     // 페이지 로드 대기
     await new Promise(resolve => {
       pdfWindow.webContents.once('did-finish-load', () => {
-        setTimeout(resolve, 2000);
+        // macOS에서 추가 대기 시간
+        const waitTime = process.platform === 'darwin' ? 3000 : 2000;
+        setTimeout(resolve, waitTime);
       });
     });
+    
+    // DOM이 완전히 준비될 때까지 대기
+    await pdfWindow.webContents.executeJavaScript(`
+      new Promise((resolve) => {
+        if (document.readyState === 'complete') {
+          setTimeout(resolve, 1000);
+        } else {
+          window.addEventListener('load', () => setTimeout(resolve, 1000));
+        }
+      })
+    `);
     
     // DOM 조작 및 스타일 적용
     const jsResult = await pdfWindow.webContents.executeJavaScript(`
@@ -129,6 +167,13 @@ async function generatePDF(url, paperSize, printSelector, rotate180 = false) {
           background: white !important;
         \`;
         
+        // macOS 스타일 조정
+        if (${process.platform === 'darwin'}) {
+          // 모든 input과 textarea 숨기기 (Text Input 문제 해결)
+          const inputs = document.querySelectorAll('input, textarea');
+          inputs.forEach(el => el.style.visibility = 'hidden');
+        }
+        
         return { 
           success: true, 
           elementFound: true, 
@@ -151,13 +196,26 @@ async function generatePDF(url, paperSize, printSelector, rotate180 = false) {
       preferCSSPageSize: false
     };
     
+    // macOS에서 추가 대기
+    if (process.platform === 'darwin') {
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+    
     return await pdfWindow.webContents.printToPDF(pdfOptions);
     
   } catch (error) {
     console.error('PDF 생성 오류:', error);
+    
+    // macOS 특정 오류 처리
+    if (process.platform === 'darwin' && error.message.includes('TIProperty')) {
+      throw new Error('macOS PDF 생성 오류. 잠시 후 다시 시도해주세요.');
+    }
+    
     throw error;
   } finally {
     if (pdfWindow && !pdfWindow.isDestroyed()) {
+      // 창 닫기 전 대기
+      await new Promise(resolve => setTimeout(resolve, 100));
       pdfWindow.close();
     }
   }
