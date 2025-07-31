@@ -18,19 +18,54 @@ const elements = {
     cancelButton: document.getElementById('cancel-button')
 };
 
-// 대기 메시지 표시 함수
+// 대기 메시지 표시 함수 (깜박거림 최소화)
 function showWaitingMessage(messageData) {
     const { title, message, details } = messageData;
     
-    // 프리뷰 영역에 대기 메시지 표시
     const previewFrame = document.getElementById('preview-frame');
     const previewContainer = previewFrame.parentElement;
     
-    // 기존 내용 숨기기
-    previewFrame.style.display = 'none';
+    // 부드러운 전환을 위해 즉시 숨기지 않음
+    if (previewFrame.style.display !== 'none') {
+        previewFrame.style.opacity = '0';
+        previewFrame.style.transition = 'opacity 0.2s ease';
+        
+        setTimeout(() => {
+            previewFrame.style.display = 'none';
+        }, 200);
+    }
     
-    // 대기 메시지 HTML 생성
-    const waitingMessageHtml = `
+    // 대기 메시지 컨테이너 재사용 또는 생성
+    let waitingContainer = document.getElementById('waiting-message-container');
+    if (!waitingContainer) {
+        waitingContainer = document.createElement('div');
+        waitingContainer.id = 'waiting-message-container';
+        waitingContainer.style.cssText = `
+            width: 100%; 
+            height: 100%; 
+            background: #f5f5f5;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        `;
+        previewContainer.appendChild(waitingContainer);
+    }
+    
+    // CSS를 한 번만 추가 (중복 방지)
+    if (!document.getElementById('waiting-message-styles')) {
+        const style = document.createElement('style');
+        style.id = 'waiting-message-styles';
+        style.textContent = `
+            @keyframes pulse {
+                0% { opacity: 0.5; transform: scale(1); }
+                50% { opacity: 1; transform: scale(1.1); }
+                100% { opacity: 0.5; transform: scale(1); }
+            }
+        `;
+        document.head.appendChild(style);
+    }
+    
+    // 내용 업데이트 (innerHTML 최소화)
+    const contentHtml = `
         <div style="
             display: flex;
             flex-direction: column;
@@ -62,26 +97,18 @@ function showWaitingMessage(messageData) {
                 max-width: 400px;
             ">${details}</p>
         </div>
-        <style>
-            @keyframes pulse {
-                0% { opacity: 0.5; transform: scale(1); }
-                50% { opacity: 1; transform: scale(1.1); }
-                100% { opacity: 0.5; transform: scale(1); }
-            }
-        </style>
     `;
     
-    // 대기 메시지 컨테이너 생성 또는 업데이트
-    let waitingContainer = document.getElementById('waiting-message-container');
-    if (!waitingContainer) {
-        waitingContainer = document.createElement('div');
-        waitingContainer.id = 'waiting-message-container';
-        waitingContainer.style.cssText = 'width: 100%; height: 100%; background: #f5f5f5;';
-        previewContainer.appendChild(waitingContainer);
+    // 내용이 다를 때만 업데이트
+    if (waitingContainer.innerHTML !== contentHtml) {
+        waitingContainer.innerHTML = contentHtml;
     }
     
-    waitingContainer.innerHTML = waitingMessageHtml;
+    // 부드러운 표시
     waitingContainer.style.display = 'block';
+    setTimeout(() => {
+        waitingContainer.style.opacity = '1';
+    }, 50);
     
     // 상태 메시지도 업데이트
     showStatus(message, 'info');
@@ -543,82 +570,97 @@ function displayServerInfo() {
     }
 }
 
-// URL 정보 수신 처리
+// URL 정보 수신 처리 (부드러운 전환 적용)
 async function handleUrlsReceived() {
     console.log('✅ URL 정보 수신됨:', receivedUrls);
     
-    // 대기 메시지 숨기기
+    // 대기 메시지 부드럽게 숨기기
     const waitingContainer = document.getElementById('waiting-message-container');
-    if (waitingContainer) {
-        waitingContainer.style.display = 'none';
+    if (waitingContainer && waitingContainer.style.display !== 'none') {
+        waitingContainer.style.opacity = '0';
+        
+        setTimeout(() => {
+            waitingContainer.style.display = 'none';
+        }, 300);
     }
     
-    // 프리뷰 프레임 다시 표시
+    // 프리뷰 프레임 부드럽게 다시 표시
     const previewFrame = document.getElementById('preview-frame');
     if (previewFrame) {
         previewFrame.style.display = 'block';
+        previewFrame.style.opacity = '0';
+        previewFrame.style.transition = 'opacity 0.3s ease';
+        
+        setTimeout(() => {
+            previewFrame.style.opacity = '1';
+        }, 100);
     }
     
-    // 용지 사이즈 정보 저장
+    // 용지 사이즈 정보 저장 및 표시
     if (receivedUrls.paperSize) {
         currentPaperSize = receivedUrls.paperSize;
         console.log('📐 용지 사이즈 설정됨:', currentPaperSize);
         
-        // 용지 사이즈 정보 표시
-        const paperSizeText = `${currentPaperSize.width}mm × ${currentPaperSize.height}mm (${currentPaperSize.name})`;
-        elements.serverDisplay.innerHTML = `
-            <div>세션: ${serverInfo.session}</div>
-            <div>용지: ${paperSizeText}</div>
-        `;
+        // 서버 디스플레이 요소 찾기
+        const serverDisplay = elements.serverDisplay;
+        if (serverDisplay && serverInfo) {
+            const paperSizeText = `${currentPaperSize.width}mm × ${currentPaperSize.height}mm (${currentPaperSize.name})`;
+            
+            // 기존 내용 보존하며 추가 정보만 업데이트
+            const baseInfo = `세션: ${serverInfo.session}`;
+            const paperInfo = `용지: ${paperSizeText}`;
+            
+            // 인쇄 영역 정보도 미리 준비
+            const printSelector = receivedUrls.printSelector || '#print_wrap';
+            const selectorInfo = `인쇄 영역: ${printSelector}`;
+            
+            // 한 번에 모든 정보 업데이트 (reflow 최소화)
+            serverDisplay.innerHTML = `
+                <div>${baseInfo}</div>
+                <div>${paperInfo}</div>
+                <div>${selectorInfo}</div>
+            `;
+        }
     }
     
-    // Silent 인쇄 정보 표시 (로그만)
+    // Silent 인쇄 정보 처리 (로그만)
     if (typeof receivedUrls.silentPrint === 'boolean') {
         console.log(`ℹ️ 웹에서 전달된 Silent 설정: ${receivedUrls.silentPrint} (무시됨 - 일반 인쇄만 지원)`);
     }
     
-    // 인쇄 영역 정보 표시
-    if (receivedUrls.printSelector) {
-        console.log(`🎯 인쇄 영역: ${receivedUrls.printSelector}`);
-        if (receivedUrls.printSelector === '#print_wrap') {
-            showToast(`🎯 #print_wrap 영역을 인쇄합니다`, 'info', 3000);
-        } else {
-            showToast(`🎯 인쇄 영역: ${receivedUrls.printSelector}`, 'info', 3000);
-        }
-        
-        // 서버 디스플레이에 인쇄 영역 정보 추가
-        if (elements.serverDisplay) {
-            const currentHTML = elements.serverDisplay.innerHTML;
-            elements.serverDisplay.innerHTML = currentHTML + `<div>인쇄 영역: ${receivedUrls.printSelector}</div>`;
-        }
+    // 인쇄 영역 정보 토스트 표시
+    const printSelector = receivedUrls.printSelector || '#print_wrap';
+    if (receivedUrls.printSelector && receivedUrls.printSelector !== '#print_wrap') {
+        showToast(`🎯 인쇄 영역: ${receivedUrls.printSelector}`, 'info', 3000);
     } else {
-        // 기본값도 #print_wrap 표시
-        console.log('🎯 기본 인쇄 영역: #print_wrap');
-        showToast('🎯 #print_wrap 영역만 인쇄됩니다', 'info', 3000);
-        
-        if (elements.serverDisplay) {
-            const currentHTML = elements.serverDisplay.innerHTML;
-            elements.serverDisplay.innerHTML = currentHTML + `<div>인쇄 영역: #print_wrap</div>`;
-        }
+        showToast('🎯 #print_wrap 영역을 인쇄합니다', 'info', 3000);
     }
     
-    // 즉시 로딩 화면 숨김
+    console.log(`🎯 인쇄 영역: ${printSelector}`);
+    
+    // 로딩 화면 즉시 숨김
     hideLoading();
     
-    // 미리보기 URL이 있으면 즉시 자동으로 표시
+    // 미리보기 자동 표시
     if (receivedUrls.previewUrl) {
         console.log('🖼️ 미리보기 자동 표시 시작');
         showStatus('📥 URL 수신 완료! 미리보기를 로드합니다...', 'info');
         
-        // 즉시 미리보기 표시
-        await showPreviewUrl();
+        // 부드러운 전환을 위해 약간 지연
+        setTimeout(async () => {
+            await showPreviewUrl();
+        }, 200);
+        
     } else if (receivedUrls.printUrl) {
         console.log('🖨️ 인쇄 URL만 수신됨');
         showStatus('인쇄용 URL이 수신되었습니다. (미리보기 없음)', 'info');
         
         // 미리보기 URL이 없으면 인쇄 URL로 미리보기 표시
         receivedUrls.previewUrl = receivedUrls.printUrl;
-        await showPreviewUrl();
+        
+        setTimeout(async () => {
+            await showPreviewUrl();
+        }, 200);
     }
     
     updateUI();
@@ -712,52 +754,77 @@ async function showPreviewUrl() {
 
 // PDF 미리보기 함수 제거됨
 
-// HTML 웹페이지 미리보기 (iframe 사용 - 안정적)
+// HTML 웹페이지 미리보기 (iframe 재사용으로 깜박거림 방지)
 async function showHtmlPreview(url) {
     console.log(`🌐 showHtmlPreview 시작: ${url}`);
     showStatus('🌐 웹페이지를 로드하는 중...', 'info');
     
-    // 웹페이지는 iframe으로 안정적으로 표시
-    const iframe = document.createElement('iframe');
-    iframe.src = url;
-    iframe.style.width = '100%';
-    iframe.style.height = '100%';
-    iframe.style.border = 'none';
-    iframe.style.borderRadius = '4px';
-    iframe.style.backgroundColor = 'white';
+    elements.previewContainer = document.querySelector('.preview-container');
     
-    console.log('📦 iframe 생성 완료');
+    // 기존 iframe 찾기 또는 새로 생성
+    let iframe = elements.previewContainer.querySelector('iframe');
+    
+    if (!iframe) {
+        // iframe이 없으면 최초 생성
+        iframe = document.createElement('iframe');
+        iframe.style.cssText = `
+            width: 100%;
+            height: 100%;
+            border: none;
+            border-radius: 4px;
+            backgroundColor: white;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        `;
+        
+        console.log('📦 새 iframe 생성 완료');
+        elements.previewContainer.appendChild(iframe);
+    } else {
+        // 기존 iframe 재사용 - 로딩 중 투명화
+        iframe.style.opacity = '0';
+        console.log('♻️ 기존 iframe 재사용');
+    }
     
     // 로딩 상태 표시
     let loadingTimeout;
     
-    iframe.onload = () => {
+    // 로딩 완료 이벤트
+    const handleLoad = () => {
         console.log('✅ iframe 로드 완료!');
         clearTimeout(loadingTimeout);
+        
+        // 부드러운 페이드인 효과
+        setTimeout(() => {
+            iframe.style.opacity = '1';
+        }, 100);
+        
         showStatus('✅ 웹페이지 로드 완료! 인쇄를 진행하세요.', 'success');
     };
     
-    iframe.onerror = () => {
+    const handleError = () => {
         console.error('❌ iframe 로드 실패!');
         clearTimeout(loadingTimeout);
+        iframe.style.opacity = '1'; // 오류 상태라도 표시
         showStatus('❌ 웹페이지 로드 실패. URL을 확인해주세요.', 'error');
     };
+    
+    // 이벤트 리스너 등록 (기존 것 제거 후)
+    iframe.removeEventListener('load', handleLoad);
+    iframe.removeEventListener('error', handleError);
+    iframe.addEventListener('load', handleLoad);
+    iframe.addEventListener('error', handleError);
     
     // 타임아웃 설정 (15초)
     loadingTimeout = setTimeout(() => {
         console.warn('⚠️ iframe 로드 타임아웃');
+        iframe.style.opacity = '1';
         showStatus('⚠️ 웹페이지 로드가 느립니다. 네트워크를 확인해주세요.', 'warning');
     }, 15000);
     
-    // iframe 표시 준비
-    elements.previewContainer = document.querySelector('.preview-container');
+    // URL 변경 (부드러운 전환)
+    iframe.src = url;
     
-    console.log('🎨 previewContainer 찾음:', elements.previewContainer);
-    
-    elements.previewContainer.innerHTML = '';
-    elements.previewContainer.appendChild(iframe);
-    
-    console.log('🎉 iframe DOM에 추가 완료');
+    console.log('🎉 iframe URL 설정 완료');
 }
 
 

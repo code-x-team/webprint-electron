@@ -832,17 +832,23 @@ async function createPrintWindow(sessionId = null, isForced = false) {
       preload: path.join(__dirname, 'preload.js')
     },
     title: 'WebPrinter - 인쇄 미리보기',
-    show: false,
-    autoHideMenuBar: true
+    show: false, // 깜박거림 방지를 위해 false 유지
+    autoHideMenuBar: true,
+    backgroundColor: '#f5f5f5', // 로딩 중 배경색 설정
+    webSecurity: false // 웹 콘텐츠 로딩 성능 향상
   });
 
   // 인쇄 UI 로드
   printWindow.loadFile('print-preview.html');
 
   printWindow.once('ready-to-show', () => {
-    if (printWindow && !printWindow.isDestroyed()) {
-      printWindow.show();
-    }
+    // DOM 완전 로드 후 부드럽게 표시
+    setTimeout(() => {
+      if (printWindow && !printWindow.isDestroyed()) {
+        printWindow.show();
+        printWindow.focus();
+      }
+    }, 100); // 깜박거림 방지를 위한 최소 지연
     
     // 렌더러가 완전히 로드될 때까지 대기 후 IPC 전송
     printWindow.webContents.once('did-finish-load', () => {
@@ -1502,89 +1508,29 @@ ipcMain.handle('print-url', async (event, options) => {
         '      return { success: false, error: "인쇄 영역이 비어있음" };',
         '    }',
         '    ',
-        '    // 기존 스타일 제거 (중복 방지)',
-        '    const existingStyle = document.getElementById("webprinter-print-style");',
-        '    if (existingStyle) {',
-        '      existingStyle.remove();',
-        '    }',
-        '    ',
         '    // 인쇄용 스타일 생성',
         '    const printStyle = document.createElement("style");',
         '    printStyle.id = "webprinter-print-style";',
         '    ',
-        '    // CSS 텍스트를 배열로 구성 후 조인',
-        '    const cssRules = [',
-        '      "@media print {",',
-        '      "  /* A4 용지 크기 사용 (프린터 호환성) */",',
-        '      "  @page { size: A4; margin: 0; }",',
-        '      "  ",',
-        '      "  /* 모든 요소 숨기기 */",',
-        '      "  body > * { display: none !important; }",',
-        '      "  ",',
-        '      "  /* body 설정: A4 용지 기준 */",',
-        '      "  html, body { ",',
-        '      "    margin: 0 !important; ",',
-        '      "    padding: 0 !important; ",',
-        '      "    width: 210mm !important; ",',
-        '      "    height: 297mm !important; ",',
-        '      "    transform: rotate(180deg) !important; ",',
-        '      "    transform-origin: 50% 50% !important; ",',
-        '      "    position: relative !important;",',
-        '      "    background: white !important;"',
-        '      "  }",',
-        '      "  ",',
-        '      "  /* 선택된 인쇄 영역: 가로 중앙, 세로 맨위 배치 */",',
-        '      "  .webprinter-print-target {",',
-        '      "    display: block !important;",',
-        '      "    visibility: visible !important;",',
-        '      "    opacity: 1 !important;",',
-        '      "    position: absolute !important;",',
-        '      "    top: 0 !important;"',
-        '      "    left: 50% !important;"',
-        '      "    transform: translateX(-50%) !important;"',
-        '      "    width: auto !important;"',
-        '      "    height: auto !important;"',
-        '      "    margin: 0 !important;"',
-        '      "    padding: 5mm !important;"',
-        '      "    background: transparent !important;"',
-        '      "    color: black !important;"',
-        '      "    text-align: center !important;"',
-        '      "  }",',
-        '      "  ",',
-        '      "  /* 부모 요소들도 표시되도록 */",',
-        '      "  .webprinter-print-target * { visibility: visible !important; }",',
-        '      "  ",',
-        '      "  /* 부모 요소 경로 표시 */",',
-        '      "  .webprinter-parent-visible {",',
-        '      "    display: block !important;"',
-        '      "    visibility: visible !important;"',
-        '      "    opacity: 1 !important;"',
-        '      "  }",',
-        '      "  ",',
-        '      "  /* 색상 정확도 보장 */",',
-        '      "  * {",',
-        '      "    -webkit-print-color-adjust: exact !important;"',
-        '      "    print-color-adjust: exact !important;"',
-        '      "  }",',
-        '      "}"',
-        '    ];',
+        '    // 간단한 CSS: A4 용지 + 180도 회전만',
+        '    const cssText = `',
+        '      @media print {',
+        '        @page { size: A4; margin: 0; }',
+        '        .webprinter-print-target {',
+        '          transform: rotate(180deg) !important;',
+        '          -webkit-print-color-adjust: exact !important;',
+        '          print-color-adjust: exact !important;',
+        '        }',
+        '      }',
+        '    `;',
         '    ',
-        '    printStyle.textContent = cssRules.join("\\n");',
+        '    printStyle.textContent = cssText;',
         '    document.head.appendChild(printStyle);',
         '    ',
-        '    // 대상 요소에 클래스 추가',
+        '    // #print_wrap 요소에 인쇄용 클래스 추가',
         '    targetElement.classList.add("webprinter-print-target");',
         '    ',
-        '    // 부모 요소 경로 확보',
-        '    let parent = targetElement.parentElement;',
-        '    let parentCount = 0;',
-        '    while (parent && parent !== document.body && parentCount < 20) {',
-        '      parent.classList.add("webprinter-parent-visible");',
-        '      parent = parent.parentElement;',
-        '      parentCount++;',
-        '    }',
-        '    ',
-        '    console.log("🎨 인쇄 스타일 적용 완료 (부모 요소 " + parentCount + "개 처리)");',
+        '    console.log("🎨 #print_wrap에 180도 회전 스타일 적용 완료");',
         '    return { success: true };',
         '    ',
         '  } catch (error) {',
