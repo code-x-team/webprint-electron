@@ -152,8 +152,8 @@
         "ko_KR",
         "en_US"
       ],
-      "warningsAsErrors": false,
-      "runAfterFinish": true
+      "runAfterFinish": true,
+      "warningsAsErrors": false
     },
     "dmg": {
       "title": "${productName} ${version}",
