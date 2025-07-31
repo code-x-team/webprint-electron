@@ -580,8 +580,10 @@ async function convertPdfToPng(pdfPath) {
         throw new Error('PDF 렌더링 시간 초과');
       }
       
-      // 추가 안정화 대기 (고해상도 렌더링 완료 보장)
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // 추가 안정화 대기 (성능 최적화를 위해 조정 가능)
+      // await new Promise(resolve => setTimeout(resolve, 500)); // 빠른 처리용
+      await new Promise(resolve => setTimeout(resolve, 1000)); // 기본값
+      // 완전히 제거하려면 위 라인을 주석 처리
       
       // 렌더링된 페이지 캡처
       const image = await pdfWindow.capturePage();
