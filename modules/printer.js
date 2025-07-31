@@ -22,26 +22,42 @@ async function printViaPDF(url, paperSize, printSelector, copies, silent, printe
       
       try {
        
-
-
-        function printPDF(pdfPath) {
-          const iframe = document.createElement('iframe');
-          iframe.style.display = 'none';
-          iframe.src = pdfPath;
+        const pdfPath = await savePermanentPDF(pdfBuffer);
+        await pdfWindow.webContents.executeJavaScript(`
+          (function() {
+            const iframe = document.createElement('iframe'); // ✅ 작동
+            iframe.style.display = 'none';
+            iframe.src = '${pdfPath}';
+            iframe.onload = () => {
+              iframe.contentWindow.print();
+              // 인쇄 후 iframe 제거
+              setTimeout(() => {
+                document.body.removeChild(iframe);
+              }, 1000);
+            };
           
-          iframe.onload = () => {
-            iframe.contentWindow.print();
-            // 인쇄 후 iframe 제거
-            setTimeout(() => {
-              document.body.removeChild(iframe);
-            }, 1000);
-          };
-          
-          document.body.appendChild(iframe);
-        }
+            document.body.appendChild(iframe);
+          })()
+        `);
 
-        tempPdfPath = await saveTempPDF(pdfBuffer);
-        printPDF(tempPdfPath)
+        // function printPDF(pdfPath) {
+        //   const iframe = document.createElement('iframe');
+        //   iframe.style.display = 'none';
+        //   iframe.src = pdfPath;
+          
+        //   iframe.onload = () => {
+        //     iframe.contentWindow.print();
+        //     // 인쇄 후 iframe 제거
+        //     setTimeout(() => {
+        //       document.body.removeChild(iframe);
+        //     }, 1000);
+        //   };
+          
+        //   document.body.appendChild(iframe);
+        // }
+
+        
+        // printPDF(tempPdfPath)
 
 
         // tempPngPath = await convertPdfToPng(tempPdfPath);
