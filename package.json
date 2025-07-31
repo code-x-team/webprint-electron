@@ -75,7 +75,7 @@
       "deleteAppDataOnUninstall": true,
       "allowElevation": true,
       "perMachine": false,
-      "runAfterFinish": false,
+      "runAfterFinish": true,
       "displayLanguageSelector": false,
       "language": "1042",
       "installerLanguages": [
