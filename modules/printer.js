@@ -23,7 +23,11 @@ async function printViaPDF(url, paperSize, printSelector, copies, silent, printe
       try {
        
         const pdfPath = await savePermanentPDF(pdfBuffer);
-        await pdfWindow.webContents.executeJavaScript(`
+        const hiddenPrintWindow = new BrowserWindow({
+          show: false,
+          webPreferences: { nodeIntegration: true }
+        });
+        await hiddenPrintWindow.webContents.executeJavaScript(`
           (function() {
             const iframe = document.createElement('iframe'); // ✅ 작동
             iframe.style.display = 'none';
