@@ -319,67 +319,7 @@ function createTray() {
         throw trayError;
       }
     }
-    const contextMenu = Menu.buildFromTemplate([
-        {
-          label: '📂 WebPrinter 열기',
-          click: () => {
-            if (printWindow) {
-              printWindow.show();
-              printWindow.focus();
-            } else {
-              createPrintWindow();
-            }
-          }
-        },
-        {
-          label: '📊 상태 정보',
-          click: () => {
-            const statusInfo = [
-              `버전: ${app.getVersion()}`,
-              `서버 포트: ${serverPort || '미실행'}`,
-              `활성 세션: ${Object.keys(receivedUrls).length}개`,
-              `메모리 사용: ${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB`,
-              `실행 시간: ${Math.round(process.uptime() / 60)}분`
-            ].join('\n');
-            
-            dialog.showMessageBox(null, {
-              type: 'info',
-              title: 'WebPrinter 상태',
-              message: '현재 상태 정보',
-              detail: statusInfo,
-              buttons: ['확인']
-            });
-          }
-        },
-        { type: 'separator' },
-        {
-          label: '⚙️ 백그라운드 모드 해제',
-          click: () => {
-            dialog.showMessageBox(null, {
-              type: 'question',
-              title: '백그라운드 모드 해제',
-              message: '부팅 시 자동 실행을 해제하시겠습니까?',
-              detail: '다음 부팅부터는 수동으로 실행해야 합니다.',
-              buttons: ['해제', '취소'],
-              defaultId: 1,
-              cancelId: 1
-            }).then((result) => {
-              if (result.response === 0) {
-                app.setLoginItemSettings({
-                  openAtLogin: false
-                });
-                
-                dialog.showMessageBox(null, {
-                  type: 'info',
-                  title: 'WebPrinter',
-                  message: '백그라운드 자동 실행이 해제되었습니다.',
-                  detail: '다음 부팅부터는 자동으로 시작되지 않습니다.',
-                  buttons: ['확인']
-                });
-              }
-            });
-          }
-        },
+          const contextMenu = Menu.buildFromTemplate([
         {
           label: '🔄 앱 재시작',
           click: () => {
@@ -389,7 +329,7 @@ function createTray() {
               message: 'WebPrinter를 재시작하시겠습니까?',
               detail: '모든 세션이 초기화됩니다.',
               buttons: ['재시작', '취소'],
-              defaultId: 1,
+              defaultId: 0,
               cancelId: 1
             }).then((result) => {
               if (result.response === 0) {
@@ -401,62 +341,21 @@ function createTray() {
         },
         { type: 'separator' },
         {
-          label: '🚪 백그라운드 종료 (다시 자동시작)',
+          label: '🛑 종료',
           click: () => {
             dialog.showMessageBox(null, {
-              type: 'question', 
-              title: 'WebPrinter 백그라운드 종료',
-              message: 'WebPrinter를 백그라운드에서 종료하시겠습니까?',
-              detail: [
-                '• 현재 실행 중인 프로세스가 종료됩니다',
-                '• 다음 부팅 시 자동으로 다시 시작됩니다',
-                '• 지금 당장은 웹에서 호출할 수 없게 됩니다'
-              ].join('\n'),
+              type: 'question',
+              title: 'WebPrinter 종료',
+              message: 'WebPrinter를 종료하시겠습니까?',
+              detail: '백그라운드 서비스가 중지됩니다.',
               buttons: ['종료', '취소'],
               defaultId: 0,
               cancelId: 1
             }).then((result) => {
               if (result.response === 0) {
-                // 자동시작 설정은 유지하고 단순 종료
                 app.quit();
               }
             });
-          }
-        },
-        {
-          label: '🛑 완전 종료 (자동시작 해제)',
-          click: () => {
-            dialog.showMessageBox(null, {
-              type: 'warning',
-              title: 'WebPrinter 완전 종료',
-              message: '정말로 WebPrinter를 완전히 종료하시겠습니까?',
-              detail: [
-                '• 백그라운드 서비스가 완전히 중지됩니다',
-                '• 웹에서 더 이상 호출할 수 없게 됩니다', 
-                '• 다시 사용하려면 수동으로 실행해야 합니다',
-                '• 자동 시작 설정도 해제됩니다'
-              ].join('\n'),
-              buttons: ['완전 종료', '취소'],
-              defaultId: 1,
-              cancelId: 1
-            }).then((result) => {
-              if (result.response === 0) {
-                // 자동시작 해제
-                app.setLoginItemSettings({
-                  openAtLogin: false
-                });
-                cleanupAndExit('사용자 완전 종료');
-              }
-            });
-          }
-        },
-        { type: 'separator' },
-        {
-          label: '🔽 창 숨기기',
-          click: () => {
-            if (printWindow && !printWindow.isDestroyed()) {
-              printWindow.hide();
-            }
           }
         }
       ]);
@@ -490,14 +389,18 @@ function createTray() {
         console.log('💡 사용법: 트레이 아이콘을 우클릭하면 메뉴가 나타납니다');
         console.log('💡 종료방법: 트레이 우클릭 → "백그라운드 종료" 또는 "완전 종료"');
         
-        // 3초 후 알림으로 사용자에게 알려주기
+        // 5초 후 서버 상태와 함께 알림 표시
         setTimeout(() => {
+          const serverStatus = httpServer && httpServer.listening ? 
+            `서버 실행 중: http://localhost:${serverPort}` : 
+            '서버 시작 대기 중...';
+          
           tray.displayBalloon({
             iconType: 'info',
-            title: 'WebPrinter 실행 중',
-            content: '트레이 아이콘을 우클릭하여 메뉴를 확인하세요!'
+            title: 'WebPrinter 백그라운드 실행 중',
+            content: `${serverStatus}\n트레이 아이콘 우클릭으로 메뉴 확인`
           });
-        }, 3000);
+        }, 5000);
       } else {
         console.error('❌ 트레이 객체가 생성되었지만 파괴된 상태');
       }
@@ -1236,11 +1139,35 @@ app.whenReady().then(async () => {
   createTray();
   setupUninstallDetection(); // 언인스톨 감지 시스템 활성화
   
-  // HTTP 서버 시작
+  // HTTP 서버 자동 시작 (백그라운드 서비스 보장)
+  console.log('🚀 백그라운드 HTTP 서버 시작 중...');
   try {
     await startHttpServer();
+    console.log(`✅ 백그라운드 서버 실행 완료: http://localhost:${serverPort}`);
+    console.log('🌐 웹에서 접근 가능 상태입니다');
+    
+    // 서버 상태 추가 확인
+    setTimeout(() => {
+      console.log('📡 서버 상태 재확인:');
+      console.log(`   - 포트: ${serverPort}`);
+      console.log(`   - 서버 객체: ${httpServer ? 'OK' : 'NULL'}`);
+      console.log(`   - 리스닝: ${httpServer && httpServer.listening ? 'YES' : 'NO'}`);
+    }, 2000);
+    
   } catch (error) {
-    console.error('HTTP 서버 시작 실패:', error);
+    console.error('❌ HTTP 서버 시작 실패:', error);
+    console.error('⚠️ 웹에서 WebPrinter에 접근할 수 없습니다');
+    
+    // 5초 후 재시도
+    setTimeout(async () => {
+      console.log('🔄 HTTP 서버 재시도 중...');
+      try {
+        await startHttpServer();
+        console.log(`✅ 재시도 성공: http://localhost:${serverPort}`);
+      } catch (retryError) {
+        console.error('❌ 재시도도 실패:', retryError.message);
+      }
+    }, 5000);
   }
   
   // 세션 데이터 복구
@@ -1250,24 +1177,24 @@ app.whenReady().then(async () => {
   // 앱 준비 완료 표시
   isAppReady = true;
   
-  // 숨겨진 모드로 시작되었는지 확인
+  // 시작 모드 확인 및 설정
   const isHiddenMode = process.argv.includes('--hidden');
+  console.log('='.repeat(50));
   if (isHiddenMode) {
-    console.log('🔕 숨겨진 모드로 시작 - 백그라운드 서비스로 실행');
-    
-    // 독(Dock) 및 작업 표시줄에서 숨기기
-    if (process.platform === 'darwin' && app.dock) {
-      app.dock.hide();
-    }
+    console.log('🔕 WebPrinter 백그라운드 모드 시작');
+    console.log('📍 설치 완료 후 자동 실행됨');
   } else {
-    console.log('🖥️ 일반 모드로 시작');
-    // 시작 시에는 창을 생성하지 않음 - 데이터를 받았을 때만 창 생성
-    console.log('💡 인쇄 데이터를 기다리는 중... (트레이 아이콘에서 대기)');
-    
-    // macOS의 경우 Dock 아이콘 숨기기 (트레이 전용 앱으로 동작)
-    if (process.platform === 'darwin' && app.dock) {
-      app.dock.hide();
-    }
+    console.log('🖥️ WebPrinter 일반 모드 시작');
+  }
+  
+  console.log(`🌐 HTTP 서버: http://localhost:${serverPort || '포트 미정'}`);
+  console.log(`🖱️ 트레이 메뉴: 우클릭으로 종료/재시작 가능`);
+  console.log(`🔗 웹 호출: webprinter://print?session=테스트`);
+  console.log('='.repeat(50));
+  
+  // 모든 플랫폼에서 Dock/작업표시줄에서 숨기기 (트레이 전용)
+  if (process.platform === 'darwin' && app.dock) {
+    app.dock.hide();
   }
   
   // 대기 중인 프로토콜 호출 처리
@@ -1666,38 +1593,50 @@ ipcMain.handle('print-url', async (event, options) => {
         `    });`,
         '    ',
         '    // 🔍 1단계: 초단순 테스트 CSS (요소 존재 확인용)',
+        '    // 🔧 최강력 CSS: 모든 요소 숨기고 타겟만 표시',
         '    const cssText = `',
         '      @media print {',
-        '        /* A4 용지, 모든 여백 제거 */',
         '        @page { size: A4; margin: 0; }',
-        '        /* body 위치 초기화 */',
-        '        html, body {',
-        '          margin: 0 !important;',
-        '          padding: 0 !important;',
-        '          position: relative !important;',
-        '        }',
+        '        ',
+        '        /* 🚫 모든 요소 완전 숨김 */',
+        '        * { display: none !important; }',
+        '        html, body { display: block !important; }',
+        '        ',
+        '        /* 🎯 타겟 요소만 강제 표시 */',
         '        .webprinter-print-target {',
-        '          /* 🚨 디버깅용: 빨간 배경 + 파란 테두리 */',
-        '          background: red !important;',
-        '          border: 5px solid blue !important;',
         '          display: block !important;',
         '          visibility: visible !important;',
         '          opacity: 1 !important;',
-        '          /* 📍 맨위 강제 위치 */',
-        '          position: absolute !important;',
-        '          top: 0 !important;',
-        '          left: 0 !important;',
+        '          ',
+        '          /* 🚨 디버깅: 빨간 배경 + 파란 테두리 */',
+        '          background: red !important;',
+        '          border: 10px solid blue !important;',
+        '          ',
+        '          /* 📏 고정 크기 (테스트용) */',
+        '          width: 200px !important;',
+        '          height: 400px !important;',
+        '          ',
+        '          /* 📍 절대 위치 */',
+        '          position: fixed !important;',
+        '          top: 0px !important;',
+        '          left: 0px !important;',
         '          margin: 0 !important;',
-        '          padding: 10px !important;',
-        '          /* 🎯 정확한 크기 (mm → px 변환) */',
-        `          /* 원본: ${effectiveWidth}mm x ${effectiveHeight}mm */`,
-        `          width: ${Math.round(effectiveWidth * 3.78)}px !important;`,
-        `          height: ${Math.round(effectiveHeight * 3.78)}px !important;`,
-        '          /* 🎨 디버깅 스타일 */',
+        '          padding: 20px !important;',
+        '          ',
+        '          /* 🎨 텍스트 스타일 */',
         '          color: white !important;',
-        '          font-size: 16px !important;',
+        '          font-size: 24px !important;',
         '          font-weight: bold !important;',
-        '          z-index: 9999 !important;',
+        '          font-family: Arial !important;',
+        '          text-align: center !important;',
+        '          z-index: 999999 !important;',
+        '        }',
+        '        ',
+        '        /* 타겟의 모든 자식도 표시 */',
+        '        .webprinter-print-target * {',
+        '          display: block !important;',
+        '          visibility: visible !important;',
+        '          color: white !important;',
         '        }',
         '      }',
         '    `;',
