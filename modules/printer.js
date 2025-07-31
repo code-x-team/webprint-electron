@@ -28,39 +28,60 @@ async function printViaPDF(url, paperSize, printSelector, copies, silent, printe
       // 작업 완료 알림
       return { success: true, pdfPath, shouldClose: true };
     } else {
-      // 프린터로 직접 출력
-      console.log('프린터 출력 준비 중...');
+      // 프린터로 직접 출력 (PDF → PNG → 인쇄)
+      console.log('프린터 출력 준비 중 (PDF → PNG → 인쇄)...');
       let tempPdfPath = null;
+      let tempPngPath = null;
       
       try {
+        // 1단계: PDF 임시 파일 생성
         tempPdfPath = await saveTempPDF(pdfBuffer);
-        console.log('임시 PDF 파일 준비 완료, 프린터 출력 시작...');
+        console.log('임시 PDF 파일 준비 완료');
         
-        await printDirectly(tempPdfPath, printerName, copies);
-        console.log('프린터 출력 명령 완료');
+        // 2단계: PDF를 PNG로 변환
+        tempPngPath = await convertPdfToPng(tempPdfPath);
+        console.log('PDF → PNG 변환 완료, 이미지 인쇄 시작...');
         
-        // 출력 후 임시 파일 삭제 (더 긴 대기 시간)
+        // 3단계: PNG 이미지 인쇄 (훨씬 더 안정적)
+        await printImageDirectly(tempPngPath, printerName, copies);
+        console.log('이미지 인쇄 명령 완료');
+        
+        // 출력 후 임시 파일들 삭제 (PDF + PNG)
         setTimeout(async () => {
           try {
-            await fs.unlink(tempPdfPath);
-            console.log('임시 PDF 파일 삭제 완료:', tempPdfPath);
+            if (tempPdfPath) {
+              await fs.unlink(tempPdfPath);
+              console.log('임시 PDF 파일 삭제 완료:', tempPdfPath);
+            }
+            if (tempPngPath) {
+              await fs.unlink(tempPngPath);
+              console.log('임시 PNG 파일 삭제 완료:', tempPngPath);
+            }
           } catch (deleteError) {
             console.warn('임시 파일 삭제 실패:', deleteError.message);
           }
-        }, 10000); // 10초 대기로 증가
+        }, 10000); // 10초 대기
         
         // 작업 완료 알림
-        return { success: true, shouldClose: true, message: '프린터로 전송 완료' };
+        return { success: true, shouldClose: true, message: '이미지로 변환하여 프린터 전송 완료' };
       } catch (printError) {
-        console.error('프린터 출력 과정에서 오류:', printError);
+        console.error('이미지 인쇄 과정에서 오류:', printError);
         
-        // 임시 파일 즉시 삭제
+        // 임시 파일들 즉시 삭제
         if (tempPdfPath) {
           try {
             await fs.unlink(tempPdfPath);
-            console.log('오류 발생 후 임시 파일 삭제:', tempPdfPath);
+            console.log('오류 발생 후 임시 PDF 파일 삭제:', tempPdfPath);
           } catch (deleteError) {
-            console.warn('오류 후 임시 파일 삭제 실패:', deleteError.message);
+            console.warn('오류 후 PDF 파일 삭제 실패:', deleteError.message);
+          }
+        }
+        if (tempPngPath) {
+          try {
+            await fs.unlink(tempPngPath);
+            console.log('오류 발생 후 임시 PNG 파일 삭제:', tempPngPath);
+          } catch (deleteError) {
+            console.warn('오류 후 PNG 파일 삭제 실패:', deleteError.message);
           }
         }
         
@@ -396,6 +417,171 @@ async function saveTempPDF(pdfBuffer) {
   }
 }
 
+async function convertPdfToPng(pdfPath) {
+  console.log('PDF를 PNG로 변환 시작:', pdfPath);
+  
+  const pdfWindow = new BrowserWindow({
+    show: false,
+    width: 1200,
+    height: 1600,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      webSecurity: false,
+      offscreen: true,
+      backgroundThrottling: false
+    }
+  });
+  
+  try {
+    // PDF 파일을 로드
+    await pdfWindow.loadFile(pdfPath);
+    
+    // 페이지 로드 대기
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // 스크린샷 캡처 (PNG 형태)
+    const image = await pdfWindow.capturePage();
+    
+    // PNG 임시 파일 경로 생성
+    const tempDir = os.tmpdir();
+    const pngFileName = `webprinter_temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.png`;
+    const pngPath = path.join(tempDir, pngFileName);
+    
+    // PNG 파일 저장
+    await fs.writeFile(pngPath, image.toPNG());
+    
+    console.log('PNG 변환 완료:', pngPath);
+    
+    // 파일 크기 확인
+    const stats = await fs.stat(pngPath);
+    console.log('PNG 파일 크기:', stats.size);
+    
+    return pngPath;
+    
+  } catch (error) {
+    console.error('PDF to PNG 변환 실패:', error);
+    throw new Error(`PDF to PNG 변환 실패: ${error.message}`);
+  } finally {
+    if (pdfWindow && !pdfWindow.isDestroyed()) {
+      pdfWindow.close();
+    }
+  }
+}
+
+async function printImageDirectly(imagePath, printerName, copies = 1) {
+  console.log('printImageDirectly 시작:', { imagePath, printerName, copies, platform: process.platform });
+  
+  try {
+    if (process.platform === 'win32') {
+      // Windows에서 이미지 인쇄 (훨씬 더 안정적)
+      const escapedPath = imagePath.replace(/'/g, "''");
+      const escapedPrinterName = printerName.replace(/'/g, "''");
+      
+      if (printerName && printerName !== 'system-default') {
+        console.log('Windows 이미지 인쇄 시작...');
+        
+        // 인쇄 전 작업 수 확인
+        const { stdout: beforeJobs } = await execAsync(`powershell -command "Get-PrintJob -PrinterName '${escapedPrinterName}' | Measure-Object | Select-Object -ExpandProperty Count"`).catch(() => ({ stdout: '0' }));
+        console.log('인쇄 전 작업 수:', beforeJobs.trim());
+        
+        // Windows 내장 mspaint를 이용한 이미지 인쇄 (가장 확실한 방법)
+        try {
+          await execAsync(`powershell -command "
+            $process = Start-Process -FilePath 'mspaint' -ArgumentList '/pt','${escapedPath}','${escapedPrinterName}' -WindowStyle Hidden -PassThru
+            Start-Sleep -Seconds 5
+            if (!$process.HasExited) {
+              $process.Kill()
+            }
+          "`);
+          console.log('mspaint 인쇄 명령 완료');
+        } catch (paintError) {
+          console.log('mspaint 실패, PowerShell 이미지 인쇄 시도...');
+          
+          // PowerShell을 통한 직접 이미지 인쇄
+          await execAsync(`powershell -command "
+            Add-Type -AssemblyName System.Drawing
+            Add-Type -AssemblyName System.Drawing.Printing
+            
+            $image = [System.Drawing.Image]::FromFile('${escapedPath}')
+            $printDoc = New-Object System.Drawing.Printing.PrintDocument
+            $printDoc.PrinterSettings.PrinterName = '${escapedPrinterName}'
+            
+            $printDoc.add_PrintPage({
+              param($sender, $e)
+              $e.Graphics.DrawImage($image, $e.MarginBounds)
+            })
+            
+            if ($printDoc.PrinterSettings.IsValid) {
+              $printDoc.Print()
+              Write-Host 'PowerShell 이미지 인쇄 완료'
+            } else {
+              throw 'Printer not valid'
+            }
+            
+            $image.Dispose()
+          "`);
+        }
+        
+        // 인쇄 후 작업 수 확인
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        const { stdout: afterJobs } = await execAsync(`powershell -command "Get-PrintJob -PrinterName '${escapedPrinterName}' | Measure-Object | Select-Object -ExpandProperty Count"`).catch(() => ({ stdout: '0' }));
+        console.log('인쇄 후 작업 수:', afterJobs.trim());
+        
+        if (parseInt(afterJobs.trim()) > parseInt(beforeJobs.trim())) {
+          console.log('✅ 이미지 인쇄 작업이 프린터 큐에 추가됨');
+        } else {
+          console.log('❌ 이미지 인쇄 작업이 큐에 추가되지 않음');
+          throw new Error('이미지 인쇄 작업이 프린터 큐에 전달되지 않았습니다');
+        }
+        
+      } else {
+        // 기본 프린터 사용
+        console.log('기본 프린터로 이미지 인쇄');
+        await execAsync(`powershell -command "Start-Process -FilePath '${escapedPath}' -Verb Print -WindowStyle Hidden"`);
+      }
+      
+      console.log('Windows 이미지 인쇄 완료');
+      
+    } else if (process.platform === 'darwin') {
+      // macOS: 이미지 인쇄
+      let printCmd = `lpr -# ${copies}`;
+      if (printerName && printerName !== 'system-default') {
+        printCmd += ` -P "${printerName}"`;
+      }
+      printCmd += ` "${imagePath}"`;
+      
+      console.log('macOS 이미지 인쇄 명령 실행:', printCmd);
+      const result = await execAsync(printCmd);
+      console.log('macOS 이미지 인쇄 결과:', result);
+      
+    } else {
+      // Linux: 이미지 인쇄
+      let printCmd = `lp -n ${copies}`;
+      if (printerName && printerName !== 'system-default') {
+        printCmd += ` -d "${printerName}"`;
+      }
+      printCmd += ` "${imagePath}"`;
+      
+      console.log('Linux 이미지 인쇄 명령 실행:', printCmd);
+      const result = await execAsync(printCmd);
+      console.log('Linux 이미지 인쇄 결과:', result);
+    }
+    
+    console.log('printImageDirectly 성공 완료');
+    
+  } catch (error) {
+    console.error('이미지 인쇄 상세 오류:', {
+      message: error.message,
+      code: error.code,
+      stderr: error.stderr,
+      stdout: error.stdout
+    });
+    
+    throw new Error(`이미지 인쇄 실패: ${error.message}`);
+  }
+}
+
 async function printDirectly(pdfPath, printerName, copies = 1) {
   console.log('printDirectly 시작:', { pdfPath, printerName, copies, platform: process.platform });
   
@@ -718,5 +904,7 @@ async function cleanupOldPDFs() {
 
 module.exports = {
   printViaPDF,
-  cleanupOldPDFs
+  cleanupOldPDFs,
+  convertPdfToPng,
+  printImageDirectly
 };
