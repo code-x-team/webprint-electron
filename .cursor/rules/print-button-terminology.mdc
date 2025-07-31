@@ -1,0 +1,98 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# 출력 버튼 용어 구분 가이드
+
+## 🌐 웹에서 출력하기
+**위치**: [web-example.html](mdc:web-example.html)
+**용도**: 웹페이지에서 WebPrinter 프로그램을 호출하여 인쇄 시작
+
+### 관련 파일
+- **메인 파일**: [web-example.html](mdc:web-example.html)
+- **함수**: `startPrint()` - 인쇄 프로세스 시작
+- **프로토콜**: `webprinter://print` 호출
+- **HTTP API**: `/send-urls` 엔드포인트 사용
+
+### 코드 위치
+```html
+<!-- web-example.html 내부 -->
+<button class="print-button" onclick="startPrint()">
+    🖨️ WebPrinter로 출력하기
+</button>
+```
+
+### 특징
+- 웹브라우저에서 실행
+- WebPrinter 프로그램을 외부에서 호출
+- 세션 ID 생성 및 URL 전송 역할
+
+## 🖥️ 프로그램 내 출력버튼
+**위치**: [print-preview.html](mdc:print-preview.html) + [print-preview.js](mdc:print-preview.js)
+**용도**: WebPrinter 프로그램 내에서 실제 PDF 생성 및 미리보기
+
+### 관련 파일
+- **UI 파일**: [print-preview.html](mdc:print-preview.html)
+- **로직 파일**: [print-preview.js](mdc:print-preview.js)
+- **백엔드**: [main.js](mdc:main.js) `print-url` IPC 핸들러
+
+### 코드 위치
+```html
+<!-- print-preview.html 내부 -->
+<button class="btn btn-primary" id="print-button" disabled>
+    📄 PDF 미리보기
+</button>
+```
+
+```javascript
+// print-preview.js 내부
+async function executePrint() {
+    // PDF 생성 및 미리보기 로직
+}
+```
+
+### 특징
+- Electron 앱 내부에서 실행
+- 프린터 선택 및 용지 설정 가능
+- PDF 생성 → 시스템 PDF 뷰어 열기
+
+## 🔄 호출 흐름
+```
+웹 출력하기 → WebPrinter 프로그램 시작 → 프로그램 내 출력버튼 → PDF 생성
+```
+
+## 📝 용어 사용 규칙
+
+### 명확한 구분이 필요한 경우
+- **"웹에서 출력하기"** → [web-example.html](mdc:web-example.html)의 버튼
+- **"프로그램 내 출력버튼"** → [print-preview.html](mdc:print-preview.html)의 PDF 미리보기 버튼
+
+### 간단한 언급 시
+- **"출력하기"** → 일반적으로 웹에서의 출력 시작을 의미
+- **"출력버튼"** → 프로그램 내 PDF 미리보기 버튼을 의미
+
+## 🛠️ 디버깅 시 주의사항
+
+### 웹 출력하기 문제
+- 브라우저 콘솔 확인
+- WebPrinter 프로그램 실행 상태 확인
+- HTTP 서버 포트 상태 확인 (18731-18733)
+
+### 프로그램 내 출력버튼 문제
+- Electron 개발자 도구 확인
+- 프린터 목록 로딩 상태 확인
+- URL 수신 상태 확인 (`receivedUrls` 객체)
+- 버튼 활성화 조건 확인 (`elements.printButton.disabled`)
+
+## 🔧 관련 설정
+
+### 웹 출력하기 설정
+- 포트 범위: 18731-18733
+- 프로토콜: `webprinter://`
+- 세션 관리: 자동 생성
+
+### 프로그램 내 출력버튼 설정
+- PDF 저장 위치: `~/Downloads/WebPrinter/`
+- 파일명 형식: `WebPrinter_Print_YYYY-MM-DD_HH-MM-SS.pdf`
+- 자동 정리: 30분 후 삭제

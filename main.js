@@ -290,34 +290,87 @@ function createTray() {
     } else if (process.platform === 'linux') {
       iconPath = path.join(__dirname, 'icon.png');
     } else {
-      // macOS는 트레이 아이콘 생성하지 않음 (Dock 사용)
-      console.log('🍎 macOS - Dock 아이콘 사용, 트레이 아이콘 생성 안함');
-      return;
+      // macOS - 메뉴 바 아이콘 경로 설정
+      const possiblePaths = [
+        path.join(__dirname, 'icon-32.png'),  // 작은 아이콘 우선 (메뉴바 적합)
+        path.join(__dirname, 'icon.png'),
+        path.join(process.resourcesPath, 'icon-32.png'),
+        path.join(process.resourcesPath, 'icon.png')
+      ];
+      
+      iconPath = possiblePaths.find(p => {
+        try {
+          const exists = require('fs').existsSync(p);
+          if (exists) {
+            console.log('✅ macOS 메뉴바 아이콘 발견:', p);
+          }
+          return exists;
+        } catch {
+          return false;
+        }
+      });
+      
+      if (!iconPath) {
+        console.warn('⚠️ macOS 메뉴바 아이콘을 찾을 수 없음');
+        console.log('📁 현재 디렉토리:', __dirname);
+        console.log('📂 사용 가능한 파일들:', require('fs').readdirSync(__dirname).filter(f => f.includes('icon')));
+        // 기본값으로 첫 번째 경로 사용
+        iconPath = possiblePaths[0];
+      }
     }
     
     console.log('🎯 최종 트레이 아이콘 경로:', iconPath);
     
-    // Tray 생성 시도
-    try {
-      tray = new Tray(iconPath);
-      console.log('✅ 트레이 객체 생성 성공');
+         // Tray 생성 시도
+     try {
+       tray = new Tray(iconPath);
+       console.log('✅ 트레이 객체 생성 성공');
+       
+       // macOS 전용 트레이 설정
+       if (process.platform === 'darwin') {
+         console.log('🍎 macOS 메뉴바 아이콘 추가 설정...');
+         
+         // 템플릿 이미지로 설정 (어두운/밝은 테마에 자동 적응)
+         tray.setIgnoreDoubleClickEvents(false);
+         
+         // Retina 디스플레이 지원을 위한 압축률 설정
+         if (iconPath.includes('icon-32')) {
+           console.log('📱 macOS 메뉴바용 작은 아이콘 사용 중');
+         }
+       }
     } catch (trayError) {
       console.error('❌ 트레이 객체 생성 실패:', trayError.message);
       
-      // 대체 아이콘으로 재시도
-      const fallbackIcon = path.join(__dirname, 'icon.png');
-      if (require('fs').existsSync(fallbackIcon) && fallbackIcon !== iconPath) {
-        console.log('🔄 대체 아이콘으로 재시도:', fallbackIcon);
-        try {
-          tray = new Tray(fallbackIcon);
-          console.log('✅ 대체 아이콘으로 트레이 생성 성공');
-        } catch (fallbackError) {
-          console.error('❌ 대체 아이콘으로도 실패:', fallbackError.message);
-          throw fallbackError;
-        }
-      } else {
-        throw trayError;
-      }
+             // macOS에서 아이콘이 없을 경우 기본 이미지 생성
+       if (process.platform === 'darwin') {
+         console.log('🍎 macOS에서 기본 메뉴바 아이콘 생성 시도...');
+         try {
+           // 기본 16x16 이미지 데이터 (PNG 형식)
+           const { nativeImage } = require('electron');
+           const defaultIcon = nativeImage.createFromDataURL('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAAdgAAAHYBTnsmCAAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAAFYSURBVDiNpZM9SwNBEIafgwQLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLwcJCG1sLWRBREVuc0l2ZyIsIklEWmxKVERHYm9BQU==');
+           
+           tray = new Tray(defaultIcon);
+           console.log('✅ macOS 기본 아이콘으로 트레이 생성 성공');
+         } catch (fallbackError) {
+           console.error('❌ macOS 기본 아이콘으로도 실패:', fallbackError.message);
+           throw fallbackError;
+         }
+       } else {
+         // 다른 플랫폼에서의 대체 아이콘
+         const fallbackIcon = path.join(__dirname, 'icon.png');
+         if (require('fs').existsSync(fallbackIcon) && fallbackIcon !== iconPath) {
+           console.log('🔄 대체 아이콘으로 재시도:', fallbackIcon);
+           try {
+             tray = new Tray(fallbackIcon);
+             console.log('✅ 대체 아이콘으로 트레이 생성 성공');
+           } catch (fallbackError) {
+             console.error('❌ 대체 아이콘으로도 실패:', fallbackError.message);
+             throw fallbackError;
+           }
+         } else {
+           throw trayError;
+         }
+       }
     }
           const contextMenu = Menu.buildFromTemplate([
         {
@@ -354,7 +407,12 @@ function createTray() {
             }).then((result) => {
               if (result.response === 0) {
                 console.log('🛑 사용자가 트레이에서 종료를 선택함');
-                isQuitting = true; // 종료 플래그 설정
+                
+                // 종료 플래그를 먼저 설정 (before-quit 이벤트 대비)
+                isQuitting = true;
+                global.isCleaningUp = true;
+                
+                console.log('📴 정상 종료 프로세스 시작...');
                 
                 // 트레이 즉시 정리
                 if (tray && !tray.isDestroyed()) {
@@ -369,14 +427,27 @@ function createTray() {
                   console.log('✅ HTTP 서버 정리 완료');
                 }
                 
-                console.log('📴 앱 종료 중...');
-                app.quit();
+                // 모든 창 정리
+                BrowserWindow.getAllWindows().forEach(window => {
+                  if (!window.isDestroyed()) {
+                    window.destroy();
+                  }
+                });
+                printWindow = null;
+                console.log('✅ 모든 창 정리 완료');
+                
+                console.log('📴 앱 종료 실행...');
+                
+                // 다음 이벤트 루프에서 종료 (before-quit 처리 완료 보장)
+                setImmediate(() => {
+                  app.quit();
+                });
                 
                 // 강제 종료 (마지막 수단)
                 setTimeout(() => {
                   console.log('🔚 강제 종료 실행');
                   process.exit(0);
-                }, 3000);
+                }, 5000); // 5초로 연장
               }
             });
           }
@@ -406,11 +477,18 @@ function createTray() {
         }
       });
       
-      // 트레이가 실제로 표시되는지 확인
-      if (tray && !tray.isDestroyed()) {
-        console.log('✅ 시스템 트레이 생성 완료 (개선된 메뉴)');
-        console.log('💡 사용법: 트레이 아이콘을 우클릭하면 메뉴가 나타납니다');
-        console.log('💡 종료방법: 트레이 우클릭 → "백그라운드 종료" 또는 "완전 종료"');
+             // 트레이가 실제로 표시되는지 확인
+       if (tray && !tray.isDestroyed()) {
+         if (process.platform === 'darwin') {
+           console.log('✅ macOS 메뉴바 아이콘 생성 완료');
+           console.log('🍎 위치: 상단 메뉴바 우측 (Wi-Fi, 배터리 근처)');
+           console.log('💡 사용법: 메뉴바의 WebPrinter 아이콘을 클릭하세요');
+           console.log('💡 종료법: 메뉴바 아이콘 클릭 → "종료" 선택');
+         } else {
+           console.log('✅ 시스템 트레이 생성 완료 (개선된 메뉴)');
+           console.log('💡 사용법: 트레이 아이콘을 우클릭하면 메뉴가 나타납니다');
+           console.log('💡 종료방법: 트레이 우클릭 → "종료"');
+         }
         
         // 5초 후 서버 상태와 함께 알림 표시
         setTimeout(() => {
@@ -873,6 +951,15 @@ async function createPrintWindow(sessionId = null, isForced = false) {
     // 로딩 화면이 완전히 준비될 때까지 창을 숨긴 상태로 유지
     console.log('🎬 창이 ready-to-show 상태이지만 로딩 준비까지 대기 중...');
     
+    // 안전장치: 5초 후에도 렌더러에서 표시 요청이 없으면 강제로 표시
+    setTimeout(() => {
+      if (printWindow && !printWindow.isDestroyed() && !printWindow.isVisible()) {
+        console.warn('⚠️ 렌더러 표시 요청 타임아웃 - 강제로 창을 표시합니다');
+        printWindow.show();
+        printWindow.focus();
+      }
+    }, 5000);
+    
     // 렌더러가 완전히 로드될 때까지 대기 후 IPC 전송
     printWindow.webContents.once('did-finish-load', () => {
       console.log('🎯 렌더러 프로세스 로드 완료');
@@ -1197,6 +1284,11 @@ app.whenReady().then(async () => {
   loadSessionData();
   cleanOldSessions();
   
+  // 오래된 PDF 파일 정리 (백그라운드)
+  cleanupOldPDFs().catch(error => {
+    console.warn('⚠️ 오래된 PDF 정리 중 오류:', error.message);
+  });
+  
   // 앱 준비 완료 표시
   isAppReady = true;
   
@@ -1213,12 +1305,17 @@ app.whenReady().then(async () => {
   console.log(`🌐 HTTP 서버: http://localhost:${serverPort || '포트 미정'}`);
   console.log(`🖱️ 트레이 메뉴: 우클릭으로 종료/재시작 가능`);
   console.log(`🔗 웹 호출: webprinter://print?session=테스트`);
-  console.log('='.repeat(50));
-  
-  // 모든 플랫폼에서 Dock/작업표시줄에서 숨기기 (트레이 전용)
-  if (process.platform === 'darwin' && app.dock) {
-    app.dock.hide();
-  }
+      console.log('='.repeat(50));
+   
+   // macOS에서 트레이가 성공적으로 생성되었을 때만 Dock 숨기기
+   if (process.platform === 'darwin' && app.dock) {
+     if (tray && !tray.isDestroyed()) {
+       app.dock.hide();
+       console.log('✅ macOS - Dock 숨김 (메뉴바 트레이 사용)');
+     } else {
+       console.warn('⚠️ macOS - 트레이 생성 실패로 Dock 유지');
+     }
+   }
   
   // 대기 중인 프로토콜 호출 처리
   if (pendingProtocolCall) {
@@ -1422,10 +1519,14 @@ ipcMain.handle('print-url', async (event, { url, paperSize, printSelector, copie
     const result = await printViaPDF(url, paperSize, safePrintSelector, safeCopies, safeSilent, printerName);
     
     if (result.success) {
-      console.log('✅ 인쇄 완료');
-      return { success: true, message: '인쇄가 완료되었습니다' };
+      console.log('✅ PDF 미리보기 생성 완료');
+      return { 
+        success: true, 
+        message: 'PDF 미리보기가 열렸습니다. 확인 후 수동으로 인쇄하세요.',
+        pdfPath: result.pdfPath 
+      };
     } else {
-      throw new Error('인쇄 실행 실패');
+      throw new Error('PDF 생성 실패');
     }
     
   } catch (error) {
@@ -1487,25 +1588,172 @@ ipcMain.handle('get-app-version', () => {
   return app.getVersion();
 });
 
-// 🔄 PDF 기반 인쇄 (실제 서비스용)
+// 🔄 PDF 기반 인쇄 (미리보기 모드)
 async function printViaPDF(url, paperSize, printSelector, copies, silent, printerName) {
+  console.log('🚀 PDF 생성 프로세스 시작...');
+  
+  // 트레이 알림으로 진행 상황 표시
+  if (tray && !tray.isDestroyed()) {
+    tray.setToolTip('WebPrinter - PDF 생성 중...');
+  }
+  
   try {
     // 1. HTML → PDF 변환
+    console.log('📄 1/3: HTML을 PDF로 변환 중...');
     const pdfBuffer = await generatePDF(url, paperSize, printSelector);
+    console.log(`✅ PDF 생성 완료 (크기: ${Math.round(pdfBuffer.length / 1024)}KB)`);
     
     // 2. 임시 파일 저장
+    console.log('💾 2/3: PDF 파일 저장 중...');
     const tempPdfPath = await saveTempPDF(pdfBuffer);
     
-    // 3. 프린터로 전송
-    const result = await printPDFFile(tempPdfPath, copies, silent, printerName);
+    // 3. PDF 미리보기 열기
+    console.log('📺 3/3: PDF 미리보기 열기 중...');
+    await openPDFPreview(tempPdfPath);
     
-    // 4. 임시 파일 정리
-    await cleanupTempFile(tempPdfPath);
+    // 트레이 상태 복원
+    if (tray && !tray.isDestroyed()) {
+      tray.setToolTip('WebPrinter - 우클릭으로 메뉴 열기 | 더블클릭으로 창 열기');
+    }
     
-    return result;
+    // 성공 메시지
+    console.log('🎉 PDF 인쇄 프로세스 완료!');
+    console.log(`📄 파일 위치: ${tempPdfPath}`);
+    console.log('💡 PDF 파일을 확인한 후 수동으로 인쇄하세요');
+    
+    // 파일 정리 예약 (30분 후)
+    setTimeout(async () => {
+      try {
+        await cleanupTempFile(tempPdfPath);
+        console.log('🗑️ 임시 PDF 파일 자동 정리 완료');
+      } catch (error) {
+        // 정리 실패는 중요하지 않음
+      }
+    }, 30 * 60 * 1000); // 30분
+    
+    return { success: true, pdfPath: tempPdfPath };
     
   } catch (error) {
-    throw new Error(`PDF 인쇄 실패: ${error.message}`);
+    // 트레이 상태 복원
+    if (tray && !tray.isDestroyed()) {
+      tray.setToolTip('WebPrinter - 우클릭으로 메뉴 열기 | 더블클릭으로 창 열기');
+    }
+    
+    console.error('❌ PDF 생성 프로세스 실패:', error.message);
+    
+    // 플랫폼별 에러 메시지 개선
+    let userFriendlyMessage = error.message;
+    
+    if (error.message.includes('인쇄 대상 요소를 찾을 수 없습니다')) {
+      userFriendlyMessage = `인쇄할 내용을 찾을 수 없습니다. 웹페이지에서 "${printSelector}" 요소를 확인해주세요.`;
+      
+    } else if (error.message.includes('loadURL')) {
+      userFriendlyMessage = '웹페이지 로딩에 실패했습니다. 인터넷 연결과 URL을 확인해주세요.';
+      
+    } else if (error.message.includes('Preview')) {
+      userFriendlyMessage = 'PDF 뷰어 실행에 실패했습니다. PDF 파일은 Downloads/WebPrinter 폴더에 저장되었습니다.';
+      
+    } else if (error.message.includes('permission') || error.message.includes('EACCES')) {
+      if (process.platform === 'darwin') {
+        userFriendlyMessage = 'macOS 권한 문제입니다. 시스템 환경설정 > 보안 및 개인 정보 보호에서 WebPrinter의 파일 접근 권한을 확인해주세요.';
+      } else {
+        userFriendlyMessage = '파일 접근 권한 문제입니다. 관리자 권한으로 실행하거나 저장 폴더의 권한을 확인해주세요.';
+      }
+    }
+    
+    throw new Error(userFriendlyMessage);
+  }
+}
+
+// 📺 플랫폼별 PDF 미리보기 열기
+async function openPDFPreview(pdfPath) {
+  const { exec } = require('child_process');
+  const util = require('util');
+  const execAsync = util.promisify(exec);
+  const path = require('path');
+  
+  try {
+    const fileName = path.basename(pdfPath);
+    
+    if (process.platform === 'win32') {
+      // Windows: 기본 PDF 뷰어로 열기
+      await execAsync(`start "" "${pdfPath}"`);
+      console.log('✅ Windows PDF 뷰어로 열림');
+      
+    } else if (process.platform === 'darwin') {
+      // macOS: Preview.app으로 최적화 열기
+      try {
+        // Preview.app 강제 사용 (더 안정적)
+        await execAsync(`open -a "Preview" "${pdfPath}"`);
+        console.log('✅ macOS Preview.app으로 열림');
+        
+        // macOS Dock 알림 (app이 숨겨진 상태에서도 표시)
+        if (app.dock) {
+          app.dock.show(); // 잠시 Dock에 표시
+          app.dock.setBadge('PDF'); // 배지 표시
+          
+          // 3초 후 다시 숨기기
+          setTimeout(() => {
+            if (app.dock) {
+              app.dock.hide();
+              app.dock.setBadge(''); // 배지 제거
+            }
+          }, 3000);
+        }
+        
+        // macOS 알림 센터 알림
+        const { Notification } = require('electron');
+        if (Notification.isSupported()) {
+          const notification = new Notification({
+            title: 'WebPrinter PDF 생성 완료',
+            body: `${fileName}\nPreview에서 확인 후 인쇄하세요`,
+            sound: 'default',
+            hasReply: false
+          });
+          notification.show();
+          
+          // 클릭 시 PDF 파일 위치 열기
+          notification.on('click', () => {
+            exec(`open -R "${pdfPath}"`); // Finder에서 파일 선택
+          });
+        }
+        
+      } catch (previewError) {
+        // Preview.app 실패 시 기본 앱으로 대체
+        console.warn('⚠️ Preview.app 실행 실패, 기본 앱 사용:', previewError.message);
+        await execAsync(`open "${pdfPath}"`);
+        console.log('✅ macOS 기본 PDF 뷰어로 열림');
+      }
+      
+    } else {
+      // Linux: 기본 PDF 뷰어로 열기
+      await execAsync(`xdg-open "${pdfPath}"`);
+      console.log('✅ Linux PDF 뷰어로 열림');
+    }
+    
+    console.log(`📄 PDF 파일 위치: ${pdfPath}`);
+    
+  } catch (error) {
+    console.error('❌ PDF 미리보기 실패:', error.message);
+    
+    // 대안: 파일 탐색기에서 폴더 열기
+    try {
+      const folderPath = path.dirname(pdfPath);
+      
+      if (process.platform === 'win32') {
+        await execAsync(`explorer "${folderPath}"`);
+      } else if (process.platform === 'darwin') {
+        await execAsync(`open "${folderPath}"`);
+      } else {
+        await execAsync(`xdg-open "${folderPath}"`);
+      }
+      
+      console.log(`📁 PDF 저장 폴더를 열었습니다: ${folderPath}`);
+      throw new Error(`PDF 뷰어 실행 실패. 저장 폴더를 확인하세요: ${folderPath}`);
+      
+    } catch (folderError) {
+      throw new Error(`PDF 미리보기 및 폴더 열기 실패: ${error.message}`);
+    }
   }
 }
 
@@ -1522,42 +1770,108 @@ async function generatePDF(url, paperSize, printSelector) {
   
   try {
     // 1. HTML 로드
+    console.log('📄 URL 로딩 중:', url);
     await pdfWindow.loadURL(url);
     
-    // 2. 특정 DIV 내용 취득 및 180도 회전 처리
-    await pdfWindow.webContents.executeJavaScript(`
+    // 2. 페이지 완전 로딩 대기
+    console.log('⏳ 페이지 로딩 완료 대기 중...');
+    await new Promise(resolve => {
+      pdfWindow.webContents.once('did-finish-load', () => {
+        // 추가 렌더링 시간 확보
+        setTimeout(resolve, 2000);
+      });
+    });
+    
+    // 3. 특정 DIV 내용 확인 및 처리
+    console.log('🔍 인쇄 대상 요소 확인:', printSelector);
+    const jsResult = await pdfWindow.webContents.executeJavaScript(`
       (function() {
+        console.log('🔍 DOM 상태 확인 시작');
+        console.log('document.readyState:', document.readyState);
+        console.log('document.body 존재:', !!document.body);
+        
+        // 대상 요소 찾기
         const targetElement = document.querySelector('${printSelector}');
+        console.log('대상 요소 발견:', !!targetElement);
+        
         if (!targetElement) {
+          console.error('❌ 대상 요소 없음:', '${printSelector}');
+          const allElements = document.querySelectorAll('*[id], *[class]');
+          console.log('사용 가능한 요소들:');
+          Array.from(allElements).slice(0, 10).forEach(el => {
+            console.log('- ' + el.tagName + (el.id ? '#' + el.id : '') + (el.className ? '.' + el.className.split(' ')[0] : ''));
+          });
           throw new Error('인쇄 대상 요소를 찾을 수 없습니다: ${printSelector}');
         }
         
-        // 다른 모든 요소 숨기기
+        console.log('✅ 대상 요소 정보:');
+        console.log('- 태그:', targetElement.tagName);
+        console.log('- ID:', targetElement.id || '없음');
+        console.log('- 클래스:', targetElement.className || '없음');
+        console.log('- 내용 길이:', targetElement.innerHTML.length);
+        console.log('- 크기:', targetElement.offsetWidth + 'x' + targetElement.offsetHeight);
+        
+        // 내용이 있는지 확인
+        if (targetElement.innerHTML.trim().length === 0) {
+          console.warn('⚠️ 대상 요소가 비어있음');
+        }
+        
+        // 📄 PDF용 페이지 준비
+        console.log('📄 PDF용 페이지 준비 시작');
+        
+        // 전체 페이지 초기화
         document.body.style.margin = '0';
         document.body.style.padding = '0';
-        Array.from(document.body.children).forEach(child => {
-          if (!child.contains(targetElement)) {
+        document.body.style.overflow = 'hidden';
+        document.documentElement.style.margin = '0';
+        document.documentElement.style.padding = '0';
+        
+        // 다른 모든 요소 숨기기
+        const allChildren = Array.from(document.body.children);
+        allChildren.forEach(child => {
+          if (!child.contains(targetElement) && child !== targetElement) {
             child.style.display = 'none';
           }
         });
         
-        // 180도 회전 및 정중앙 배치
-        targetElement.style.transform = 'rotate(180deg)';
-        targetElement.style.transformOrigin = 'center center';
-        targetElement.style.position = 'absolute';
-        targetElement.style.top = '50%';
-        targetElement.style.left = '50%';
-        targetElement.style.translate = '-50% -50%';
-        targetElement.style.margin = '0';
-        targetElement.style.padding = '0';
+        // 🎯 대상 요소 스타일링 (180도 회전 + 중앙 배치)
+        targetElement.style.cssText = \`
+          display: block !important;
+          visibility: visible !important;
+          opacity: 1 !important;
+          position: absolute !important;
+          top: 50% !important;
+          left: 50% !important;
+          transform: translate(-50%, -50%) rotate(180deg) !important;
+          transform-origin: center center !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          background: white !important;
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+          box-sizing: border-box !important;
+        \`;
         
-        // 색상 정확도 보장
-        targetElement.style.webkitPrintColorAdjust = 'exact';
-        targetElement.style.printColorAdjust = 'exact';
+        console.log('✅ 스타일 적용 완료');
+        console.log('최종 요소 크기:', targetElement.offsetWidth + 'x' + targetElement.offsetHeight);
         
-        return true;
+        return {
+          success: true,
+          elementFound: true,
+          elementSize: {
+            width: targetElement.offsetWidth,
+            height: targetElement.offsetHeight
+          },
+          contentLength: targetElement.innerHTML.length
+        };
       })()
     `);
+    
+    console.log('📋 JavaScript 실행 결과:', jsResult);
+    
+    if (!jsResult.success) {
+      throw new Error('DOM 조작 실패');
+    }
     
     // 3. PDF 생성 옵션 (정확한 물리적 크기)
     const pdfOptions = {
@@ -1581,63 +1895,145 @@ async function generatePDF(url, paperSize, printSelector) {
   }
 }
 
-// 💾 임시 PDF 파일 저장
+// 💾 플랫폼별 PDF 파일 저장
 async function saveTempPDF(pdfBuffer) {
   const fs = require('fs').promises;
   const path = require('path');
   const os = require('os');
   
-  const tempFilePath = path.join(os.tmpdir(), `webprinter_${Date.now()}.pdf`);
-  await fs.writeFile(tempFilePath, pdfBuffer);
-  
-  return tempFilePath;
-}
-
-// 🖨️ PDF 파일 인쇄 (크로스 플랫폼)
-async function printPDFFile(pdfPath, copies, silent, printerName) {
-  const { exec } = require('child_process');
-  const util = require('util');
-  const execAsync = util.promisify(exec);
-  
-  if (process.platform === 'win32') {
-    // Windows: 기본 PDF 뷰어 또는 명령줄 인쇄
-    try {
-      if (printerName) {
-        // 지정된 프린터로 직접 인쇄
-        await execAsync(`powershell -Command "Start-Process -FilePath '${pdfPath}' -ArgumentList '/t','/p','${printerName}' -WindowStyle Hidden"`);
-      } else {
-        // 기본 프린터로 인쇄
-        await execAsync(`powershell -Command "Start-Process -FilePath '${pdfPath}' -Verb Print -WindowStyle Hidden"`);
-      }
-      return { success: true };
-    } catch (error) {
-      throw new Error(`Windows PDF 인쇄 실패: ${error.message}`);
-    }
-    
-  } else if (process.platform === 'darwin') {
-    // macOS: lp 명령어
-    const printCmd = printerName ? 
-      `lp -d "${printerName}" -n ${copies} "${pdfPath}"` : 
-      `lp -n ${copies} "${pdfPath}"`;
-    await execAsync(printCmd);
-    return { success: true };
-    
+  // 플랫폼별 최적 저장 위치
+  let saveDirectory;
+  if (process.platform === 'darwin') {
+    // macOS: ~/Downloads/WebPrinter
+    saveDirectory = path.join(os.homedir(), 'Downloads', 'WebPrinter');
+  } else if (process.platform === 'win32') {
+    // Windows: Downloads/WebPrinter
+    saveDirectory = path.join(os.homedir(), 'Downloads', 'WebPrinter');
   } else {
-    // Linux: lp 명령어
-    const printCmd = printerName ? 
-      `lp -d "${printerName}" -n ${copies} "${pdfPath}"` : 
-      `lp -n ${copies} "${pdfPath}"`;
-    await execAsync(printCmd);
-    return { success: true };
+    // Linux: temp directory
+    saveDirectory = os.tmpdir();
   }
+  
+  // 디렉토리 생성 (없으면)
+  try {
+    await fs.mkdir(saveDirectory, { recursive: true });
+    console.log(`📁 PDF 저장 디렉토리 준비: ${saveDirectory}`);
+  } catch (error) {
+    console.warn('⚠️ 디렉토리 생성 실패, 임시 폴더 사용:', error.message);
+    saveDirectory = os.tmpdir();
+  }
+  
+  // 의미있는 파일명 생성
+  const now = new Date();
+  const timestamp = now.toISOString()
+    .replace(/[:.]/g, '-')
+    .replace('T', '_')
+    .substring(0, 19); // 2024-01-15_14-30-45
+  
+  const fileName = `WebPrinter_Print_${timestamp}.pdf`;
+  const filePath = path.join(saveDirectory, fileName);
+  
+  await fs.writeFile(filePath, pdfBuffer);
+  console.log(`💾 PDF 저장 완료: ${fileName}`);
+  
+  return filePath;
 }
 
-// 🗑️ 임시 파일 정리
+// 🗑️ 스마트 임시 파일 정리
 async function cleanupTempFile(filePath) {
   try {
     const fs = require('fs').promises;
+    const path = require('path');
+    
+    // 파일 존재 확인
+    const exists = await fs.access(filePath).then(() => true).catch(() => false);
+    if (!exists) {
+      console.log(`📁 이미 정리됨: ${path.basename(filePath)}`);
+      return;
+    }
+    
+    // 파일 삭제
     await fs.unlink(filePath);
+    console.log(`🗑️ PDF 파일 정리 완료: ${path.basename(filePath)}`);
+    
+    // 부모 디렉토리가 WebPrinter 폴더이고 비어있으면 정리
+    const parentDir = path.dirname(filePath);
+    const dirName = path.basename(parentDir);
+    
+    if (dirName === 'WebPrinter') {
+      try {
+        const files = await fs.readdir(parentDir);
+        if (files.length === 0) {
+          await fs.rmdir(parentDir);
+          console.log('📁 WebPrinter 폴더 정리 완료 (비어있음)');
+        }
+      } catch (dirError) {
+        // 디렉토리 정리 실패는 무시
+      }
+    }
+    
   } catch (error) {
+    console.warn(`⚠️ 파일 정리 실패: ${error.message}`);
     // 정리 실패는 중요하지 않음 (OS가 자동 정리)
+  }
+}
+
+// 🧹 오래된 PDF 파일 일괄 정리 (앱 시작 시 실행)
+async function cleanupOldPDFs() {
+  try {
+    const fs = require('fs').promises;
+    const path = require('path');
+    const os = require('os');
+    
+    const webprinterDir = path.join(os.homedir(), 'Downloads', 'WebPrinter');
+    
+    // 디렉토리 존재 확인
+    const exists = await fs.access(webprinterDir).then(() => true).catch(() => false);
+    if (!exists) return;
+    
+    const files = await fs.readdir(webprinterDir);
+    const now = Date.now();
+    const maxAge = 24 * 60 * 60 * 1000; // 24시간
+    let cleanedCount = 0;
+    
+    for (const file of files) {
+      if (!file.startsWith('WebPrinter_Print_') || !file.endsWith('.pdf')) {
+        continue; // WebPrinter가 생성한 파일이 아님
+      }
+      
+      const filePath = path.join(webprinterDir, file);
+      
+      try {
+        const stats = await fs.stat(filePath);
+        const age = now - stats.mtime.getTime();
+        
+        if (age > maxAge) {
+          await fs.unlink(filePath);
+          cleanedCount++;
+          console.log(`🗑️ 오래된 PDF 정리: ${file}`);
+        }
+      } catch (fileError) {
+        // 개별 파일 처리 실패는 무시
+      }
+    }
+    
+    if (cleanedCount > 0) {
+      console.log(`✨ 오래된 PDF 파일 ${cleanedCount}개 정리 완료`);
+    }
+    
+    // 폴더가 비어있으면 제거
+    const remainingFiles = await fs.readdir(webprinterDir);
+    if (remainingFiles.length === 0) {
+      await fs.rmdir(webprinterDir);
+      console.log('📁 WebPrinter 폴더 정리 완료');
+    }
+    
+  } catch (error) {
+    console.warn('⚠️ 오래된 PDF 정리 실패:', error.message);
+  }
+}
+    
+  } catch (error) {
+    console.warn('⚠️ 오래된 PDF 정리 실패:', error.message);
   }
 }

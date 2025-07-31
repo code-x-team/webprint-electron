@@ -463,6 +463,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadPrinters();
     await initializeUpdater();
     
+    // 🔧 앱 시작 시 즉시 UI 상태 업데이트 (URL이 이미 있을 수 있음)
+    updateUI();
+    console.log('✅ 앱 초기화 완료 - UI 상태 업데이트됨');
+    
     // 안전장치: 10초 후에도 로딩이 완료되지 않았으면 강제로 숨기기
     setTimeout(() => {
         if (!loadingManager.isComplete) {
@@ -1003,6 +1007,20 @@ async function loadPrinters() {
         console.error('프린터 로드 실패:', error);
         showStatus('프린터 목록을 불러올 수 없습니다.', 'error');
         showToast('❌ 프린터 목록 로드 실패', 'error', 4000);
+        
+        // 🔧 프린터 로딩 실패 시 대안: 기본 시스템 프린터 옵션 추가
+        console.log('🔄 프린터 로딩 실패 - 기본 옵션으로 대체');
+        
+        // 기본 프린터 옵션 추가
+        const fallbackOption = document.createElement('option');
+        fallbackOption.value = 'system-default';
+        fallbackOption.textContent = '🖨️ 시스템 기본 프린터 (자동 선택)';
+        elements.printerSelect.appendChild(fallbackOption);
+        
+        // 자동 선택
+        elements.printerSelect.value = 'system-default';
+        
+        showStatus('시스템 기본 프린터를 사용합니다.', 'warning');
     }
     
     updateUI();
@@ -1062,7 +1080,7 @@ async function executePrint() {
     // 버튼 비활성화
     if (elements.printButton) {
         elements.printButton.disabled = true;
-        elements.printButton.textContent = '🔄 인쇄 중...';
+        elements.printButton.textContent = '📄 PDF 생성 중...';
     }
     
     // 인쇄 전 IPC 통신 상태 재확인
@@ -1116,9 +1134,9 @@ async function executePrint() {
             paperSize: currentPaperSize
         });
         
-        const printModeText = silent ? 'Silent 모드 (대화상자 없음)' : '일반 모드 (대화상자 표시)';
-        showToast(`🖨️ ${printModeText}로 인쇄 요청 전송 중...`, 'info', 3000);
-        showStatus(`🖨️ 웹페이지 로딩 및 프린트 준비 중... (${printModeText})`, 'info');
+        const printModeText = 'PDF 미리보기 모드';
+        showToast(`📄 ${printModeText}로 PDF 생성 중...`, 'info', 3000);
+        showStatus(`📄 웹페이지 로딩 및 PDF 생성 준비 중... (${printModeText})`, 'info');
         
         // 진행 상태를 단계별로 표시
         setTimeout(() => {
@@ -1126,15 +1144,15 @@ async function executePrint() {
         }, 500);
         
         setTimeout(() => {
-            showStatus('⏳ DOM 완전 로드 대기 중...', 'info');
+            showStatus('⏳ 특정 영역 추출 중...', 'info');
         }, 2000);
         
         setTimeout(() => {
-            showStatus('🔧 프린트 옵션 설정 중...', 'info');
+            showStatus('🔄 180도 회전 적용 중...', 'info');
         }, 4000);
         
         setTimeout(() => {
-            showStatus(silent ? '🚀 프린터로 직접 전송 중...' : '🚀 프린트 대화상자 열기...', 'info');
+            showStatus('📄 PDF 생성 중...', 'info');
         }, 5000);
         
         try {
@@ -1151,31 +1169,48 @@ async function executePrint() {
             console.log('📥 Electron 직접 프린트 응답:', result);
             
             if (result.success) {
-                console.log('✅ 인쇄 작업이 성공적으로 시작되었습니다:', result);
-                const toastMessage = result.silent 
-                    ? '🖨️ 프린터로 직접 전송되었습니다!' 
-                    : '🖨️ 인쇄 대화상자가 열렸습니다!';
-                showToast(toastMessage, 'success', 4000);
+                console.log('✅ PDF 미리보기 생성 성공:', result);
                 
-                // 성공 정보 표시
-                const statusElement = document.getElementById('status');
-                if (statusElement) {
-                    statusElement.innerHTML = `
-                        <strong>✅ 인쇄 ${result.silent ? '직접 전송' : '대화상자 열기'} 완료</strong><br>
-                        🖨️ 프린터: ${result.printerName}<br>
-                        📄 복사본: ${result.copies}매<br>
-                        📄 용지: ${result.paperSize}<br>
-                        🔇 모드: ${result.silent ? 'Silent (대화상자 없음)' : '일반 (대화상자 표시)'}
-                    `;
-                    if (result.printSelector) {
-                        statusElement.innerHTML += `<br><small>🎯 인쇄 영역: ${result.printSelector}</small>`;
+                if (result.pdfPath) {
+                    // PDF 미리보기 모드
+                    showToast('📄 PDF 미리보기가 열렸습니다!', 'success', 4000);
+                    
+                    // 성공 정보 표시
+                    const statusElement = document.getElementById('status');
+                    if (statusElement) {
+                        statusElement.innerHTML = `
+                            <strong>✅ PDF 미리보기 생성 완료</strong><br>
+                            📄 PDF 파일: ${result.pdfPath.split('\\').pop() || result.pdfPath.split('/').pop()}<br>
+                            📏 용지 크기: ${currentPaperSize.width}×${currentPaperSize.height}mm<br>
+                            🔄 180도 회전 적용됨<br>
+                            💡 PDF에서 직접 인쇄하세요
+                        `;
+                        if (receivedUrls.printSelector) {
+                            statusElement.innerHTML += `<br><small>🎯 인쇄 영역: ${receivedUrls.printSelector}</small>`;
+                        }
+                    }
+                } else {
+                    // 기존 인쇄 모드 (사용하지 않음)
+                    const toastMessage = result.silent 
+                        ? '🖨️ 프린터로 직접 전송되었습니다!' 
+                        : '🖨️ 인쇄 대화상자가 열렸습니다!';
+                    showToast(toastMessage, 'success', 4000);
+                    
+                    // 성공 정보 표시
+                    const statusElement = document.getElementById('status');
+                    if (statusElement) {
+                        statusElement.innerHTML = `
+                            <strong>✅ 인쇄 ${result.silent ? '직접 전송' : '대화상자 열기'} 완료</strong><br>
+                            🖨️ 프린터: ${result.printerName}<br>
+                            📄 복사본: ${result.copies}매<br>
+                            📄 용지: ${result.paperSize}<br>
+                            🔇 모드: ${result.silent ? 'Silent (대화상자 없음)' : '일반 (대화상자 표시)'}
+                        `;
+                        if (result.printSelector) {
+                            statusElement.innerHTML += `<br><small>🎯 인쇄 영역: ${result.printSelector}</small>`;
+                        }
                     }
                 }
-                
-                // 인쇄 시작 후 창 숨기기 (1초 후)
-                setTimeout(() => {
-                    closeApp();
-                }, 1000);
             } else {
                 throw new Error(result.error);
             }
@@ -1188,7 +1223,6 @@ async function executePrint() {
             
             showToast(`❌ 인쇄 실패: ${error.message}`, 'error', 5000);
             showStatus(`❌ 인쇄 실패: ${error.message || '알 수 없는 오류'}`, 'error');
-            elements.printButton.disabled = false;
             
             // 디버깅을 위한 추가 정보
             console.log('🔍 디버깅 정보:', {
@@ -1203,7 +1237,6 @@ async function executePrint() {
         console.error('❌ IPC 통신 실패:', ipcError);
         showToast('❌ IPC 통신 오류 - 앱을 다시 시작해주세요', 'error', 6000);
         showStatus('❌ 시스템 통신 오류가 발생했습니다.', 'error');
-        elements.printButton.disabled = false;
         
         // IPC 복구 시도
         attemptIpcRecovery();
@@ -1231,23 +1264,33 @@ function closeApp() {
 function updateUI() {
     const hasPrinter = elements.printerSelect.value !== '';
     const hasUrl = receivedUrls.printUrl || receivedUrls.previewUrl;
-    const hasPreviewUrl = !!receivedUrls.previewUrl;
     
-    // 버튼 활성화 상태
-    elements.printButton.disabled = !hasUrl || !hasPrinter;
+    // 🔧 임시 수정: URL만 있으면 PDF 미리보기 버튼 활성화 (프린터 선택 불필요)
+    // PDF 생성은 프린터와 무관하므로 미리보기는 언제든 가능해야 함
+    elements.printButton.disabled = !hasUrl;
+    
+    // 디버깅 정보 출력
+    console.log('🔍 UI 상태 업데이트:', {
+        hasUrl: hasUrl,
+        hasPrinter: hasPrinter,
+        printButtonDisabled: elements.printButton.disabled,
+        receivedUrls: receivedUrls
+    });
 }
 
 // 상태 메시지 표시
 function showStatus(message, type = 'info') {
-    elements.statusMessage.textContent = message;
-    elements.statusMessage.className = `status-message ${type}`;
-    elements.statusMessage.style.display = 'block';
-    
-    // 성공/오류 메시지는 3초 후 자동 숨김
-    if (type === 'success' || type === 'error') {
-        setTimeout(() => {
-            elements.statusMessage.style.display = 'none';
-        }, 3000);
+    if (elements.statusMessage) {
+        elements.statusMessage.textContent = message;
+        elements.statusMessage.className = `status-message ${type}`;
+        elements.statusMessage.style.display = 'block';
+        
+        // 성공/오류 메시지는 3초 후 자동 숨김
+        if (type === 'success' || type === 'error') {
+            setTimeout(() => {
+                elements.statusMessage.style.display = 'none';
+            }, 3000);
+        }
     }
 }
 
@@ -1284,4 +1327,4 @@ document.addEventListener('keydown', (event) => {
 window.addEventListener('focus', () => {
     // 포커스를 받았을 때 프린터 목록 새로고침
     loadPrinters();
-}); 
+});
