@@ -6,15 +6,6 @@
   
   ; 설치 디렉토리 정규화
   InstallDir "$PROGRAMFILES\WebPrinter"
-  
-  ; 제품 정보 설정
-  VIProductVersion "${VERSION}.0"
-  VIAddVersionKey "ProductName" "${PRODUCT_NAME}"
-  VIAddVersionKey "Comments" "웹에서 호출되는 로컬 인쇄 프로그램"
-  VIAddVersionKey "CompanyName" "${COMPANY_NAME}"
-  VIAddVersionKey "LegalTrademarks" "WebPrinter"
-  VIAddVersionKey "FileDescription" "${PRODUCT_NAME}"
-  VIAddVersionKey "FileVersion" "${VERSION}"
 !macroend
 
 !macro CheckDependencies
