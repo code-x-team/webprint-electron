@@ -4,6 +4,70 @@ let availablePrinters = [];
 let receivedUrls = {};
 let currentPaperSize = null;
 
+// 로딩 상태 관리
+const loadingManager = {
+    overlay: null,
+    message: null,
+    details: null,
+    steps: [
+        'IPC 통신 확인',
+        '서버 정보 수신',
+        'URL 데이터 로딩',
+        '화면 준비 완료'
+    ],
+    currentStep: 0,
+    isComplete: false,
+    
+    init() {
+        this.overlay = document.getElementById('app-loading-overlay');
+        this.message = document.getElementById('app-loading-message');
+        this.details = document.getElementById('app-loading-details');
+        console.log('🎬 로딩 매니저 초기화 완료');
+    },
+    
+    updateStep(stepIndex, message, details) {
+        if (this.isComplete) return; // 이미 완료된 경우 무시
+        
+        this.currentStep = stepIndex;
+        if (this.message) {
+            this.message.textContent = message;
+        }
+        if (this.details && details) {
+            this.details.textContent = details;
+        }
+        
+        console.log(`📊 로딩 단계 ${stepIndex + 1}/4: ${message}`);
+    },
+    
+    hide() {
+        if (this.isComplete) return; // 중복 호출 방지
+        
+        this.isComplete = true;
+        console.log('✅ 로딩 완료 - 화면 전환 시작');
+        
+        if (this.overlay) {
+            this.overlay.classList.add('hide');
+            
+            // 500ms 후 완전히 제거
+            setTimeout(() => {
+                if (this.overlay && this.overlay.parentNode) {
+                    this.overlay.style.display = 'none';
+                }
+                console.log('🎉 로딩 오버레이 완전 제거 완료');
+            }, 500);
+        }
+    },
+    
+    // 긴급 상황에서 즉시 숨기기
+    forceHide() {
+        this.isComplete = true;
+        if (this.overlay) {
+            this.overlay.style.display = 'none';
+        }
+        console.log('⚡ 로딩 오버레이 강제 숨김');
+    }
+};
+
 // DOM 요소들
 const elements = {
     statusText: document.getElementById('status-text'),
@@ -355,6 +419,10 @@ function startIpcMonitoring() {
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('🚀 print-preview.js 초기화 시작...');
     
+    // 로딩 매니저 초기화
+    loadingManager.init();
+    loadingManager.updateStep(0, '초기화 중...', 'IPC 통신 상태를 확인하고 있습니다.');
+    
     // IPC 통신 상태 점검 (우선 실행)
     const ipcStatus = await checkIpcCommunication();
     
@@ -362,16 +430,31 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (ipcStatus.totalPassed >= ipcStatus.totalTests * 0.7) {
         startIpcMonitoring();
         console.log('📡 IPC 통신 모니터링 시작됨');
+        loadingManager.updateStep(1, '연결 완료', 'IPC 통신이 정상적으로 설정되었습니다.');
+    } else {
+        loadingManager.updateStep(1, '연결 문제', 'IPC 통신에 일부 문제가 있지만 계속 진행합니다.');
     }
     
     initializeEventListeners();
     await loadPrinters();
     await initializeUpdater();
     
+    // 안전장치: 10초 후에도 로딩이 완료되지 않았으면 강제로 숨기기
+    setTimeout(() => {
+        if (!loadingManager.isComplete) {
+            console.warn('⚠️ 로딩 타임아웃 - 강제로 로딩 화면을 숨깁니다');
+            loadingManager.updateStep(3, '시간 초과', '로딩이 오래 걸려 기본 화면을 표시합니다.');
+            setTimeout(() => {
+                loadingManager.forceHide();
+            }, 1000);
+        }
+    }, 10000);
+    
     // 메인 프로세스에서 서버 정보 이벤트 리스너 등록
     window.electronAPI.onServerInfo((info) => {
         serverInfo = info;
         displayServerInfo();
+        loadingManager.updateStep(2, '서버 연결됨', `서버가 포트 ${info.port}에서 실행 중입니다.`);
         showToast('📡 서버 정보 수신 완료', 'info', 2000);
     });
     
@@ -380,6 +463,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.electronAPI.onUrlsReceived((urlData) => {
         console.log('📨 IPC 메시지 수신됨!', urlData);
         receivedUrls = urlData;
+        loadingManager.updateStep(3, '준비 완료!', 'URL 데이터를 받았습니다. 미리보기를 표시합니다.');
+        
+        // 잠시 후 로딩 화면 숨기기
+        setTimeout(() => {
+            loadingManager.hide();
+        }, 800);
+        
         handleUrlsReceived();
         showToast('📄 URL 정보 수신 완료', 'success', 2000);
     });
@@ -387,6 +477,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     // 세션 복구 이벤트 리스너 등록
     window.electronAPI.onSessionRestored((sessionInfo) => {
         console.log('🔄 세션 복구 정보 수신됨!', sessionInfo);
+        loadingManager.updateStep(3, '세션 복구됨', '이전 세션의 데이터를 복구했습니다.');
+        
+        // 잠시 후 로딩 화면 숨기기
+        setTimeout(() => {
+            loadingManager.hide();
+        }, 800);
+        
         handleSessionRestored(sessionInfo);
         showToast('🔄 세션 복구 완료', 'info', 2000);
     });
@@ -394,6 +491,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     // 대기 메시지 이벤트 리스너 등록
     window.electronAPI.onShowWaitingMessage((messageData) => {
         console.log('⏳ 대기 메시지 표시:', messageData);
+        loadingManager.updateStep(2, '대기 중...', '웹페이지에서 인쇄 요청을 기다리고 있습니다.');
+        
+        // 대기 상황에서는 5초 후 로딩 화면 숨기기
+        setTimeout(() => {
+            loadingManager.hide();
+        }, 5000);
+        
         showWaitingMessage(messageData);
     });
     
@@ -401,6 +505,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.electronAPI.onShowToast((toastData) => {
         const { message, type, duration } = toastData;
         showToast(message, type, duration);
+    });
+    
+    // 로딩 완료 이벤트 리스너 등록
+    window.electronAPI.onLoadingComplete((data) => {
+        console.log('🏁 로딩 완료 신호 수신:', data);
+        loadingManager.updateStep(3, '준비 완료!', '모든 설정이 완료되었습니다.');
+        
+        setTimeout(() => {
+            loadingManager.hide();
+        }, 800);
     });
     
     console.log('✅ 이벤트 리스너 등록 완료');

@@ -67,15 +67,15 @@
       "target": "nsis"
     },
     "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
+      "oneClick": true,
+      "allowToChangeInstallationDirectory": false,
       "createDesktopShortcut": false,
       "createStartMenuShortcut": true,
       "warningsAsErrors": false,
       "deleteAppDataOnUninstall": true,
       "allowElevation": true,
       "perMachine": false,
-      "runAfterFinish": false,
+      "runAfterFinish": true,
       "displayLanguageSelector": false,
       "language": "1042",
       "installerLanguages": [

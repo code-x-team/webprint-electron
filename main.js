@@ -793,6 +793,17 @@ async function createPrintWindow(sessionId = null, isForced = false) {
           port: serverPort,
           session: currentSession
         });
+        
+        // 기존 창 재사용 시 로딩 완료 신호 전송
+        setTimeout(() => {
+          if (printWindow && !printWindow.isDestroyed()) {
+            printWindow.webContents.send('loading-complete', {
+              reason: 'window_reused',
+              message: '기존 창 재사용 완료'
+            });
+            console.log('🏁 로딩 완료 신호 전송 완료 (창 재사용)');
+          }
+        }, 300);
       }
     }, 500);
     
@@ -919,6 +930,9 @@ async function createPrintWindow(sessionId = null, isForced = false) {
               dataAge: urlDataToSend.receivedAt ? new Date(urlDataToSend.receivedAt).toLocaleString() : '알 수 없음'
             });
             console.log('✅ urls-received 및 session-restored 전송 완료');
+            
+            // 모든 데이터 전송이 완료되었으므로 로딩 완료 신호 전송 (지연 없이)
+            // URL 데이터가 있는 경우는 렌더러에서 자체적으로 로딩을 해제하므로 신호를 보내지 않음
           }
         } else {
           console.log('⚠️ 아직 URL 데이터가 없음 - 대기 중');
@@ -930,6 +944,17 @@ async function createPrintWindow(sessionId = null, isForced = false) {
               message: '웹페이지에서 인쇄 요청을 기다리고 있습니다.',
               details: '웹페이지에서 WebPrinter를 통해 인쇄를 요청하면 자동으로 미리보기가 표시됩니다.'
             });
+            
+            // 대기 상황에서는 기본 초기화가 완료되었으므로 로딩 완료 신호 전송 (약간의 지연)
+            setTimeout(() => {
+              if (printWindow && !printWindow.isDestroyed()) {
+                printWindow.webContents.send('loading-complete', {
+                  reason: 'waiting_for_data',
+                  message: '기본 초기화 완료'
+                });
+                console.log('🏁 로딩 완료 신호 전송 완료 (대기 상태)');
+              }
+            }, 500);
           }
         }
       }, 1000); // 1초 대기
@@ -1520,30 +1545,25 @@ ipcMain.handle('print-url', async (event, options) => {
         `      position: "맨위 정중앙 + 180도 회전"`,
         `    });`,
         '    ',
+        '    // 🔍 1단계: 초단순 테스트 CSS (요소 존재 확인용)',
         '    const cssText = `',
         '      @media print {',
-        '        @page { size: A4; margin: 0; }',
+        '        @page { size: A4; margin: 10mm; }',
         '        .webprinter-print-target {',
-        '          /* 요소 표시 강제 */',
+        '          /* 🚨 디버깅용: 빨간 배경 + 파란 테두리 */',
+        '          background: red !important;',
+        '          border: 5px solid blue !important;',
         '          display: block !important;',
         '          visibility: visible !important;',
         '          opacity: 1 !important;',
-        '          /* 웹 완성본 크기 유지 (표시를 위해 필요) */',
-        `          width: ${effectiveWidth}mm !important;`,
-        `          height: ${effectiveHeight}mm !important;`,
+        '          /* 기본 크기와 위치 (복잡한 조정 제거) */',
         '          margin: 0 !important;',
-        '          padding: 0 !important;',
-        '          border: 0 !important;',
-        '          box-sizing: border-box !important;',
-        '          /* 위치 조정: 맨위 정중앙 */',
-        '          position: absolute !important;',
-        '          top: 0mm !important;',
-        '          left: 50% !important;',
-        '          transform: translateX(-50%) rotate(180deg) !important;',
-        '          transform-origin: center top !important;',
-        '          /* 색상 정확도 */',
-        '          -webkit-print-color-adjust: exact !important;',
-        '          print-color-adjust: exact !important;',
+        '          padding: 10px !important;',
+        '          width: auto !important;',
+        '          height: auto !important;',
+        '          color: white !important;',
+        '          font-size: 16px !important;',
+        '          font-weight: bold !important;',
         '        }',
         '      }',
         '    `;',
