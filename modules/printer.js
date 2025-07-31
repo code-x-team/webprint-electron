@@ -21,26 +21,8 @@ async function printViaPDF(url, paperSize, printSelector, copies, silent, printe
       let tempPngPath = null;
       
       try {
-        tempPdfPath = await saveTempPDF(pdfBuffer);
+       
 
-        // PDF를 보여줄 윈도우 생성
-        const pdfWindow = new BrowserWindow({
-          webPreferences: {
-            plugins: true
-          }
-        });
-
-        // PDF 로드
-        pdfWindow.loadFile(tempPdfPath);
-
-        // 인쇄 대화상자 열기
-        pdfWindow.webContents.on('did-finish-load', () => {
-          pdfWindow.webContents.print({
-            silent: false,  // false로 설정하면 인쇄 대화상자가 나타남
-            printBackground: true,
-            deviceName: ''  // 빈 문자열이면 시스템 기본 프린터 사용
-          });
-        });
 
         function printPDF(pdfPath) {
           const iframe = document.createElement('iframe');
@@ -58,17 +40,19 @@ async function printViaPDF(url, paperSize, printSelector, copies, silent, printe
           document.body.appendChild(iframe);
         }
 
+        tempPdfPath = await saveTempPDF(pdfBuffer);
+        printPDF(tempPdfPath)
+
 
         // tempPngPath = await convertPdfToPng(tempPdfPath);
-
         // await printImageDirectly(tempPngPath, printerName, copies);
         
-        // setTimeout(async () => {
-        //   try {
-        //     if (tempPdfPath) await fs.unlink(tempPdfPath);
-        //     if (tempPngPath) await fs.unlink(tempPngPath);
-        //   } catch (deleteError) {}
-        // }, 30000);
+        setTimeout(async () => {
+          try {
+            if (tempPdfPath) await fs.unlink(tempPdfPath);
+            if (tempPngPath) await fs.unlink(tempPngPath);
+          } catch (deleteError) {}
+        }, 30000);
         
         return { 
           success: true, 
