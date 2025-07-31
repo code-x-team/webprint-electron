@@ -434,17 +434,18 @@ async function convertPdfToPng(pdfPath) {
     const pdfBuffer = await fs.readFile(pdfPath);
     const pdfBase64 = pdfBuffer.toString('base64');
     
-    // PDF 렌더링을 위한 새 윈도우 생성
+    // PDF 렌더링을 위한 새 윈도우 생성 (A4 크기 기준)
     const pdfWindow = new BrowserWindow({
       show: false,
-      width: 1200,
-      height: 1600,
+      width: Math.ceil(210 * 3.0 * 4), // A4 width (210mm) * scale * pixel ratio
+      height: Math.ceil(297 * 3.0 * 4), // A4 height (297mm) * scale * pixel ratio
       webPreferences: {
         nodeIntegration: true,
         contextIsolation: false,
         webSecurity: false,
         offscreen: true,
-        backgroundThrottling: false
+        backgroundThrottling: false,
+        allowRunningInsecureContent: true
       }
     });
     
@@ -455,8 +456,21 @@ async function convertPdfToPng(pdfPath) {
         <html>
         <head>
           <style>
-            body { margin: 0; padding: 0; background: white; }
-            canvas { display: block; border: 1px solid #ccc; }
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { 
+              margin: 0; 
+              padding: 0; 
+              background: white; 
+              overflow: hidden;
+            }
+            canvas { 
+              display: block; 
+              border: none;
+              background: white;
+              image-rendering: -webkit-optimize-contrast;
+              image-rendering: optimize-contrast;
+              image-rendering: crisp-edges;
+            }
           </style>
           <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
         </head>
@@ -478,20 +492,46 @@ async function convertPdfToPng(pdfPath) {
                 // 첫 번째 페이지 가져오기
                 const page = await pdf.getPage(1);
                 
-                // 뷰포트 설정 (A4 크기, 고해상도)
-                const scale = 2.0;
+                // 뷰포트 설정 (A4 크기, 최적화된 해상도)
+                const scale = 3.0; // 더 높은 해상도로 변경
                 const viewport = page.getViewport({ scale: scale });
                 
                 // 캔버스 설정
                 const canvas = document.getElementById('pdfCanvas');
                 const context = canvas.getContext('2d');
-                canvas.width = viewport.width;
-                canvas.height = viewport.height;
+                
+                // 고해상도 캔버스를 위한 설정
+                const devicePixelRatio = window.devicePixelRatio || 1;
+                const backingStoreRatio = context.webkitBackingStorePixelRatio ||
+                                        context.mozBackingStorePixelRatio ||
+                                        context.msBackingStorePixelRatio ||
+                                        context.oBackingStorePixelRatio ||
+                                        context.backingStorePixelRatio || 1;
+                const ratio = devicePixelRatio / backingStoreRatio;
+                
+                canvas.width = viewport.width * ratio;
+                canvas.height = viewport.height * ratio;
+                canvas.style.width = viewport.width + 'px';
+                canvas.style.height = viewport.height + 'px';
+                
+                // 컨텍스트 스케일링
+                context.scale(ratio, ratio);
+                
+                // 안티앨리어싱 설정
+                context.imageSmoothingEnabled = true;
+                context.imageSmoothingQuality = 'high';
+                
+                // 캔버스 배경을 흰색으로 먼저 채우기
+                context.fillStyle = 'white';
+                context.fillRect(0, 0, viewport.width, viewport.height);
                 
                 // PDF 페이지를 캔버스에 렌더링
                 const renderContext = {
                   canvasContext: context,
-                  viewport: viewport
+                  viewport: viewport,
+                  intent: 'print', // 인쇄용 품질로 렌더링
+                  renderInteractiveForms: false,
+                  optionalContentConfigPromise: null
                 };
                 
                 await page.render(renderContext).promise;
@@ -515,9 +555,9 @@ async function convertPdfToPng(pdfPath) {
       
       await pdfWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(pdfRenderHtml)}`);
       
-      // PDF 렌더링 완료까지 대기 (최대 30초)
+      // PDF 렌더링 완료까지 대기 (최대 45초)
       let attempts = 0;
-      const maxAttempts = 60; // 30초 (500ms * 60)
+      const maxAttempts = 90; // 45초 (500ms * 90) - 고해상도 렌더링을 위해 시간 증가
       
       while (attempts < maxAttempts) {
         await new Promise(resolve => setTimeout(resolve, 500));
@@ -540,8 +580,8 @@ async function convertPdfToPng(pdfPath) {
         throw new Error('PDF 렌더링 시간 초과');
       }
       
-      // 추가 안정화 대기
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // 추가 안정화 대기 (고해상도 렌더링 완료 보장)
+      await new Promise(resolve => setTimeout(resolve, 2000));
       
       // 렌더링된 페이지 캡처
       const image = await pdfWindow.capturePage();
@@ -557,7 +597,7 @@ async function convertPdfToPng(pdfPath) {
       // 파일 크기 확인
       const stats = await fs.stat(pngPath);
       
-      if (stats.size < 5000) { // 최소 5KB 이상이어야 함
+      if (stats.size < 50000) { // 최소 50KB 이상이어야 함 (고해상도로 인해 증가)
         throw new Error('생성된 PNG 파일이 너무 작습니다 (렌더링 실패 가능성)');
       }
       
