@@ -422,9 +422,14 @@ async function printDirectly(pdfPath, printerName, copies = 1) {
         // Windows에서 PDF를 프린터로 자동 전송 (Silent 인쇄)
         console.log('PDF 자동 인쇄 시작...');
         
-        // 방법 1: PowerShell을 통한 자동 인쇄 (Adobe Reader 명령줄)
+        // 방법 1: 인쇄 작업 확인 및 Adobe Reader 사용
         try {
           console.log('Adobe Reader 자동 인쇄 시도...');
+          
+          // 인쇄 전 현재 인쇄 작업 수 확인
+          const { stdout: beforeJobs } = await execAsync(`powershell -command "Get-PrintJob -PrinterName '${escapedPrinterName}' | Measure-Object | Select-Object -ExpandProperty Count"`).catch(() => ({ stdout: '0' }));
+          console.log('인쇄 전 작업 수:', beforeJobs.trim());
+          
           await execAsync(`powershell -command "
             $adobePath = @(
               'C:\\Program Files\\Adobe\\Acrobat DC\\Acrobat\\Acrobat.exe',
@@ -433,45 +438,68 @@ async function printDirectly(pdfPath, printerName, copies = 1) {
             ) | Where-Object { Test-Path $_ } | Select-Object -First 1
             
             if ($adobePath) {
-              Start-Process -FilePath $adobePath -ArgumentList '/t','${escapedPath}','${escapedPrinterName}' -WindowStyle Hidden -Wait
+              Write-Host 'Adobe Reader 실행: ' $adobePath
+              $process = Start-Process -FilePath $adobePath -ArgumentList '/t','${escapedPath}','${escapedPrinterName}' -WindowStyle Hidden -PassThru
+              Start-Sleep -Seconds 8
+              if (!$process.HasExited) {
+                Write-Host 'Adobe Reader 프로세스가 아직 실행 중, 강제 종료'
+                $process.Kill()
+              }
+              Write-Host 'Adobe Reader 인쇄 명령 완료'
             } else {
               throw 'Adobe not found'
             }
           "`);
+          
+          // 인쇄 후 작업 수 확인 (3초 대기 후)
+          await new Promise(resolve => setTimeout(resolve, 3000));
+          const { stdout: afterJobs } = await execAsync(`powershell -command "Get-PrintJob -PrinterName '${escapedPrinterName}' | Measure-Object | Select-Object -ExpandProperty Count"`).catch(() => ({ stdout: '0' }));
+          console.log('인쇄 후 작업 수:', afterJobs.trim());
+          
+          if (parseInt(afterJobs.trim()) > parseInt(beforeJobs.trim())) {
+            console.log('✅ 인쇄 작업이 프린터 큐에 추가됨');
+          } else {
+            console.log('❌ 인쇄 작업이 큐에 추가되지 않음');
+            throw new Error('인쇄 작업이 프린터 큐에 전달되지 않았습니다');
+          }
+          
           console.log('Adobe Reader 자동 인쇄 완료');
           
         } catch (adobeError) {
           console.log('Adobe Reader 실패, SumatraPDF 시도...');
           
-          // 방법 2: SumatraPDF 자동 인쇄
+          // 방법 2: Windows 내장 print 명령어 (가장 확실한 방법)
           try {
-            await execAsync(`powershell -command "
-              $sumatraPath = @(
-                'C:\\Program Files\\SumatraPDF\\SumatraPDF.exe',
-                'C:\\Program Files (x86)\\SumatraPDF\\SumatraPDF.exe'
-              ) | Where-Object { Test-Path $_ } | Select-Object -First 1
-              
-              if ($sumatraPath) {
-                Start-Process -FilePath $sumatraPath -ArgumentList '-print-to','${escapedPrinterName}','-silent','${escapedPath}' -WindowStyle Hidden -Wait
-              } else {
-                throw 'SumatraPDF not found'
-              }
-            "`);
-            console.log('SumatraPDF 자동 인쇄 완료');
+            console.log('Windows 내장 print 명령어 시도...');
+            
+            // 인쇄 전 작업 수 확인
+            const { stdout: beforeJobs } = await execAsync(`powershell -command "Get-PrintJob -PrinterName '${escapedPrinterName}' | Measure-Object | Select-Object -ExpandProperty Count"`).catch(() => ({ stdout: '0' }));
+            console.log('인쇄 전 작업 수:', beforeJobs.trim());
+            
+            // Windows 내장 print 명령어 사용 (텍스트 파일용이지만 PDF도 때로 작동)
+            await execAsync(`print /D:"${escapedPrinterName}" "${escapedPath}"`);
+            
+            // 인쇄 후 작업 수 확인
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            const { stdout: afterJobs } = await execAsync(`powershell -command "Get-PrintJob -PrinterName '${escapedPrinterName}' | Measure-Object | Select-Object -ExpandProperty Count"`).catch(() => ({ stdout: '0' }));
+            console.log('인쇄 후 작업 수:', afterJobs.trim());
+            
+            if (parseInt(afterJobs.trim()) > parseInt(beforeJobs.trim())) {
+              console.log('✅ Windows print 명령어로 인쇄 성공');
+            } else {
+              throw new Error('Windows print 명령어 실패');
+            }
             
           } catch (sumatraError) {
             console.log('SumatraPDF 실패, 기본 방법 시도...');
             
-            // 방법 3: Windows 기본 PrintTo (최대한 자동화)
-            await execAsync(`powershell -command "
-              $proc = Start-Process -FilePath '${escapedPath}' -Verb PrintTo -ArgumentList '${escapedPrinterName}' -PassThru -WindowStyle Hidden
-              Start-Sleep -Seconds 5
-              if (!$proc.HasExited) {
-                $proc.CloseMainWindow()
-                $proc.Kill()
-              }
-            "`);
-            console.log('기본 PrintTo 방법 완료');
+            // 방법 3: 실패 시 대체 방법 - PDF를 메모장으로 열어서 인쇄 (비상용)
+            console.log('모든 자동 방법 실패, 사용자 개입 필요...');
+            
+            // PDF를 기본 뷰어로 열어서 사용자가 수동으로 인쇄하도록 안내
+            await execAsync(`powershell -command "Start-Process -FilePath '${escapedPath}' -Verb Print -WindowStyle Normal"`);
+            
+            throw new Error(`자동 인쇄가 실패했습니다.\n\nPDF 뷰어가 열렸습니다. 다음 단계를 따라하세요:\n1. Ctrl+P를 누르세요\n2. 프린터를 '${printerName}'로 선택하세요\n3. 인쇄 버튼을 클릭하세요\n\n※ 향후 자동 인쇄를 위해 Adobe Reader 설치를 권장합니다`);
           }
         }
 

@@ -127,7 +127,13 @@ async function executePrint() {
             throw new Error(result.error || '알 수 없는 오류가 발생했습니다');
         }
     } catch (error) {
-        UIManager.showStatus(`출력 실패: ${error.message}`, 'error');
+        // 사용자 안내 메시지인 경우 info로 표시
+        if (error.message.includes('PDF 뷰어가 열렸습니다') || 
+            error.message.includes('다음 단계를 따라하세요')) {
+            UIManager.showStatus(error.message, 'info');
+        } else {
+            UIManager.showStatus(`출력 실패: ${error.message}`, 'error');
+        }
     } finally {
         isPrinting = false;
         UIManager.setPrintButtonLoading(false);
