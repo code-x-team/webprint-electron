@@ -118,7 +118,12 @@
       "x64ArchFiles": "Contents/Resources/app/node_modules/@napi-rs/*-darwin-x64/**/*"
     },
     "win": {
-      "target": "nsis",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
       "publisherName": "WebPrinter Team",
       "verifyUpdateCodeSignature": false,
       "requestedExecutionLevel": "asInvoker"

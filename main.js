@@ -60,7 +60,12 @@ const { cleanupOldPDFs } = require('./modules/printer');
 
 let tray = null;
 let autoUpdater = null;
+let server = null;
 global.isQuitting = false;
+
+// 불사조 모드 변수
+let allowQuit = false;
+let watchdogTimer = null;
 
 // electron-updater 조건부 로드
 try {
@@ -88,14 +93,35 @@ function createTray() {
       {
         label: '🔄 재시작',
         click: () => {
+          console.log('트레이에서 재시작');
+          allowQuit = true;
+          global.isQuitting = true;
           app.relaunch();
           app.quit();
         }
       },
       {
-        label: '🛑 종료',
+        label: '🛑 완전 종료',
         click: () => {
+          console.log('트레이에서 완전 종료');
+          allowQuit = true;
           global.isQuitting = true;
+          
+          // 감시자 정리
+          if (watchdogTimer) {
+            clearInterval(watchdogTimer);
+            watchdogTimer = null;
+          }
+          
+          // 서버 정리
+          if (server) {
+            try {
+              stopHttpServer();
+            } catch (error) {
+              console.log('서버 종료 중 오류:', error);
+            }
+          }
+          
           app.quit();
         }
       }
@@ -189,6 +215,16 @@ function setupAutoLaunch() {
         // 현재 사용자 시작 프로그램에 등록
         execSync(`reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v "WebPrinter" /d "${startupArgs}" /f`, { windowsHide: true });
         console.log('✅ Windows 시작 프로그램 등록 완료');
+        
+        // Windows 스케줄러에도 등록 (백업)
+        try {
+          const taskCommand = `schtasks /create /tn "WebPrinter" /tr "${startupArgs}" /sc onlogon /f /rl highest`;
+          execSync(taskCommand, { windowsHide: true });
+          console.log('✅ Windows 스케줄 작업 등록 완료');
+        } catch (taskError) {
+          console.log('⚠️ Windows 스케줄 작업 등록 실패:', taskError.message);
+        }
+        
       } catch (error) {
         console.log('⚠️ Windows 시작 프로그램 등록 실패:', error.message);
       }
@@ -202,6 +238,151 @@ function setupAutoLaunch() {
   } catch (error) {
     console.error('⚠️ 자동 시작 설정 실패:', error.message);
   }
+}
+
+// 불사조 모드: 종료 방지 이벤트 리스너
+function setupImmortalMode() {
+  // 앱 종료 방지
+  app.on('before-quit', (event) => {
+    if (!allowQuit && !global.isQuitting) {
+      console.log('🔥 종료 방지: 백그라운드로 전환');
+      event.preventDefault();
+      
+      // 모든 창 숨기기
+      const { BrowserWindow } = require('electron');
+      BrowserWindow.getAllWindows().forEach(window => {
+        if (window && !window.isDestroyed()) {
+          window.hide();
+        }
+      });
+      
+      // macOS dock 숨기기
+      if (process.platform === 'darwin' && app.dock) {
+        app.dock.hide();
+      }
+      
+      console.log('🔥 백그라운드 모드로 전환됨');
+      return false;
+    }
+  });
+
+  // 윈도우 닫기 방지
+  app.on('window-all-closed', (event) => {
+    if (!allowQuit && !global.isQuitting) {
+      console.log('🔥 모든 창 닫힘 - 백그라운드 유지');
+      // event.preventDefault(); // window-all-closed는 preventDefault 없음
+      
+      // macOS에서도 앱 종료 방지
+      if (process.platform === 'darwin') {
+        return false;
+      }
+    }
+  });
+
+  // 프로토콜 호출 시 복원
+  app.on('second-instance', (event, commandLine, workingDirectory) => {
+    console.log('🔥 프로토콜 호출로 앱 재시작/복원');
+    
+    // 백그라운드 서비스 복원
+    if (!server) {
+      console.log('🔄 백그라운드 서비스 재시작');
+      restoreServices();
+    }
+    
+    // 프로토콜 URL 처리
+    const protocolUrl = commandLine.find(arg => arg.startsWith('webprinter://'));
+    if (protocolUrl) {
+      handleProtocolCall(protocolUrl);
+    }
+  });
+
+  // macOS에서 프로토콜 처리
+  app.on('open-url', (event, url) => {
+    event.preventDefault();
+    console.log('🔥 macOS 프로토콜 호출:', url);
+    
+    if (!server) {
+      restoreServices();
+    }
+    
+    handleProtocolCall(url);
+  });
+}
+
+// 3단계: 복원 시스템과 감시자
+function startWatchdog() {
+  if (watchdogTimer) {
+    clearInterval(watchdogTimer);
+  }
+  
+  watchdogTimer = setInterval(() => {
+    if (!allowQuit && !global.isQuitting) {
+      // 핵심 서비스들이 살아있는지 확인
+      if (!server || !tray || tray.isDestroyed()) {
+        console.log('🔄 핵심 서비스 복구 중...');
+        restoreServices();
+      }
+    }
+  }, 5000); // 5초마다 체크
+  
+  console.log('🐕 감시자 시작됨');
+}
+
+function restoreServices() {
+  try {
+    console.log('🔧 서비스 복구 시작...');
+    
+    // 서버 복구
+    if (!server) {
+      const httpServer = startHttpServer();
+      if (httpServer) {
+        server = httpServer;
+        console.log('✅ HTTP 서버 복구됨');
+      }
+    }
+    
+    // 트레이 복구
+    if (!tray || tray.isDestroyed()) {
+      createTray();
+      console.log('✅ 트레이 복구됨');
+    }
+    
+    // IPC 핸들러 복구
+    try {
+      setupIpcHandlers();
+      console.log('✅ IPC 핸들러 복구됨');
+    } catch (error) {
+      console.log('⚠️ IPC 핸들러 복구 실패:', error.message);
+    }
+    
+  } catch (error) {
+    console.error('❌ 서비스 복구 실패:', error);
+  }
+}
+
+// 오류 복구 시스템
+function setupErrorRecovery() {
+  process.on('uncaughtException', (error) => {
+    console.error('🚨 예상치 못한 오류:', error);
+    
+    if (!global.isQuitting && !allowQuit) {
+      console.log('🔄 오류 복구 시도...');
+      
+      // 3초 후 서비스 복구 시도
+      setTimeout(() => {
+        try {
+          restoreServices();
+        } catch (restoreError) {
+          console.error('❌ 복구 실패:', restoreError);
+        }
+      }, 3000);
+    }
+  });
+
+  process.on('unhandledRejection', (reason, promise) => {
+    console.error('🚨 처리되지 않은 Promise 거부:', reason);
+    // 로그만 남기고 계속 실행
+  });
 }
 
 async function handleProtocolCall(protocolUrl) {
@@ -246,13 +427,21 @@ if (!gotTheLock) {
       registerProtocol();
       setupAutoUpdater();
       setupAutoLaunch();
+      
+      // 불사조 모드 초기화
+      setupImmortalMode();
+      setupErrorRecovery();
+      
       createTray();
       setupIpcHandlers();
       
-      await startHttpServer();
+      server = await startHttpServer();
       loadSessionData();
       cleanOldSessions();
       cleanupOldPDFs();
+      
+      // 감시자 시작
+      startWatchdog();
       
       // 시작 모드에 따른 UI 처리
       if (global.startupMode) {
