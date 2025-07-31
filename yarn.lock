@@ -807,7 +807,7 @@ electron-publish@24.13.1:
     lazy-val "^1.0.5"
     mime "^2.5.2"
 
-electron-updater@^6.6.2:
+electron-updater@^6.1.7:
   version "6.6.2"
   resolved "https://registry.yarnpkg.com/electron-updater/-/electron-updater-6.6.2.tgz#3e65e044f1a99b00d61e200e24de8e709c69ce99"
   integrity sha512-Cr4GDOkbAUqRHP5/oeOmH/L2Bn6+FQPxVLZtPbcmKZC63a1F3uu5EefYOssgZXG3u/zBlubbJ5PJdITdMVggbw==
