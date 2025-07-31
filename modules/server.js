@@ -1,11 +1,50 @@
-// 안전한 모듈 로딩
-try {
-  var express = require('express');
-  var cors = require('cors');
-} catch (error) {
-  console.error('필수 모듈 로딩 실패:', error.message);
-  process.exit(1);
+// Windows용 강화된 모듈 로딩
+let express, cors;
+
+function loadModules() {
+  const path = require('path');
+  const Module = require('module');
+  
+  // Windows에서 절대 경로로 모듈 로딩 시도
+  const modulePaths = [
+    path.join(__dirname, '..', 'node_modules'),
+    path.join(process.cwd(), 'node_modules'),
+    path.join(process.resourcesPath, 'app', 'node_modules')
+  ];
+  
+  for (const modulePath of modulePaths) {
+    try {
+      const expressPath = path.join(modulePath, 'express');
+      const corsPath = path.join(modulePath, 'cors');
+      
+      express = require(expressPath);
+      cors = require(corsPath);
+      
+      console.log('✅ 모듈 로딩 성공:', modulePath);
+      return true;
+    } catch (error) {
+      continue;
+    }
+  }
+  
+  // 표준 방식으로 다시 시도
+  try {
+    express = require('express');
+    cors = require('cors');
+    console.log('✅ 표준 방식 모듈 로딩 성공');
+    return true;
+  } catch (error) {
+    console.error('❌ 모든 모듈 로딩 시도 실패:', error.message);
+    console.error('현재 디렉토리:', __dirname);
+    console.error('프로세스 디렉토리:', process.cwd());
+    if (process.resourcesPath) {
+      console.error('리소스 경로:', process.resourcesPath);
+    }
+    process.exit(1);
+  }
 }
+
+loadModules();
 
 const fs = require('fs');
 const path = require('path');

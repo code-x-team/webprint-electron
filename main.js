@@ -7,9 +7,16 @@ if (process.platform === 'darwin') {
   app.commandLine.appendSwitch('js-flags', '--expose-gc');
 }
 
-// 모듈 해상도 안정화
+// Windows 모듈 해상도 안정화
 process.env.NODE_PATH = path.join(__dirname, 'node_modules');
-require('module').globalPaths.push(path.join(__dirname, 'node_modules'));
+if (require('module').globalPaths) {
+  require('module').globalPaths.push(path.join(__dirname, 'node_modules'));
+}
+
+// Windows 경로 처리 개선
+if (process.platform === 'win32') {
+  process.env.NODE_PATH = process.env.NODE_PATH + ';' + path.join(__dirname, 'node_modules');
+}
 
 const { startHttpServer, stopHttpServer, loadSessionData, cleanOldSessions } = require('./modules/server');
 const { createPrintWindow, setupIpcHandlers, closeAllWindows } = require('./modules/window');
