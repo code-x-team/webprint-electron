@@ -4,7 +4,7 @@
   "description": "웹에서 호출되는 로컬 인쇄 프로그램",
   "main": "main.js",
   "scripts": {
-    "start": "electron .",
+    "start": "electron . --js-flags=\"--expose-gc\"",
     "test": "node test/basic.test.js",
     "lint": "echo \"No linting configured\"",
     "prepare": "node scripts/prepare.js",
@@ -100,7 +100,7 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
+      "createDesktopShortcut": false,
       "createStartMenuShortcut": true,
       "deleteAppDataOnUninstall": false,
       "allowElevation": true,

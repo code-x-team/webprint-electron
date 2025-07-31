@@ -96,9 +96,13 @@ async function createPrintWindow(sessionId = null) {
   });
 
   printWindow.on('close', (event) => {
-    if (!global.isQuitting && process.platform === 'win32') {
+    // 창을 숨기고 백그라운드로
+    if (!global.isQuitting) {
       event.preventDefault();
       printWindow.hide();
+      if (process.platform === 'darwin' && app.dock) {
+        app.dock.hide();
+      }
     }
   });
 

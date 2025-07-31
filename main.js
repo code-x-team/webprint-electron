@@ -1,6 +1,12 @@
 const { app, Tray, Menu, dialog } = require('electron');
 const path = require('path');
 
+// macOS 렌더링 최적화
+if (process.platform === 'darwin') {
+  app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
+  app.commandLine.appendSwitch('js-flags', '--expose-gc');
+}
+
 const { startHttpServer, stopHttpServer, loadSessionData, cleanOldSessions } = require('./modules/server');
 const { createPrintWindow, setupIpcHandlers, closeAllWindows } = require('./modules/window');
 const { cleanupOldPDFs } = require('./modules/printer');
@@ -24,46 +30,24 @@ function createTray() {
     
     const contextMenu = Menu.buildFromTemplate([
       {
-        label: '🔄 앱 재시작',
+        label: '🔄 재시작',
         click: () => {
-          dialog.showMessageBox(null, {
-            type: 'question',
-            title: 'WebPrinter 재시작',
-            message: 'WebPrinter를 재시작하시겠습니까?',
-            buttons: ['재시작', '취소']
-          }).then((result) => {
-            if (result.response === 0) {
-              app.relaunch();
-              app.quit();
-            }
-          });
+          app.relaunch();
+          app.quit();
         }
       },
       { type: 'separator' },
       {
         label: '🛑 종료',
         click: () => {
-          dialog.showMessageBox(null, {
-            type: 'question',
-            title: 'WebPrinter 종료',
-            message: 'WebPrinter를 종료하시겠습니까?',
-            buttons: ['종료', '취소']
-          }).then((result) => {
-            if (result.response === 0) {
-              global.isQuitting = true;
-              app.quit();
-            }
-          });
+          global.isQuitting = true;
+          app.quit();
         }
       }
     ]);
     
-    tray.setToolTip('WebPrinter - 우클릭으로 메뉴 열기');
+    tray.setToolTip('WebPrinter - 백그라운드에서 실행 중');
     tray.setContextMenu(contextMenu);
-    
-    tray.on('double-click', () => {
-      createPrintWindow();
-    });
   } catch (error) {
     console.error('트레이 생성 실패:', error);
   }
@@ -136,6 +120,8 @@ async function handleProtocolCall(protocolUrl) {
     const params = Object.fromEntries(parsedUrl.searchParams);
     
     if (action === 'print') {
+      // 프로토콜 호출시 창 생성/표시
+      const { createPrintWindow } = require('./modules/window');
       await createPrintWindow(params.session);
     }
   } catch (error) {
@@ -150,7 +136,18 @@ if (!gotTheLock) {
 } else {
   app.on('second-instance', (event, commandLine) => {
     const protocolUrl = commandLine.find(arg => arg.startsWith('webprinter://'));
-    if (protocolUrl) handleProtocolCall(protocolUrl);
+    if (protocolUrl) {
+      handleProtocolCall(protocolUrl);
+    }
+    // 두 번째 인스턴스가 실행되면 트레이 아이콘 강조
+    if (tray && !tray.isDestroyed()) {
+      if (process.platform === 'win32') {
+        tray.displayBalloon({
+          title: 'WebPrinter',
+          content: '이미 실행 중입니다.'
+        });
+      }
+    }
   });
 
   app.whenReady().then(async () => {
@@ -166,12 +163,18 @@ if (!gotTheLock) {
       cleanOldSessions();
       cleanupOldPDFs();
       
-      if (process.platform === 'darwin' && app.dock && tray && !tray.isDestroyed()) {
+      if (process.platform === 'darwin' && app.dock) {
         app.dock.hide();
       }
       
+      // 프로토콜로 호출된 경우에만 창 열기
       const protocolUrl = process.argv.find(arg => arg.startsWith('webprinter://'));
-      if (protocolUrl) handleProtocolCall(protocolUrl);
+      if (protocolUrl) {
+        handleProtocolCall(protocolUrl);
+      }
+      // 백그라운드에서 대기 (창을 열지 않음)
+      
+      console.log('WebPrinter가 백그라운드에서 실행 중입니다.');
     } catch (error) {
       console.error('앱 초기화 오류:', error);
       dialog.showErrorBox('WebPrinter 오류', '앱을 시작할 수 없습니다.\n' + error.message);
@@ -198,6 +201,6 @@ if (!gotTheLock) {
   });
 
   app.on('activate', () => {
-    createPrintWindow();
+    // 백그라운드 전용 앱이므로 activate 시 창을 열지 않음
   });
 }

@@ -137,12 +137,16 @@
   !define MUI_WELCOMEPAGE_TEXT "WebPrinter 설치를 시작합니다.$\n$\n이 프로그램은 웹페이지에서 직접 인쇄를 가능하게 합니다.$\n$\n설치하기 전에 다른 모든 프로그램을 닫는 것을 권장합니다."
 !macroend
 
+
 !macro customFinishPage
   !define MUI_FINISHPAGE_TEXT "WebPrinter 설치가 완료되었습니다.$\n$\n• 시스템 트레이에서 WebPrinter를 찾을 수 있습니다$\n• 웹페이지에서 인쇄 기능을 바로 사용할 수 있습니다$\n• 컴퓨터를 재시작하면 자동으로 실행됩니다"
   !define MUI_FINISHPAGE_RUN "$INSTDIR\WebPrinter.exe"
   !define MUI_FINISHPAGE_RUN_TEXT "지금 WebPrinter 실행하기"
+  !define MUI_FINISHPAGE_RUN_CHECKED
   !define MUI_FINISHPAGE_RUN_PARAMETERS "--hidden"
 !macroend
+
+
 
 !macro customInstallFailed
   DetailPrint "설치 실패 - 변경사항을 되돌립니다..."

@@ -25,7 +25,8 @@ async function printViaPDF(url, paperSize, printSelector, copies, silent, printe
       await openPDFPreview(pdfPath);
       console.log('PDF 프로세스 완료');
       
-      return { success: true, pdfPath };
+      // 작업 완료 알림
+      return { success: true, pdfPath, shouldClose: true };
     } else {
       // 프린터로 직접 출력
       console.log('프린터 출력 준비 중...');
@@ -38,7 +39,9 @@ async function printViaPDF(url, paperSize, printSelector, copies, silent, printe
             await fs.unlink(tempPdfPath);
           } catch (error) {}
         }, 5000);
-        return { success: true };
+        
+        // 작업 완료 알림
+        return { success: true, shouldClose: true };
       } catch (error) {
         await fs.unlink(tempPdfPath).catch(() => {});
         throw error;
