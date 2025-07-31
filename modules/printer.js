@@ -35,7 +35,16 @@ async function printViaPDF(url, paperSize, printSelector, copies, silent, printe
       
       try {
         // 1단계: PDF 임시 파일 생성
+        console.log('📄 PDF 임시 파일 생성 시작...');
         tempPdfPath = await saveTempPDF(pdfBuffer);
+        
+        // PDF 파일 크기 확인
+        const pdfStats = await fs.stat(tempPdfPath);
+        console.log('✅ PDF 임시 파일 생성 성공:', {
+          경로: tempPdfPath,
+          크기: `${(pdfStats.size / 1024).toFixed(2)}KB`,
+          바이트: pdfStats.size
+        });
         
         // 2단계: PDF를 PNG로 변환 시도
         try {
@@ -71,13 +80,26 @@ async function printViaPDF(url, paperSize, printSelector, copies, silent, printe
           var successMessage = 'PDF 파일로 프린터 전송 완료';
         }
         
-        // 출력 후 임시 파일들 삭제 (PDF + PNG)
+        // 출력 후 임시 파일들 삭제 (PDF + PNG) - 디버깅 중에는 더 길게 유지
+        console.log('📁 임시 파일들은 30초 후 삭제됩니다.');
+        console.log('🔍 디버깅용 파일 경로:');
+        if (tempPdfPath) console.log('  PDF:', tempPdfPath);
+        if (tempPngPath) console.log('  PNG:', tempPngPath);
+        
         setTimeout(async () => {
           try {
-            if (tempPdfPath) await fs.unlink(tempPdfPath);
-            if (tempPngPath) await fs.unlink(tempPngPath);
-          } catch (deleteError) {}
-        }, 10000);
+            if (tempPdfPath) {
+              await fs.unlink(tempPdfPath);
+              console.log('🗑️ 임시 PDF 파일 삭제됨');
+            }
+            if (tempPngPath) {
+              await fs.unlink(tempPngPath);
+              console.log('🗑️ 임시 PNG 파일 삭제됨');
+            }
+          } catch (deleteError) {
+            console.log('⚠️ 임시 파일 삭제 실패:', deleteError.message);
+          }
+        }, 30000); // 30초로 연장 (디버깅용)
         
         // 작업 완료 알림
         return { success: true, shouldClose: true, message: successMessage };
@@ -556,28 +578,90 @@ async function convertPdfToPng(pdfPath) {
 
 async function printImageDirectly(imagePath, printerName, copies = 1) {
   try {
+    console.log('🖨️ 이미지 인쇄 시작:', { imagePath, printerName, copies, platform: process.platform });
+    
     if (process.platform === 'win32') {
+      // Windows 경로 및 프린터명 처리
+      const cleanImagePath = imagePath.replace(/\//g, '\\'); // 슬래시를 백슬래시로 변경
+      const cleanPrinterName = printerName;
       const escapedPath = imagePath.replace(/'/g, "''");
       const escapedPrinterName = printerName.replace(/'/g, "''");
       
-      // mspaint로 이미지 인쇄 시도
+      console.log('🪟 Windows 환경에서 이미지 인쇄 시도...');
+      console.log('📁 이미지 파일 경로:', cleanImagePath);
+      console.log('🖨️ 대상 프린터:', cleanPrinterName);
+      
+      // 방법 1: mspaint.exe 직접 사용 (가장 간단하고 안정적)
       try {
-        await execAsync(`powershell -command "
-          $process = Start-Process -FilePath 'mspaint' -ArgumentList '/pt','${escapedPath}','${escapedPrinterName}' -WindowStyle Hidden -PassThru
-          Start-Sleep -Seconds 3
-          if (!$process.HasExited) { $process.Kill() }
-        "`);
+        console.log('🎨 mspaint.exe 직접 사용한 인쇄 시도...');
+        
+        // Windows의 네이티브 mspaint 명령 사용
+        const paintCommand = `mspaint.exe /pt "${cleanImagePath}" "${cleanPrinterName}"`;
+        console.log('실행 명령어:', paintCommand);
+        
+        const result = await execAsync(paintCommand, { timeout: 10000 });
+        console.log('✅ mspaint.exe 인쇄 명령 실행 완료:', result);
+        
       } catch (paintError) {
-        // PowerShell 직접 이미지 인쇄
-        await execAsync(`powershell -command "
-          Add-Type -AssemblyName System.Drawing, System.Drawing.Printing
-          $image = [System.Drawing.Image]::FromFile('${escapedPath}')
-          $printDoc = New-Object System.Drawing.Printing.PrintDocument
-          $printDoc.PrinterSettings.PrinterName = '${escapedPrinterName}'
-          $printDoc.add_PrintPage({ param($s, $e) $e.Graphics.DrawImage($image, $e.MarginBounds) })
-          if ($printDoc.PrinterSettings.IsValid) { $printDoc.Print() }
-          $image.Dispose()
-        "`);
+        console.log('❌ mspaint.exe 직접 실행 실패:', paintError.message);
+        console.log('🔄 cmd.exe를 통한 mspaint 시도...');
+        
+        // 방법 2: cmd.exe를 통한 mspaint 실행
+        try {
+          const cmdCommand = `cmd /c "mspaint.exe /pt \\"${cleanImagePath}\\" \\"${cleanPrinterName}\\""`;
+          console.log('실행 명령어:', cmdCommand);
+          
+          const cmdResult = await execAsync(cmdCommand, { timeout: 10000 });
+          console.log('✅ cmd를 통한 mspaint 인쇄 완료:', cmdResult);
+          
+        } catch (cmdError) {
+          console.log('❌ cmd mspaint도 실패:', cmdError.message);
+          console.log('🔄 PowerShell fallback 시도...');
+          
+          // 방법 3: PowerShell fallback (기존 방식)
+          const psCommand = `powershell -command "
+            Add-Type -AssemblyName System.Drawing, System.Drawing.Printing
+            $image = [System.Drawing.Image]::FromFile('${escapedPath}')
+            $printDoc = New-Object System.Drawing.Printing.PrintDocument
+            $printDoc.PrinterSettings.PrinterName = '${escapedPrinterName}'
+            $printDoc.add_PrintPage({ param($s, $e) $e.Graphics.DrawImage($image, $e.MarginBounds) })
+            if ($printDoc.PrinterSettings.IsValid) { $printDoc.Print(); Write-Host 'PowerShell 인쇄 성공' } else { Write-Host 'Printer not valid' }
+            $image.Dispose()
+          "`;
+          console.log('실행 명령어:', psCommand);
+          
+          const psResult = await execAsync(psCommand);
+          console.log('✅ PowerShell fallback 인쇄 완료:', psResult);
+        }
+      }
+      
+      // 방법 4: Windows print 명령어 시도 (추가 옵션)
+      try {
+        console.log('🔄 Windows print 명령어 추가 시도...');
+        const printCommand = `print /D:"${cleanPrinterName}" "${cleanImagePath}"`;
+        console.log('실행 명령어:', printCommand);
+        
+        const printResult = await execAsync(printCommand, { timeout: 5000 });
+        console.log('📝 Windows print 명령 결과:', printResult);
+        
+      } catch (printCmdError) {
+        console.log('⚠️ Windows print 명령 실패 (정상적, 이미지는 지원 안함):', printCmdError.message);
+      }
+      
+      // 인쇄 후 프린터 큐 확인
+      try {
+        console.log('🔍 프린터 큐 상태 확인 중...');
+        await new Promise(resolve => setTimeout(resolve, 2000)); // 2초 대기
+        
+        const queueCheck = await execAsync(`powershell -command "Get-PrintJob -PrinterName '${escapedPrinterName}' | ForEach-Object { Write-Host \"작업ID: $($_.Id), 상태: $($_.JobStatus), 문서: $($_.DocumentName)\" }"`);
+        console.log('📋 현재 프린터 큐:', queueCheck.stdout || '큐가 비어있음');
+        
+        // 프린터 상태도 확인
+        const printerStatus = await execAsync(`powershell -command "Get-Printer -Name '${escapedPrinterName}' | Select-Object Name, PrinterStatus, JobCount | Format-List"`);
+        console.log('🖨️ 프린터 상태:', printerStatus.stdout);
+        
+      } catch (queueError) {
+        console.log('⚠️ 프린터 큐 확인 실패:', queueError.message);
       }
       
     } else if (process.platform === 'darwin') {
@@ -604,12 +688,16 @@ async function printImageDirectly(imagePath, printerName, copies = 1) {
 
 async function printDirectly(pdfPath, printerName, copies = 1) {
   try {
+    console.log('📄 PDF 직접 인쇄 시작:', { pdfPath, printerName, copies, platform: process.platform });
+    
     if (process.platform === 'win32') {
       const escapedPath = pdfPath.replace(/'/g, "''");
       const escapedPrinterName = printerName.replace(/'/g, "''");
       
+      console.log('🪟 Windows 환경에서 PDF 직접 인쇄 시도...');
+      
       // Adobe Reader로 자동 인쇄 시도
-      await execAsync(`powershell -command "
+      const adobeCommand = `powershell -command "
         $adobePath = @(
           'C:\\Program Files\\Adobe\\Acrobat DC\\Acrobat\\Acrobat.exe',
           'C:\\Program Files (x86)\\Adobe\\Acrobat Reader DC\\Reader\\AcroRd32.exe',
@@ -617,13 +705,20 @@ async function printDirectly(pdfPath, printerName, copies = 1) {
         ) | Where-Object { Test-Path $_ } | Select-Object -First 1
         
         if ($adobePath) {
+          Write-Host \"Adobe Reader 발견: $adobePath\"
           $process = Start-Process -FilePath $adobePath -ArgumentList '/t','${escapedPath}','${escapedPrinterName}' -WindowStyle Hidden -PassThru
           Start-Sleep -Seconds 5
           if (!$process.HasExited) { $process.Kill() }
+          Write-Host \"Adobe Reader 인쇄 완료\"
         } else {
+          Write-Host \"Adobe Reader 없음, 기본 뷰어 사용\"
           Start-Process -FilePath '${escapedPath}' -Verb Print -WindowStyle Hidden
         }
-      "`);
+      "`;
+      console.log('실행 명령어:', adobeCommand);
+      
+      const result = await execAsync(adobeCommand);
+      console.log('✅ PDF 인쇄 명령 실행 완료:', result);
       
     } else if (process.platform === 'darwin') {
       let printCmd = `lpr -# ${copies}`;
