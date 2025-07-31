@@ -777,13 +777,21 @@ function generateSessionId() {
 async function createPrintWindow(sessionId = null, isForced = false) {
   // 기존 창이 있고 숨겨져 있으면 재사용
   if (printWindow && !printWindow.isDestroyed()) {
-    console.log('🔄 기존 창 재사용');
-    printWindow.show();
-    printWindow.focus();
+    console.log('🔄 기존 창 재사용 - 로딩 상태로 복원');
+    // 즉시 표시하지 않고, 렌더러에서 로딩 준비 완료 신호를 받은 후 표시
     
     // 세션 ID만 업데이트
     if (sessionId) {
       currentSession = sessionId;
+    }
+    
+    // 기존 창에 로딩 재시작 신호 전송
+    if (printWindow && !printWindow.isDestroyed()) {
+      printWindow.webContents.send('restart-loading', {
+        reason: 'window_reused',
+        session: currentSession
+      });
+      console.log('🔄 기존 창에 로딩 재시작 신호 전송');
     }
     
     // 서버 정보 다시 전송
@@ -853,13 +861,8 @@ async function createPrintWindow(sessionId = null, isForced = false) {
   printWindow.loadFile('print-preview.html');
 
   printWindow.once('ready-to-show', () => {
-    // DOM 완전 로드 후 부드럽게 표시
-    setTimeout(() => {
-      if (printWindow && !printWindow.isDestroyed()) {
-        printWindow.show();
-        printWindow.focus();
-      }
-    }, 100); // 깜박거림 방지를 위한 최소 지연
+    // 로딩 화면이 완전히 준비될 때까지 창을 숨긴 상태로 유지
+    console.log('🎬 창이 ready-to-show 상태이지만 로딩 준비까지 대기 중...');
     
     // 렌더러가 완전히 로드될 때까지 대기 후 IPC 전송
     printWindow.webContents.once('did-finish-load', () => {
@@ -1328,6 +1331,22 @@ app.on('activate', () => {
 
 // IPC 핸들러들
 
+// 창 표시 요청 처리
+ipcMain.on('request-show-window', () => {
+  console.log('📢 렌더러에서 창 표시 요청 수신');
+  if (printWindow && !printWindow.isDestroyed()) {
+    console.log('🎬 창 표시 시작...');
+    printWindow.show();
+    printWindow.focus();
+    console.log('✅ 창 표시 완료');
+  }
+});
+
+// 로딩 준비 완료 신호 처리
+ipcMain.on('loading-ready', () => {
+  console.log('🎯 로딩 화면 준비 완료 신호 수신');
+});
+
 // 프린터 목록 가져오기
 ipcMain.handle('get-printers', async () => {
   try {
@@ -1566,7 +1585,14 @@ ipcMain.handle('print-url', async (event, options) => {
         '    // 🔍 1단계: 초단순 테스트 CSS (요소 존재 확인용)',
         '    const cssText = `',
         '      @media print {',
-        '        @page { size: A4; margin: 10mm; }',
+        '        /* A4 용지, 모든 여백 제거 */',
+        '        @page { size: A4; margin: 0; }',
+        '        /* body 위치 초기화 */',
+        '        html, body {',
+        '          margin: 0 !important;',
+        '          padding: 0 !important;',
+        '          position: relative !important;',
+        '        }',
         '        .webprinter-print-target {',
         '          /* 🚨 디버깅용: 빨간 배경 + 파란 테두리 */',
         '          background: red !important;',
@@ -1574,16 +1600,21 @@ ipcMain.handle('print-url', async (event, options) => {
         '          display: block !important;',
         '          visibility: visible !important;',
         '          opacity: 1 !important;',
-        '          /* 🎯 강제 크기 지정 (88x244mm) */',
+        '          /* 📍 맨위 강제 위치 */',
+        '          position: absolute !important;',
+        '          top: 0 !important;',
+        '          left: 0 !important;',
         '          margin: 0 !important;',
         '          padding: 10px !important;',
-        `          width: ${effectiveWidth}mm !important;`,
-        `          height: ${effectiveHeight}mm !important;`,
-        '          min-width: 50mm !important;',
-        '          min-height: 50mm !important;',
+        '          /* 🎯 정확한 크기 (mm → px 변환) */',
+        `          /* 원본: ${effectiveWidth}mm x ${effectiveHeight}mm */`,
+        `          width: ${Math.round(effectiveWidth * 3.78)}px !important;`,
+        `          height: ${Math.round(effectiveHeight * 3.78)}px !important;`,
+        '          /* 🎨 디버깅 스타일 */',
         '          color: white !important;',
         '          font-size: 16px !important;',
         '          font-weight: bold !important;',
+        '          z-index: 9999 !important;',
         '        }',
         '      }',
         '    `;',

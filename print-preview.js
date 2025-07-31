@@ -23,6 +23,14 @@ const loadingManager = {
         this.message = document.getElementById('app-loading-message');
         this.details = document.getElementById('app-loading-details');
         console.log('🎬 로딩 매니저 초기화 완료');
+        
+        // 로딩 화면이 준비되었으므로 창을 표시하도록 요청
+        setTimeout(() => {
+            if (window.electronAPI && window.electronAPI.requestShowWindow) {
+                window.electronAPI.requestShowWindow();
+                console.log('📢 창 표시 요청 전송');
+            }
+        }, 100); // DOM이 완전히 렌더링될 때까지 약간 대기
     },
     
     updateStep(stepIndex, message, details) {
@@ -65,6 +73,22 @@ const loadingManager = {
             this.overlay.style.display = 'none';
         }
         console.log('⚡ 로딩 오버레이 강제 숨김');
+    },
+    
+    // 로딩 재시작
+    restart(message = '재시작 중...', details = '연결을 다시 설정하고 있습니다.') {
+        this.isComplete = false;
+        this.currentStep = 0;
+        
+        if (this.overlay) {
+            this.overlay.classList.remove('hide');
+            this.overlay.style.display = 'flex';
+            this.overlay.style.opacity = '1';
+            this.overlay.style.visibility = 'visible';
+        }
+        
+        this.updateStep(0, message, details);
+        console.log('🔄 로딩 매니저 재시작됨');
     }
 };
 
@@ -515,6 +539,22 @@ document.addEventListener('DOMContentLoaded', async () => {
         setTimeout(() => {
             loadingManager.hide();
         }, 800);
+    });
+    
+    // 로딩 재시작 이벤트 리스너 등록
+    window.electronAPI.onRestartLoading((data) => {
+        console.log('🔄 로딩 재시작 신호 수신:', data);
+        
+        // 로딩 매니저 재시작
+        loadingManager.restart('재연결 중...', '기존 창을 다시 준비하고 있습니다.');
+        
+        // 창 표시 요청
+        setTimeout(() => {
+            if (window.electronAPI && window.electronAPI.requestShowWindow) {
+                window.electronAPI.requestShowWindow();
+                console.log('📢 창 재표시 요청 전송');
+            }
+        }, 200);
     });
     
     console.log('✅ 이벤트 리스너 등록 완료');

@@ -15,6 +15,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   hideToBackground: () => ipcRenderer.invoke('hide-to-background'),
   quitApp: () => ipcRenderer.invoke('quit-app'),
   
+  // 창 표시 제어 API
+  requestShowWindow: () => ipcRenderer.send('request-show-window'),
+  reportLoadingReady: () => ipcRenderer.send('loading-ready'),
+  
   // 업데이트 관련 API
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
   downloadUpdate: () => ipcRenderer.invoke('download-update'),
@@ -44,6 +48,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   onLoadingComplete: (callback) => {
     ipcRenderer.on('loading-complete', (event, data) => callback(data));
+  },
+  
+  onRestartLoading: (callback) => {
+    ipcRenderer.on('restart-loading', (event, data) => callback(data));
   },
   
   // 업데이트 이벤트 리스너

@@ -48,7 +48,9 @@
       "print-preview.html",
       "print-preview.js",
       "web-example.html",
-      "package.json"
+      "package.json",
+      "icon.png",
+      "icon-32.png"
     ],
     "mac": {
       "category": "public.app-category.utilities",
