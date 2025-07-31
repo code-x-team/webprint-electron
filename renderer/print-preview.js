@@ -123,6 +123,14 @@ async function executePrint() {
                 UIManager.showStatus(message, 'success');
                 console.log('프린터 출력 성공:', result);
             }
+            
+            // 성공 시 창 닫기 처리 (shouldClose가 true인 경우)
+            if (result.shouldClose) {
+                console.log('작업 완료, 창을 닫고 백그라운드로 전환합니다.');
+                setTimeout(() => {
+                    IPCHandler.hideToBackground();
+                }, 2000); // 2초 후 자동으로 백그라운드로 전환
+            }
         } else {
             throw new Error(result.error || '알 수 없는 오류가 발생했습니다');
         }

@@ -115,7 +115,21 @@ async function createPrintWindow(sessionId = null) {
 }
 
 function notifyWindow(sessionId, urlData) {
-  if (printWindow && !printWindow.isDestroyed() && currentSession === sessionId) {
+  // 창이 없거나 닫혀있으면 새로 생성
+  if (!printWindow || printWindow.isDestroyed()) {
+    console.log('백그라운드에서 새 요청 수신, 미리보기 창을 엽니다:', sessionId);
+    createPrintWindow(sessionId);
+    
+    // 창 생성 후 데이터 전송
+    setTimeout(() => {
+      if (printWindow && !printWindow.isDestroyed()) {
+        printWindow.webContents.send('urls-received', urlData);
+        printWindow.show();
+        printWindow.focus();
+      }
+    }, 1000);
+  } else if (currentSession === sessionId) {
+    // 기존 창이 있으면 데이터만 업데이트
     if (printWindow.webContents.isLoading()) {
       printWindow.webContents.once('did-finish-load', () => {
         setTimeout(() => {
@@ -127,6 +141,22 @@ function notifyWindow(sessionId, urlData) {
     } else {
       printWindow.webContents.send('urls-received', urlData);
     }
+    
+    // 창을 앞으로 가져오기
+    printWindow.show();
+    printWindow.focus();
+  } else {
+    // 다른 세션이면 새 창으로 교체
+    console.log('새 세션으로 창 업데이트:', sessionId);
+    createPrintWindow(sessionId);
+    
+    setTimeout(() => {
+      if (printWindow && !printWindow.isDestroyed()) {
+        printWindow.webContents.send('urls-received', urlData);
+        printWindow.show();
+        printWindow.focus();
+      }
+    }, 1000);
   }
 }
 
