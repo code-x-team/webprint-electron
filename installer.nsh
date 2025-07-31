@@ -141,12 +141,7 @@
 !macro customFinishPage
   ; 완료 페이지 사용자 정의
   !define MUI_FINISHPAGE_TEXT "WebPrinter 설치가 완료되었습니다.$\n$\n• 아래 체크박스로 바로 실행할 수 있습니다$\n• 웹페이지에서 webprinter:// 링크로 호출할 수 있습니다$\n• 시스템 트레이에서 관리할 수 있습니다"
-  !define MUI_FINISHPAGE_RUN
+  !define MUI_FINISHPAGE_RUN "$INSTDIR\WebPrinter.exe"
   !define MUI_FINISHPAGE_RUN_TEXT "설치 후 WebPrinter 바로 실행하기"
-  !define MUI_FINISHPAGE_RUN_FUNCTION "LaunchApplication"
-!macroend
-
-Function LaunchApplication
-  ; 설치 완료 후 앱 실행
-  ExecShell "" "$INSTDIR\WebPrinter.exe" "--hidden"
-FunctionEnd 
+  !define MUI_FINISHPAGE_RUN_PARAMETERS "--hidden"
+!macroend 
