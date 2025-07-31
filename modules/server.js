@@ -1,5 +1,12 @@
-const express = require('express');
-const cors = require('cors');
+// 안전한 모듈 로딩
+try {
+  var express = require('express');
+  var cors = require('cors');
+} catch (error) {
+  console.error('필수 모듈 로딩 실패:', error.message);
+  process.exit(1);
+}
+
 const fs = require('fs');
 const path = require('path');
 const os = require('os');

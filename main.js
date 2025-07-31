@@ -1,11 +1,15 @@
 const { app, Tray, Menu, dialog } = require('electron');
 const path = require('path');
 
-// macOS 렌더링 최적화
+// macOS 렌더링 최적화 및 모듈 로딩 안정화
 if (process.platform === 'darwin') {
   app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
   app.commandLine.appendSwitch('js-flags', '--expose-gc');
 }
+
+// 모듈 해상도 안정화
+process.env.NODE_PATH = path.join(__dirname, 'node_modules');
+require('module').globalPaths.push(path.join(__dirname, 'node_modules'));
 
 const { startHttpServer, stopHttpServer, loadSessionData, cleanOldSessions } = require('./modules/server');
 const { createPrintWindow, setupIpcHandlers, closeAllWindows } = require('./modules/window');

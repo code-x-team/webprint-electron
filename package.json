@@ -50,11 +50,10 @@
         ]
       }
     ],
-    "asar": true,
-    "includeSubNodeModules": true,
+    "asar": false,
     "files": [
       "main.js",
-      "preload.js",
+      "preload.js", 
       "print-preview.html",
       "modules/**/*",
       "styles/**/*",
