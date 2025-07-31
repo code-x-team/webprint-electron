@@ -195,11 +195,11 @@
 
 
 !macro customFinishPage
-  !define MUI_FINISHPAGE_TEXT "WebPrinter 설치가 완료되었습니다.$\n$\n• 시스템 트레이에서 WebPrinter를 찾을 수 있습니다$\n• 웹페이지에서 인쇄 기능을 바로 사용할 수 있습니다$\n• 컴퓨터를 재시작하면 자동으로 실행됩니다"
+  !define MUI_FINISHPAGE_TEXT "WebPrinter 설치가 완료되었습니다.$\n$\n• 백그라운드에서 실행되어 시스템 트레이에 표시됩니다$\n• 웹페이지에서 인쇄 기능을 바로 사용할 수 있습니다$\n• 컴퓨터를 재시작하면 자동으로 실행됩니다"
   !define MUI_FINISHPAGE_RUN "$INSTDIR\WebPrinter.exe"
-  !define MUI_FINISHPAGE_RUN_TEXT "지금 WebPrinter 실행하기"
+  !define MUI_FINISHPAGE_RUN_TEXT "지금 WebPrinter를 백그라운드에서 시작하기"
   !define MUI_FINISHPAGE_RUN_CHECKED
-  !define MUI_FINISHPAGE_RUN_PARAMETERS "--hidden"
+  !define MUI_FINISHPAGE_RUN_PARAMETERS "--hidden --startup"
   !define MUI_FINISHPAGE_SHOWREADME_NOTCHECKED
   !define MUI_FINISHPAGE_LINK "WebPrinter 홈페이지 방문"
   !define MUI_FINISHPAGE_LINK_LOCATION "https://github.com/code-x-team/webprint-electron"

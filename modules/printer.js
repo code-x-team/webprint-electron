@@ -5,6 +5,7 @@ const os = require('os');
 const { exec } = require('child_process');
 const util = require('util');
 
+
 const execAsync = util.promisify(exec);
 
 async function printViaPDF(url, paperSize, printSelector, copies, silent, printerName, outputType = 'pdf', rotate180 = false) {
@@ -38,13 +39,28 @@ async function printViaPDF(url, paperSize, printSelector, copies, silent, printe
         tempPdfPath = await saveTempPDF(pdfBuffer);
         console.log('임시 PDF 파일 준비 완료');
         
-        // 2단계: PDF를 PNG로 변환
-        tempPngPath = await convertPdfToPng(tempPdfPath);
-        console.log('PDF → PNG 변환 완료, 이미지 인쇄 시작...');
-        
-        // 3단계: PNG 이미지 인쇄 (훨씬 더 안정적)
-        await printImageDirectly(tempPngPath, printerName, copies);
-        console.log('이미지 인쇄 명령 완료');
+        // 2단계: PDF를 PNG로 변환 시도
+        try {
+          tempPngPath = await convertPdfToPng(tempPdfPath);
+          console.log('PDF → PNG 변환 완료, 이미지 인쇄 시작...');
+          
+          // 3단계: PNG 이미지 인쇄
+          await printImageDirectly(tempPngPath, printerName, copies);
+          console.log('이미지 인쇄 명령 완료');
+          
+          // 작업 완료 알림
+          var successMessage = '이미지로 변환하여 프린터 전송 완료';
+          
+        } catch (convertError) {
+          console.log('PNG 변환 실패, PDF 직접 인쇄로 fallback:', convertError.message);
+          
+          // Fallback: PDF 직접 인쇄
+          await printDirectly(tempPdfPath, printerName, copies);
+          console.log('PDF 직접 인쇄 명령 완료');
+          
+          // 작업 완료 알림
+          var successMessage = 'PDF 파일로 프린터 전송 완료';
+        }
         
         // 출력 후 임시 파일들 삭제 (PDF + PNG)
         setTimeout(async () => {
@@ -63,7 +79,7 @@ async function printViaPDF(url, paperSize, printSelector, copies, silent, printe
         }, 10000); // 10초 대기
         
         // 작업 완료 알림
-        return { success: true, shouldClose: true, message: '이미지로 변환하여 프린터 전송 완료' };
+        return { success: true, shouldClose: true, message: successMessage };
       } catch (printError) {
         console.error('이미지 인쇄 과정에서 오류:', printError);
         
@@ -418,54 +434,167 @@ async function saveTempPDF(pdfBuffer) {
 }
 
 async function convertPdfToPng(pdfPath) {
-  console.log('PDF를 PNG로 변환 시작:', pdfPath);
-  
-  const pdfWindow = new BrowserWindow({
-    show: false,
-    width: 1200,
-    height: 1600,
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      webSecurity: false,
-      offscreen: true,
-      backgroundThrottling: false
-    }
-  });
+  console.log('PDF를 PNG로 변환 시작 (pdfjs-dist 사용):', pdfPath);
   
   try {
-    // PDF 파일을 로드
-    await pdfWindow.loadFile(pdfPath);
+    // PDF 파일을 base64로 읽기
+    const pdfBuffer = await fs.readFile(pdfPath);
+    const pdfBase64 = pdfBuffer.toString('base64');
+    console.log('PDF 파일 로드 완료, 크기:', pdfBuffer.length);
     
-    // 페이지 로드 대기
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    // PDF 렌더링을 위한 새 윈도우 생성
+    const pdfWindow = new BrowserWindow({
+      show: false,
+      width: 1200,
+      height: 1600,
+      webPreferences: {
+        nodeIntegration: true,
+        contextIsolation: false,
+        webSecurity: false,
+        offscreen: true,
+        backgroundThrottling: false
+      }
+    });
     
-    // 스크린샷 캡처 (PNG 형태)
-    const image = await pdfWindow.capturePage();
-    
-    // PNG 임시 파일 경로 생성
-    const tempDir = os.tmpdir();
-    const pngFileName = `webprinter_temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.png`;
-    const pngPath = path.join(tempDir, pngFileName);
-    
-    // PNG 파일 저장
-    await fs.writeFile(pngPath, image.toPNG());
-    
-    console.log('PNG 변환 완료:', pngPath);
-    
-    // 파일 크기 확인
-    const stats = await fs.stat(pngPath);
-    console.log('PNG 파일 크기:', stats.size);
-    
-    return pngPath;
+    try {
+      // pdfjs-dist를 사용한 PDF 렌더링 HTML
+      const pdfRenderHtml = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <style>
+            body { margin: 0; padding: 0; background: white; }
+            canvas { display: block; border: 1px solid #ccc; }
+          </style>
+          <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+        </head>
+        <body>
+          <canvas id="pdfCanvas"></canvas>
+          <script>
+            async function renderPdf() {
+              try {
+                console.log('PDF 렌더링 시작...');
+                
+                // PDF 데이터 디코딩
+                const pdfData = atob('${pdfBase64}');
+                const uint8Array = new Uint8Array(pdfData.length);
+                for (let i = 0; i < pdfData.length; i++) {
+                  uint8Array[i] = pdfData.charCodeAt(i);
+                }
+                
+                // PDF 문서 로드
+                const pdf = await pdfjsLib.getDocument({ data: uint8Array }).promise;
+                console.log('PDF 로드 완료, 페이지 수:', pdf.numPages);
+                
+                // 첫 번째 페이지 가져오기
+                const page = await pdf.getPage(1);
+                console.log('첫 번째 페이지 로드 완료');
+                
+                // 뷰포트 설정 (A4 크기, 고해상도)
+                const scale = 2.0;
+                const viewport = page.getViewport({ scale: scale });
+                
+                // 캔버스 설정
+                const canvas = document.getElementById('pdfCanvas');
+                const context = canvas.getContext('2d');
+                canvas.width = viewport.width;
+                canvas.height = viewport.height;
+                
+                console.log('캔버스 크기 설정:', viewport.width, 'x', viewport.height);
+                
+                // PDF 페이지를 캔버스에 렌더링
+                const renderContext = {
+                  canvasContext: context,
+                  viewport: viewport
+                };
+                
+                await page.render(renderContext).promise;
+                console.log('PDF 렌더링 완료!');
+                
+                // 렌더링 완료 신호
+                window.pdfRenderComplete = true;
+                
+              } catch (error) {
+                console.error('PDF 렌더링 오류:', error);
+                window.pdfRenderError = error.message;
+              }
+            }
+            
+            // 페이지 로드 후 PDF 렌더링 시작
+            window.onload = () => {
+              setTimeout(renderPdf, 100);
+            };
+          </script>
+        </body>
+        </html>
+      `;
+      
+      await pdfWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(pdfRenderHtml)}`);
+      
+      // PDF 렌더링 완료까지 대기 (최대 30초)
+      let attempts = 0;
+      const maxAttempts = 60; // 30초 (500ms * 60)
+      
+      while (attempts < maxAttempts) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        const isComplete = await pdfWindow.webContents.executeJavaScript('window.pdfRenderComplete || false');
+        const hasError = await pdfWindow.webContents.executeJavaScript('window.pdfRenderError || null');
+        
+        if (hasError) {
+          throw new Error(`PDF 렌더링 오류: ${hasError}`);
+        }
+        
+        if (isComplete) {
+          console.log('PDF 렌더링 완료 확인됨');
+          break;
+        }
+        
+        attempts++;
+      }
+      
+      if (attempts >= maxAttempts) {
+        throw new Error('PDF 렌더링 시간 초과');
+      }
+      
+      // 추가 안정화 대기
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // 렌더링된 페이지 캡처
+      const image = await pdfWindow.capturePage();
+      
+      // PNG 임시 파일 경로 생성
+      const tempDir = os.tmpdir();
+      const pngFileName = `webprinter_temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.png`;
+      const pngPath = path.join(tempDir, pngFileName);
+      
+      // PNG 파일 저장
+      await fs.writeFile(pngPath, image.toPNG());
+      
+      console.log('PDF → PNG 변환 완료:', pngPath);
+      
+      // 파일 크기 확인
+      const stats = await fs.stat(pngPath);
+      console.log('PNG 파일 크기:', stats.size);
+      
+      if (stats.size < 5000) { // 최소 5KB 이상이어야 함
+        throw new Error('생성된 PNG 파일이 너무 작습니다 (렌더링 실패 가능성)');
+      }
+      
+      pdfWindow.close();
+      return pngPath;
+      
+    } catch (renderError) {
+      console.error('PDF 렌더링 실패:', renderError);
+      if (pdfWindow && !pdfWindow.isDestroyed()) {
+        pdfWindow.close();
+      }
+      throw renderError;
+    }
     
   } catch (error) {
-    console.error('PDF to PNG 변환 실패:', error);
-    throw new Error(`PDF to PNG 변환 실패: ${error.message}`);
-  } finally {
-    if (pdfWindow && !pdfWindow.isDestroyed()) {
-      pdfWindow.close();
-    }
+    console.error('pdfjs PDF to PNG 변환 실패:', error);
+    throw new Error(`pdfjs PDF to PNG 변환 실패: ${error.message}`);
   }
 }
 

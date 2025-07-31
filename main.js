@@ -77,13 +77,21 @@ function createTray() {
     
     const contextMenu = Menu.buildFromTemplate([
       {
+        label: '📋 WebPrinter 상태',
+        enabled: false
+      },
+      {
+        label: '✅ 백그라운드에서 실행 중',
+        enabled: false
+      },
+      { type: 'separator' },
+      {
         label: '🔄 재시작',
         click: () => {
           app.relaunch();
           app.quit();
         }
       },
-      { type: 'separator' },
       {
         label: '🛑 종료',
         click: () => {
@@ -155,6 +163,11 @@ function setupAutoLaunch() {
     const isHidden = process.argv.includes('--hidden');
     
     console.log('🚀 시작 모드:', { isStartupLaunch, isHidden, argv: process.argv });
+    
+    // 백그라운드 모드 강제 적용 조건
+    if (isHidden || isStartupLaunch) {
+      console.log('🔕 백그라운드 모드 활성화됨');
+    }
     
     // macOS/Linux용 자동 시작 설정
     app.setLoginItemSettings({
@@ -243,26 +256,35 @@ if (!gotTheLock) {
       
       // 시작 모드에 따른 UI 처리
       if (global.startupMode) {
-        console.log('🔕 시작 시 숨김 모드 - UI 표시 안함');
+        console.log('🔕 백그라운드 모드 - 창을 열지 않고 트레이에서만 실행');
+        
+        // 백그라운드 시작 알림 (선택적)
+        if (tray && process.platform === 'win32') {
+          tray.displayBalloon({
+            iconType: 'info',
+            title: 'WebPrinter',
+            content: '백그라운드에서 실행되었습니다. 웹페이지에서 인쇄 기능을 사용할 수 있습니다.'
+          });
+        }
       } else {
-        console.log('🖥️ 일반 모드 - 필요시 UI 표시');
+        console.log('🖥️ 일반 모드 - 창 표시 가능');
+        
+        // 프로토콜로 호출된 경우에만 창 열기
+        const protocolUrl = process.argv.find(arg => arg.startsWith('webprinter://'));
+        if (protocolUrl) {
+          handleProtocolCall(protocolUrl);
+        } else {
+          // 일반 실행도 백그라운드에서 시작 (더 조용한 UX)
+          console.log('💡 일반 실행 - 백그라운드에서 대기');
+        }
       }
       
+      // 모든 플랫폼에서 백그라운드 실행
       if (process.platform === 'darwin' && app.dock) {
         app.dock.hide();
       }
       
-      // 프로토콜로 호출된 경우에만 창 열기
-      const protocolUrl = process.argv.find(arg => arg.startsWith('webprinter://'));
-      if (protocolUrl) {
-        handleProtocolCall(protocolUrl);
-      } else if (!global.startupMode) {
-        // 일반 실행 시에만 자동으로 창 표시 (옵션)
-        console.log('💡 일반 실행 - 필요시 미리보기 창 표시 가능');
-      }
-      // 백그라운드에서 대기 (창을 열지 않음)
-      
-      console.log('WebPrinter가 백그라운드에서 실행 중입니다.');
+      console.log('✅ WebPrinter가 백그라운드에서 실행 중입니다.');
     } catch (error) {
       console.error('앱 초기화 오류:', error);
       dialog.showErrorBox('WebPrinter 오류', '앱을 시작할 수 없습니다.\n' + error.message);

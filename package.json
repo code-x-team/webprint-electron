@@ -33,9 +33,10 @@
     "electron-builder": "^24.6.4"
   },
   "dependencies": {
-    "express": "^4.18.2",
     "cors": "^2.8.5",
-    "electron-updater": "^6.1.7"
+    "electron-updater": "^6.1.7",
+    "express": "^4.18.2",
+    "pdfjs-dist": "^5.4.54"
   },
   "build": {
     "appId": "com.webprinter.app",
@@ -54,7 +55,7 @@
     "asar": false,
     "files": [
       "main.js",
-      "preload.js", 
+      "preload.js",
       "print-preview.html",
       "modules/**/*",
       "styles/**/*",
@@ -141,7 +142,10 @@
       "shortcutName": "WebPrinter",
       "artifactName": "${productName}-Setup-${version}.${ext}",
       "menuCategory": "Utilities",
-      "installerLanguages": ["ko_KR", "en_US"],
+      "installerLanguages": [
+        "ko_KR",
+        "en_US"
+      ],
       "warningsAsErrors": false
     },
     "dmg": {
