@@ -434,18 +434,19 @@ async function convertPdfToPng(pdfPath) {
     const pdfBuffer = await fs.readFile(pdfPath);
     const pdfBase64 = pdfBuffer.toString('base64');
     
-    // PDF 렌더링을 위한 새 윈도우 생성 (A4 크기 기준)
+    // PDF 렌더링을 위한 새 윈도우 생성 (동적 크기 조정)
     const pdfWindow = new BrowserWindow({
       show: false,
-      width: Math.ceil(210 * 3.0 * 4), // A4 width (210mm) * scale * pixel ratio
-      height: Math.ceil(297 * 3.0 * 4), // A4 height (297mm) * scale * pixel ratio
+      width: 2480, // 300 DPI A4 width 기준
+      height: 3508, // 300 DPI A4 height 기준 
       webPreferences: {
         nodeIntegration: true,
         contextIsolation: false,
         webSecurity: false,
         offscreen: true,
         backgroundThrottling: false,
-        allowRunningInsecureContent: true
+        allowRunningInsecureContent: true,
+        zoomFactor: 1.0 // 확대/축소 없이 정확한 1:1
       }
     });
     
@@ -457,19 +458,25 @@ async function convertPdfToPng(pdfPath) {
         <head>
           <style>
             * { margin: 0; padding: 0; box-sizing: border-box; }
-            body { 
+            html, body { 
               margin: 0; 
               padding: 0; 
-              background: white; 
+              background: #FFFFFF; 
               overflow: hidden;
+              width: 100%;
+              height: 100%;
             }
             canvas { 
               display: block; 
               border: none;
-              background: white;
-              image-rendering: -webkit-optimize-contrast;
-              image-rendering: optimize-contrast;
+              background: #FFFFFF;
+              position: absolute;
+              top: 0;
+              left: 0;
+              image-rendering: pixelated; /* 픽셀 단위 정확성 */
+              image-rendering: -moz-crisp-edges;
               image-rendering: crisp-edges;
+              -ms-interpolation-mode: nearest-neighbor;
             }
           </style>
           <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -492,46 +499,50 @@ async function convertPdfToPng(pdfPath) {
                 // 첫 번째 페이지 가져오기
                 const page = await pdf.getPage(1);
                 
-                // 뷰포트 설정 (A4 크기, 최적화된 해상도)
-                const scale = 3.0; // 더 높은 해상도로 변경
-                const viewport = page.getViewport({ scale: scale });
+                // PDF 원본 크기 가져오기
+                const originalViewport = page.getViewport({ scale: 1.0 });
+                console.log('PDF 원본 크기:', originalViewport.width, 'x', originalViewport.height);
                 
-                // 캔버스 설정
+                // 300 DPI 기준으로 고해상도 스케일 계산 (인쇄 품질)
+                const targetDPI = 300;
+                const standardDPI = 72; // PDF 기본 DPI
+                const scale = targetDPI / standardDPI; // 약 4.17배
+                
+                const viewport = page.getViewport({ scale: scale });
+                console.log('렌더링 크기:', viewport.width, 'x', viewport.height, '스케일:', scale);
+                
+                // 캔버스 설정 (정확한 1:1 매핑)
                 const canvas = document.getElementById('pdfCanvas');
                 const context = canvas.getContext('2d');
                 
-                // 고해상도 캔버스를 위한 설정
-                const devicePixelRatio = window.devicePixelRatio || 1;
-                const backingStoreRatio = context.webkitBackingStorePixelRatio ||
-                                        context.mozBackingStorePixelRatio ||
-                                        context.msBackingStorePixelRatio ||
-                                        context.oBackingStorePixelRatio ||
-                                        context.backingStorePixelRatio || 1;
-                const ratio = devicePixelRatio / backingStoreRatio;
+                // 캔버스 크기를 뷰포트와 정확히 일치시킴
+                canvas.width = Math.floor(viewport.width);
+                canvas.height = Math.floor(viewport.height);
+                canvas.style.width = Math.floor(viewport.width) + 'px';
+                canvas.style.height = Math.floor(viewport.height) + 'px';
                 
-                canvas.width = viewport.width * ratio;
-                canvas.height = viewport.height * ratio;
-                canvas.style.width = viewport.width + 'px';
-                canvas.style.height = viewport.height + 'px';
+                console.log('캔버스 크기 설정:', canvas.width, 'x', canvas.height);
                 
-                // 컨텍스트 스케일링
-                context.scale(ratio, ratio);
+                // 최고 품질 렌더링 설정
+                context.imageSmoothingEnabled = false; // 픽셀 단위 정확성을 위해 끔
+                context.textRenderingOptimization = 'optimizeQuality';
                 
-                // 안티앨리어싱 설정
-                context.imageSmoothingEnabled = true;
-                context.imageSmoothingQuality = 'high';
+                // 캔버스 배경을 완전한 흰색으로 설정
+                context.fillStyle = '#FFFFFF';
+                context.fillRect(0, 0, canvas.width, canvas.height);
                 
-                // 캔버스 배경을 흰색으로 먼저 채우기
-                context.fillStyle = 'white';
-                context.fillRect(0, 0, viewport.width, viewport.height);
-                
-                // PDF 페이지를 캔버스에 렌더링
+                // PDF 렌더링 컨텍스트 (최고 품질 설정)
                 const renderContext = {
                   canvasContext: context,
                   viewport: viewport,
-                  intent: 'print', // 인쇄용 품질로 렌더링
+                  intent: 'print', // 인쇄 최적화
                   renderInteractiveForms: false,
-                  optionalContentConfigPromise: null
+                  optionalContentConfigPromise: null,
+                  // 고품질 렌더링을 위한 추가 옵션
+                  transform: null,
+                  imageLayer: null,
+                  canvasFactory: null,
+                  background: '#FFFFFF'
                 };
                 
                 await page.render(renderContext).promise;
@@ -599,7 +610,8 @@ async function convertPdfToPng(pdfPath) {
       // 파일 크기 확인
       const stats = await fs.stat(pngPath);
       
-      if (stats.size < 50000) { // 최소 50KB 이상이어야 함 (고해상도로 인해 증가)
+      if (stats.size < 100000) { // 최소 100KB 이상이어야 함 (300 DPI 고해상도)
+        console.log('⚠️ PNG 파일 크기가 작음:', stats.size, 'bytes');
         throw new Error('생성된 PNG 파일이 너무 작습니다 (렌더링 실패 가능성)');
       }
       
