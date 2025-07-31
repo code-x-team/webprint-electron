@@ -129,9 +129,9 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": false,
+      "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "deleteAppDataOnUninstall": false,
+      "deleteAppDataOnUninstall": true,
       "allowElevation": true,
       "perMachine": false,
       "runAfterFinish": true,
@@ -141,7 +141,9 @@
       "uninstallDisplayName": "WebPrinter 제거",
       "shortcutName": "WebPrinter",
       "artifactName": "${productName}-Setup-${version}.${ext}",
-      "menuCategory": "Utilities"
+      "menuCategory": "Utilities",
+      "installerLanguages": ["ko_KR", "en_US"],
+      "warningsAsErrors": false
     },
     "dmg": {
       "title": "${productName} ${version}",

@@ -1,11 +1,30 @@
 ;; WebPrinter 커스텀 인스톨러/언인스톨러 스크립트
-;; electron-builder 호환 버전
+;; electron-builder 호환 버전 - 자동 실행 기능 강화
+
+; 전역 변수 정의
+!define PRODUCT_NAME "WebPrinter"
+!define PRODUCT_VERSION "1.8.5"
+!define PRODUCT_PUBLISHER "WebPrinter Team"
+!define PRODUCT_WEB_SITE "https://github.com/code-x-team/webprint-electron"
+!define PRODUCT_DIR_REGKEY "Software\Microsoft\Windows\CurrentVersion\App Paths\WebPrinter.exe"
+!define PRODUCT_UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}"
+!define PRODUCT_UNINST_ROOT_KEY "HKLM"
+!define STARTUP_REG_KEY "Software\Microsoft\Windows\CurrentVersion\Run"
 
 !macro customHeader
   RequestExecutionLevel admin
   
   ; 설치 디렉토리 정규화
   InstallDir "$PROGRAMFILES\WebPrinter"
+  
+  ; 제품 정보 설정
+  VIProductVersion "${PRODUCT_VERSION}.0"
+  VIAddVersionKey "ProductName" "${PRODUCT_NAME}"
+  VIAddVersionKey "Comments" "웹에서 호출되는 로컬 인쇄 프로그램"
+  VIAddVersionKey "CompanyName" "${PRODUCT_PUBLISHER}"
+  VIAddVersionKey "LegalTrademarks" "WebPrinter"
+  VIAddVersionKey "FileDescription" "${PRODUCT_NAME}"
+  VIAddVersionKey "FileVersion" "${PRODUCT_VERSION}"
 !macroend
 
 !macro CheckDependencies
@@ -92,16 +111,69 @@
   DetailPrint "WebPrinter 설치를 시작합니다..."
 !macroend
 
+; 설치 완료 후 자동 실행 설정
+!macro customInit
+  DetailPrint "자동 실행 설정 중..."
+  
+  ; 1. 프로토콜 등록
+  DetailPrint "URL 프로토콜 등록 중..."
+  WriteRegStr HKCR "webprinter" "" "URL:WebPrinter Protocol"
+  WriteRegStr HKCR "webprinter" "URL Protocol" ""
+  WriteRegStr HKCR "webprinter\DefaultIcon" "" "$INSTDIR\WebPrinter.exe,0"
+  WriteRegStr HKCR "webprinter\shell\open\command" "" '"$INSTDIR\WebPrinter.exe" "%1"'
+  
+  ; 2. 시작 프로그램 등록 (다중 방식)
+  DetailPrint "시작 프로그램 등록 중..."
+  
+  ; 현재 사용자 레지스트리
+  WriteRegStr HKCU "${STARTUP_REG_KEY}" "WebPrinter" '"$INSTDIR\WebPrinter.exe" --hidden --startup'
+  
+  ; 모든 사용자 레지스트리 (관리자 권한 시)
+  WriteRegStr HKLM "${STARTUP_REG_KEY}" "WebPrinter" '"$INSTDIR\WebPrinter.exe" --hidden --startup'
+  
+  ; App Paths 등록
+  WriteRegStr HKLM "${PRODUCT_DIR_REGKEY}" "" "$INSTDIR\WebPrinter.exe"
+  WriteRegStr HKLM "${PRODUCT_DIR_REGKEY}" "Path" "$INSTDIR"
+  
+  ; 3. 시작 폴더 바로가기
+  DetailPrint "시작 폴더 바로가기 생성 중..."
+  CreateShortCut "$SMSTARTUP\WebPrinter.lnk" "$INSTDIR\WebPrinter.exe" "--hidden --startup" "$INSTDIR\WebPrinter.exe" 0 SW_SHOWMINIMIZED
+  
+  ; 4. 작업 스케줄러 등록
+  DetailPrint "작업 스케줄러 등록 중..."
+  nsExec::ExecToLog 'schtasks /create /tn "WebPrinter_AutoStart" /tr "\"$INSTDIR\WebPrinter.exe\" --hidden --startup" /sc onlogon /rl highest /f 2>nul'
+  
+  ; 5. 방화벽 및 보안 설정
+  DetailPrint "방화벽 예외 추가 중..."
+  nsExec::ExecToLog 'netsh advfirewall firewall add rule name="WebPrinter" dir=in action=allow program="$INSTDIR\WebPrinter.exe" enable=yes profile=any'
+  
+  ; Windows Defender 예외 추가 시도
+  DetailPrint "Windows Defender 예외 추가 시도 중..."
+  nsExec::ExecToLog 'powershell -Command "Add-MpPreference -ExclusionPath \"$INSTDIR\" -ErrorAction SilentlyContinue" 2>nul'
+  
+  DetailPrint "자동 실행 설정이 완료되었습니다."
+!macroend
+
 !macro customUnInstall
   DetailPrint "WebPrinter 제거를 시작합니다..."
   
   ; 안전한 프로세스 종료
   !insertmacro SafeProcessTermination
   
-  ; 시작 프로그램 제거
+  ; 시작 프로그램 제거 (모든 방식)
   DetailPrint "시작 프로그램에서 제거 중..."
-  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "WebPrinter"
-  DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "WebPrinter"
+  DeleteRegValue HKCU "${STARTUP_REG_KEY}" "WebPrinter"
+  DeleteRegValue HKLM "${STARTUP_REG_KEY}" "WebPrinter"
+  
+  ; 시작 폴더 바로가기 제거
+  Delete "$SMSTARTUP\WebPrinter.lnk"
+  
+  ; 작업 스케줄러 제거
+  DetailPrint "작업 스케줄러에서 제거 중..."
+  nsExec::ExecToLog 'schtasks /delete /tn "WebPrinter_AutoStart" /f 2>nul'
+  
+  ; App Paths 제거
+  DeleteRegKey HKLM "${PRODUCT_DIR_REGKEY}"
   
   ; 프로토콜 핸들러 제거
   DetailPrint "프로토콜 핸들러 제거 중..."

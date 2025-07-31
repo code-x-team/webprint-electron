@@ -419,48 +419,94 @@ async function printDirectly(pdfPath, printerName, copies = 1) {
           console.warn('프린터 확인 실패:', checkError.message);
         }
         
-        // 다양한 방법으로 프린터 출력 시도
-        let printSuccess = false;
-        const printMethods = [
-          // 방법 1: SumatraPDF 사용 (가장 안정적)
-          async () => {
-            console.log('SumatraPDF 사용 시도...');
-            await execAsync(`powershell -command "if (Test-Path 'C:\\Program Files\\SumatraPDF\\SumatraPDF.exe') { & 'C:\\Program Files\\SumatraPDF\\SumatraPDF.exe' -print-to '${escapedPrinterName}' -silent '${escapedPath}' } else { throw 'SumatraPDF not found' }"`);
-          },
-          // 방법 2: Adobe Reader 사용
-          async () => {
-            console.log('Adobe Reader 사용 시도...');
-            await execAsync(`powershell -command "if (Get-ItemProperty HKLM:\\Software\\Adobe\\* -Name DisplayName -ErrorAction SilentlyContinue | Where-Object {$_.DisplayName -like '*Reader*'}) { Start-Process -FilePath '${escapedPath}' -ArgumentList '/t', '/h', '${escapedPrinterName}' -WindowStyle Hidden } else { throw 'Adobe Reader not found' }"`);
-          },
-          // 방법 3: PowerShell을 통한 직접 인쇄
-          async () => {
-            console.log('PowerShell 직접 인쇄 시도...');
-            await execAsync(`powershell -command "Add-Type -AssemblyName System.Drawing; Add-Type -AssemblyName System.Windows.Forms; $printer = new-object System.Drawing.Printing.PrintDocument; $printer.PrinterSettings.PrinterName = '${escapedPrinterName}'; if ($printer.PrinterSettings.IsValid) { Start-Process -FilePath '${escapedPath}' -Verb PrintTo -ArgumentList '${escapedPrinterName}' -WindowStyle Hidden } else { throw 'Printer invalid' }"`);
-          },
-          // 방법 4: 기본 PrintTo 사용
-          async () => {
-            console.log('기본 PrintTo 사용 시도...');
-            await execAsync(`powershell -command "Start-Process -FilePath '${escapedPath}' -Verb PrintTo -ArgumentList '${escapedPrinterName}' -WindowStyle Hidden"`);
-          }
-        ];
+        // Windows에서 PDF를 프린터로 자동 전송 (Silent 인쇄)
+        console.log('PDF 자동 인쇄 시작...');
         
-        for (const [index, method] of printMethods.entries()) {
-          try {
-            await method();
-            console.log(`인쇄 방법 ${index + 1} 성공`);
-            printSuccess = true;
-            break;
-          } catch (methodError) {
-            console.log(`인쇄 방법 ${index + 1} 실패:`, methodError.message);
-            if (index === printMethods.length - 1) {
-              throw methodError;
+        // 방법 1: PowerShell을 통한 자동 인쇄 (Adobe Reader 명령줄)
+        try {
+          console.log('Adobe Reader 자동 인쇄 시도...');
+          await execAsync(`powershell -command "
+            $adobePath = @(
+              'C:\\Program Files\\Adobe\\Acrobat DC\\Acrobat\\Acrobat.exe',
+              'C:\\Program Files (x86)\\Adobe\\Acrobat Reader DC\\Reader\\AcroRd32.exe',
+              'C:\\Program Files\\Adobe\\Acrobat Reader DC\\Reader\\AcroRd32.exe'
+            ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+            
+            if ($adobePath) {
+              Start-Process -FilePath $adobePath -ArgumentList '/t','${escapedPath}','${escapedPrinterName}' -WindowStyle Hidden -Wait
+            } else {
+              throw 'Adobe not found'
             }
+          "`);
+          console.log('Adobe Reader 자동 인쇄 완료');
+          
+        } catch (adobeError) {
+          console.log('Adobe Reader 실패, SumatraPDF 시도...');
+          
+          // 방법 2: SumatraPDF 자동 인쇄
+          try {
+            await execAsync(`powershell -command "
+              $sumatraPath = @(
+                'C:\\Program Files\\SumatraPDF\\SumatraPDF.exe',
+                'C:\\Program Files (x86)\\SumatraPDF\\SumatraPDF.exe'
+              ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+              
+              if ($sumatraPath) {
+                Start-Process -FilePath $sumatraPath -ArgumentList '-print-to','${escapedPrinterName}','-silent','${escapedPath}' -WindowStyle Hidden -Wait
+              } else {
+                throw 'SumatraPDF not found'
+              }
+            "`);
+            console.log('SumatraPDF 자동 인쇄 완료');
+            
+          } catch (sumatraError) {
+            console.log('SumatraPDF 실패, 기본 방법 시도...');
+            
+            // 방법 3: Windows 기본 PrintTo (최대한 자동화)
+            await execAsync(`powershell -command "
+              $proc = Start-Process -FilePath '${escapedPath}' -Verb PrintTo -ArgumentList '${escapedPrinterName}' -PassThru -WindowStyle Hidden
+              Start-Sleep -Seconds 5
+              if (!$proc.HasExited) {
+                $proc.CloseMainWindow()
+                $proc.Kill()
+              }
+            "`);
+            console.log('기본 PrintTo 방법 완료');
           }
         }
+
       } else {
-        // 기본 프린터 사용
-        console.log('기본 프린터로 인쇄');
-        await execAsync(`powershell -command "Start-Process -FilePath '${escapedPath}' -Verb Print -WindowStyle Hidden"`);
+        // 기본 프린터 사용 - 자동 인쇄
+        console.log('기본 프린터로 자동 인쇄');
+        
+        // Adobe Reader 먼저 시도
+        try {
+          await execAsync(`powershell -command "
+            $adobePath = @(
+              'C:\\Program Files\\Adobe\\Acrobat DC\\Acrobat\\Acrobat.exe',
+              'C:\\Program Files (x86)\\Adobe\\Acrobat Reader DC\\Reader\\AcroRd32.exe',
+              'C:\\Program Files\\Adobe\\Acrobat Reader DC\\Reader\\AcroRd32.exe'
+            ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+            
+            if ($adobePath) {
+              Start-Process -FilePath $adobePath -ArgumentList '/t','${escapedPath}' -WindowStyle Hidden -Wait
+            } else {
+              throw 'Adobe not found'
+            }
+          "`);
+          console.log('기본 프린터로 Adobe Reader 인쇄 완료');
+        } catch (error) {
+          // Adobe가 없으면 기본 방법 사용
+          await execAsync(`powershell -command "
+            $proc = Start-Process -FilePath '${escapedPath}' -Verb Print -PassThru -WindowStyle Hidden
+            Start-Sleep -Seconds 5
+            if (!$proc.HasExited) {
+              $proc.CloseMainWindow()
+              $proc.Kill()
+            }
+          "`);
+          console.log('기본 프린터로 기본 방법 인쇄 완료');
+        }
       }
       
       console.log('Windows 인쇄 명령 실행 완료');
@@ -537,6 +583,30 @@ async function printDirectly(pdfPath, printerName, copies = 1) {
       errorMessage = '프린터에 접근할 수 없습니다. 프린터 권한을 확인해주세요.';
     } else if (error.stderr && error.stderr.includes('offline')) {
       errorMessage = '프린터가 오프라인 상태입니다. 프린터 연결을 확인해주세요.';
+    }
+    
+    // 대체 방법 제안: PDF 파일을 바탕화면에 저장
+    try {
+      console.log('대체 방법: PDF 파일을 바탕화면에 저장...');
+      const desktopPath = path.join(os.homedir(), 'Desktop');
+      const fileName = `WebPrinter_${Date.now()}.pdf`;
+      const desktopPdfPath = path.join(desktopPath, fileName);
+      
+      // PDF 파일을 바탕화면에 복사
+      await fs.copyFile(pdfPath, desktopPdfPath);
+      console.log('PDF 파일이 바탕화면에 저장됨:', desktopPdfPath);
+      
+      errorMessage += `\n\n대신 PDF 파일을 바탕화면에 저장했습니다: ${fileName}\n수동으로 열어서 인쇄해주세요.`;
+      
+      // 바탕화면 폴더 열기
+      if (process.platform === 'win32') {
+        await execAsync(`explorer "${desktopPath}"`);
+      } else if (process.platform === 'darwin') {
+        await execAsync(`open "${desktopPath}"`);
+      }
+      
+    } catch (saveError) {
+      console.error('바탕화면 저장 실패:', saveError.message);
     }
     
     throw new Error(errorMessage);

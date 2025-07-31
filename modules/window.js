@@ -142,10 +142,49 @@ function setupIpcHandlers() {
 
   ipcMain.handle('get-printers', async () => {
     try {
-      const printers = (printWindow && !printWindow.isDestroyed()) 
+      console.log('프린터 목록 가져오기 시작...');
+      
+      const electronPrinters = (printWindow && !printWindow.isDestroyed()) 
         ? await printWindow.webContents.getPrintersAsync() 
         : [];
-      return { success: true, printers };
+      
+      console.log('Electron에서 가져온 프린터:', electronPrinters.map(p => ({ 
+        name: p.name, 
+        status: p.status, 
+        isDefault: p.isDefault 
+      })));
+      
+      // 시스템 프린터 정보 추가 확인
+      let systemPrinters = [];
+      try {
+        if (process.platform === 'win32') {
+          const { execAsync } = require('util').promisify(require('child_process').exec);
+          const { stdout } = await execAsync('powershell -command "Get-Printer | Select-Object Name, PrinterStatus | ConvertTo-Json"');
+          systemPrinters = JSON.parse(stdout || '[]');
+          console.log('Windows 시스템 프린터:', systemPrinters);
+        }
+      } catch (sysError) {
+        console.warn('시스템 프린터 정보 가져오기 실패:', sysError.message);
+      }
+      
+      // 프린터 목록 병합 및 상태 정보 보강
+      const enhancedPrinters = electronPrinters.map(printer => {
+        const sysPrinter = systemPrinters.find(sp => sp.Name === printer.name);
+        return {
+          ...printer,
+          systemStatus: sysPrinter?.PrinterStatus || 'Unknown',
+          available: printer.status === 0 // 0 = idle/available
+        };
+      });
+      
+      console.log('향상된 프린터 목록:', enhancedPrinters);
+      
+      return { 
+        success: true, 
+        printers: enhancedPrinters,
+        totalCount: enhancedPrinters.length,
+        availableCount: enhancedPrinters.filter(p => p.available).length
+      };
     } catch (error) {
       console.error('프린터 목록 가져오기 실패:', error);
       return { success: false, error: error.message, printers: [] };

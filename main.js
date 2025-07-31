@@ -150,13 +150,44 @@ function setupAutoUpdater() {
 
 function setupAutoLaunch() {
   try {
+    // 시작 인수 확인
+    const isStartupLaunch = process.argv.includes('--startup');
+    const isHidden = process.argv.includes('--hidden');
+    
+    console.log('🚀 시작 모드:', { isStartupLaunch, isHidden, argv: process.argv });
+    
+    // macOS/Linux용 자동 시작 설정
     app.setLoginItemSettings({
       openAtLogin: true,
       openAsHidden: true,
-      name: 'WebPrinter'
+      name: 'WebPrinter',
+      args: ['--hidden', '--startup']
     });
+    
+    // Windows용 레지스트리 등록 (보조)
+    if (process.platform === 'win32') {
+      const path = require('path');
+      const { execSync } = require('child_process');
+      
+      try {
+        const exePath = process.execPath;
+        const startupArgs = '"' + exePath + '" --hidden --startup';
+        
+        // 현재 사용자 시작 프로그램에 등록
+        execSync(`reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v "WebPrinter" /d "${startupArgs}" /f`, { windowsHide: true });
+        console.log('✅ Windows 시작 프로그램 등록 완료');
+      } catch (error) {
+        console.log('⚠️ Windows 시작 프로그램 등록 실패:', error.message);
+      }
+    }
+    
+    // 시작 시 숨김 모드로 실행
+    if (isStartupLaunch || isHidden) {
+      global.startupMode = true;
+      console.log('🔕 숨김 모드로 시작됨');
+    }
   } catch (error) {
-    console.error('자동 시작 설정 실패:', error);
+    console.error('⚠️ 자동 시작 설정 실패:', error.message);
   }
 }
 
@@ -210,6 +241,13 @@ if (!gotTheLock) {
       cleanOldSessions();
       cleanupOldPDFs();
       
+      // 시작 모드에 따른 UI 처리
+      if (global.startupMode) {
+        console.log('🔕 시작 시 숨김 모드 - UI 표시 안함');
+      } else {
+        console.log('🖥️ 일반 모드 - 필요시 UI 표시');
+      }
+      
       if (process.platform === 'darwin' && app.dock) {
         app.dock.hide();
       }
@@ -218,6 +256,9 @@ if (!gotTheLock) {
       const protocolUrl = process.argv.find(arg => arg.startsWith('webprinter://'));
       if (protocolUrl) {
         handleProtocolCall(protocolUrl);
+      } else if (!global.startupMode) {
+        // 일반 실행 시에만 자동으로 창 표시 (옵션)
+        console.log('💡 일반 실행 - 필요시 미리보기 창 표시 가능');
       }
       // 백그라운드에서 대기 (창을 열지 않음)
       
