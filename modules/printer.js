@@ -22,15 +22,53 @@ async function printViaPDF(url, paperSize, printSelector, copies, silent, printe
       
       try {
         tempPdfPath = await saveTempPDF(pdfBuffer);
-        tempPngPath = await convertPdfToPng(tempPdfPath);
-        await printImageDirectly(tempPngPath, printerName, copies);
+
+        // PDF를 보여줄 윈도우 생성
+        const pdfWindow = new BrowserWindow({
+          webPreferences: {
+            plugins: true
+          }
+        });
+
+        // PDF 로드
+        pdfWindow.loadFile(tempPdfPath);
+
+        // 인쇄 대화상자 열기
+        pdfWindow.webContents.on('did-finish-load', () => {
+          pdfWindow.webContents.print({
+            silent: false,  // false로 설정하면 인쇄 대화상자가 나타남
+            printBackground: true,
+            deviceName: ''  // 빈 문자열이면 시스템 기본 프린터 사용
+          });
+        });
+
+        function printPDF(pdfPath) {
+          const iframe = document.createElement('iframe');
+          iframe.style.display = 'none';
+          iframe.src = pdfPath;
+          
+          iframe.onload = () => {
+            iframe.contentWindow.print();
+            // 인쇄 후 iframe 제거
+            setTimeout(() => {
+              document.body.removeChild(iframe);
+            }, 1000);
+          };
+          
+          document.body.appendChild(iframe);
+        }
+
+
+        // tempPngPath = await convertPdfToPng(tempPdfPath);
+
+        // await printImageDirectly(tempPngPath, printerName, copies);
         
-        setTimeout(async () => {
-          try {
-            if (tempPdfPath) await fs.unlink(tempPdfPath);
-            if (tempPngPath) await fs.unlink(tempPngPath);
-          } catch (deleteError) {}
-        }, 30000);
+        // setTimeout(async () => {
+        //   try {
+        //     if (tempPdfPath) await fs.unlink(tempPdfPath);
+        //     if (tempPngPath) await fs.unlink(tempPngPath);
+        //   } catch (deleteError) {}
+        // }, 30000);
         
         return { 
           success: true, 
