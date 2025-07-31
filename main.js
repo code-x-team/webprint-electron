@@ -353,7 +353,30 @@ function createTray() {
               cancelId: 1
             }).then((result) => {
               if (result.response === 0) {
+                console.log('🛑 사용자가 트레이에서 종료를 선택함');
+                isQuitting = true; // 종료 플래그 설정
+                
+                // 트레이 즉시 정리
+                if (tray && !tray.isDestroyed()) {
+                  tray.destroy();
+                  tray = null;
+                  console.log('✅ 트레이 즉시 정리 완료');
+                }
+                
+                // HTTP 서버 정리
+                if (httpServer) {
+                  stopHttpServer();
+                  console.log('✅ HTTP 서버 정리 완료');
+                }
+                
+                console.log('📴 앱 종료 중...');
                 app.quit();
+                
+                // 강제 종료 (마지막 수단)
+                setTimeout(() => {
+                  console.log('🔚 강제 종료 실행');
+                  process.exit(0);
+                }, 3000);
               }
             });
           }
@@ -1313,18 +1336,24 @@ app.on('before-quit', (event) => {
   if (!isQuitting) {
     event.preventDefault();
     console.log('⚠️ 종료가 취소되었습니다. 백그라운드에서 계속 실행됩니다.');
+    console.log('💡 트레이 아이콘을 우클릭하여 "종료" 메뉴를 사용하세요.');
   } else {
-    console.log('📴 WebPrinter 서비스 종료 중...');
+    console.log('📴 WebPrinter 서비스 최종 종료 중...');
     
-    // HTTP 서버 정리
+    // HTTP 서버 정리 (중복 체크)
     if (httpServer) {
       stopHttpServer();
+      console.log('✅ HTTP 서버 최종 정리');
     }
     
-    // 트레이 정리
-    if (tray) {
+    // 트레이 정리 (중복 체크)
+    if (tray && !tray.isDestroyed()) {
       tray.destroy();
+      tray = null;
+      console.log('✅ 트레이 최종 정리');
     }
+    
+    console.log('🔚 WebPrinter 완전 종료됨');
   }
 });
 
@@ -1559,18 +1588,40 @@ ipcMain.handle('print-url', async (event, options) => {
         '      contentLength: targetElement.innerHTML?.length || 0',
         '    });',
         '    ',
-        '    console.log("📏 요소 크기 정보:", {',
-        '      boundingRect: {',
+        '    // 🔍 DPI 및 실제 크기 진단',
+        '    const devicePixelRatio = window.devicePixelRatio || 1;',
+        '    const screenDPI = 96 * devicePixelRatio;',
+        '    ',
+        '    // mm to px 변환 (실제 DPI 기준)',
+        '    const mmToPx = (mm) => Math.round(mm * screenDPI / 25.4);',
+        '    const pxToMm = (px) => Math.round(px * 25.4 / screenDPI * 100) / 100;',
+        '    ',
+        '    console.log("🔬 근본 진단 정보:", {',
+        '      "요소 실제 크기 (px)": {',
         '        width: Math.round(elementRect.width) + "px",',
         '        height: Math.round(elementRect.height) + "px"',
         '      },',
-        '      computedStyle: {',
+        '      "요소를 mm로 환산": {',
+        '        width: pxToMm(elementRect.width) + "mm",',
+        '        height: pxToMm(elementRect.height) + "mm"',
+        '      },',
+        '      "웹에서 전달받은 크기": {',
+        `        width: "${effectiveWidth}mm",`,
+        `        height: "${effectiveHeight}mm"`,
+        '      },',
+        '      "DPI 정보": {',
+        '        devicePixelRatio: devicePixelRatio,',
+        '        calculatedDPI: screenDPI,',
+        '        windowInnerSize: window.innerWidth + "x" + window.innerHeight',
+        '      },',
+        '      "이론적 88x244mm 크기": {',
+        `        shouldBe: mmToPx(${effectiveWidth}) + "x" + mmToPx(${effectiveHeight}) + "px"`,
+        '      },',
+        '      "CSS 스타일": {',
         '        width: computedStyle.width,',
         '        height: computedStyle.height,',
-        '        display: computedStyle.display,',
-        '        position: computedStyle.position',
-        '      },',
-        '      textContent: targetElement.textContent?.substring(0, 100) || "내용없음"',
+        '        display: computedStyle.display',
+        '      }',
         '    });',
         '    ',
         '    // 요소가 비어있는지 확인',
@@ -1593,50 +1644,23 @@ ipcMain.handle('print-url', async (event, options) => {
         `    });`,
         '    ',
         '    // 🔍 1단계: 초단순 테스트 CSS (요소 존재 확인용)',
-        '    // 🔧 최강력 CSS: 모든 요소 숨기고 타겟만 표시',
+        '    // ✅ 단순한 CSS: Electron이 크기, CSS가 위치+회전',
         '    const cssText = `',
         '      @media print {',
         '        @page { size: A4; margin: 0; }',
-        '        ',
-        '        /* 🚫 모든 요소 완전 숨김 */',
-        '        * { display: none !important; }',
-        '        html, body { display: block !important; }',
-        '        ',
-        '        /* 🎯 타겟 요소만 강제 표시 */',
         '        .webprinter-print-target {',
-        '          display: block !important;',
-        '          visibility: visible !important;',
-        '          opacity: 1 !important;',
-        '          ',
-        '          /* 🚨 디버깅: 빨간 배경 + 파란 테두리 */',
+        '          /* 🚨 테스트용: 빨간 배경 */',
         '          background: red !important;',
-        '          border: 10px solid blue !important;',
-        '          ',
-        '          /* 📏 고정 크기 (테스트용) */',
-        '          width: 200px !important;',
-        '          height: 400px !important;',
-        '          ',
-        '          /* 📍 절대 위치 */',
-        '          position: fixed !important;',
-        '          top: 0px !important;',
-        '          left: 0px !important;',
-        '          margin: 0 !important;',
-        '          padding: 20px !important;',
-        '          ',
-        '          /* 🎨 텍스트 스타일 */',
-        '          color: white !important;',
-        '          font-size: 24px !important;',
-        '          font-weight: bold !important;',
-        '          font-family: Arial !important;',
-        '          text-align: center !important;',
-        '          z-index: 999999 !important;',
-        '        }',
-        '        ',
-        '        /* 타겟의 모든 자식도 표시 */',
-        '        .webprinter-print-target * {',
-        '          display: block !important;',
-        '          visibility: visible !important;',
-        '          color: white !important;',
+        '          border: 5px solid blue !important;',
+        '          /* 📍 맨위 정중앙 + 180도 회전 */',
+        '          position: absolute !important;',
+        '          top: 0 !important;',
+        '          left: 50% !important;',
+        '          transform: translateX(-50%) rotate(180deg) !important;',
+        '          transform-origin: center top !important;',
+        '          /* 🎨 색상 정확도 */',
+        '          -webkit-print-color-adjust: exact !important;',
+        '          print-color-adjust: exact !important;',
         '        }',
         '      }',
         '    `;',
@@ -1711,22 +1735,32 @@ ipcMain.handle('print-url', async (event, options) => {
       // 프린터 목록 조회 실패 시 사용자가 대화상자에서 직접 선택
     }
     
-    // 인쇄 옵션 설정
+    // 🎯 Electron 인쇄 옵션으로 크기 해결!
     const printOptions = {
       silent: silent,  // Silent print 옵션 (true면 대화상자 없이 바로 인쇄)
       printBackground: true,
       color: true,
       margins: {
-        marginType: 'none'  // 여백 없음으로 설정 (라벨 프린터에 적합)
+        marginType: 'none'  // 여백 완전 제거
       },
-      landscape: false,  // 항상 세로 방향으로 고정
-      copies: Math.max(1, Math.min(copies, 10)),  // 최대 10매 제한
+      landscape: false,  // 세로 방향 고정
+      copies: Math.max(1, Math.min(copies, 10)),
       collate: true,
-      scaleFactor: 100,
-      duplexMode: 'simplex',  // 단면 인쇄
+      
+      // 📏 올바른 크기 전달 방법 찾기
+      scaleFactor: 100,  // 정상 크기로 복원
+      pageSize: 'A4',    // A4 설정 유지
+      
+      duplexMode: 'simplex',
       shouldPrintBackgrounds: true,
       shouldPrintSelectionOnly: false
     };
+    
+    console.log('🔧 인쇄 옵션 (크기 해결):', {
+      scaleFactor: printOptions.scaleFactor + '%',
+      pageSize: printOptions.pageSize,
+      margins: printOptions.margins.marginType
+    });
     
     // 프린트 지정
     if (selectedPrinter) {
