@@ -434,19 +434,17 @@ async function convertPdfToPng(pdfPath) {
     const pdfBuffer = await fs.readFile(pdfPath);
     const pdfBase64 = pdfBuffer.toString('base64');
     
-    // PDF 렌더링을 위한 새 윈도우 생성 (동적 크기 조정)
+    // PDF 렌더링을 위한 새 윈도우 생성 (기본 크기)
     const pdfWindow = new BrowserWindow({
       show: false,
-      width: 2480, // 300 DPI A4 width 기준
-      height: 3508, // 300 DPI A4 height 기준 
+      width: 1200,
+      height: 1600,
       webPreferences: {
         nodeIntegration: true,
         contextIsolation: false,
         webSecurity: false,
         offscreen: true,
-        backgroundThrottling: false,
-        allowRunningInsecureContent: true,
-        zoomFactor: 1.0 // 확대/축소 없이 정확한 1:1
+        backgroundThrottling: false
       }
     });
     
@@ -457,27 +455,8 @@ async function convertPdfToPng(pdfPath) {
         <html>
         <head>
           <style>
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-            html, body { 
-              margin: 0; 
-              padding: 0; 
-              background: #FFFFFF; 
-              overflow: hidden;
-              width: 100%;
-              height: 100%;
-            }
-            canvas { 
-              display: block; 
-              border: none;
-              background: #FFFFFF;
-              position: absolute;
-              top: 0;
-              left: 0;
-              image-rendering: pixelated; /* 픽셀 단위 정확성 */
-              image-rendering: -moz-crisp-edges;
-              image-rendering: crisp-edges;
-              -ms-interpolation-mode: nearest-neighbor;
-            }
+            body { margin: 0; padding: 0; background: white; }
+            canvas { display: block; border: none; }
           </style>
           <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
         </head>
@@ -499,92 +478,31 @@ async function convertPdfToPng(pdfPath) {
                 // 첫 번째 페이지 가져오기
                 const page = await pdf.getPage(1);
                 
-                // PDF 원본 크기 가져오기
-                const originalViewport = page.getViewport({ scale: 1.0 });
-                console.log('PDF 원본 크기:', originalViewport.width, 'x', originalViewport.height);
+                // PDF 원본 크기 그대로 사용 (A4는 이미 A4임)
+                const scale = 1.5; // 최소한의 품질만 향상
+                const viewport = page.getViewport({ scale: scale });
+                console.log('📄 A4 원본 크기 유지 - 1.5 스케일');
                 
-                // A4 용지 크기 (포인트 단위: 1 inch = 72 points)
-                const A4_WIDTH_POINTS = 595.28;  // 8.27 inch × 72 = 595.28 points
-                const A4_HEIGHT_POINTS = 841.89; // 11.69 inch × 72 = 841.89 points
+                console.log('렌더링 크기:', viewport.width, 'x', viewport.height, '픽셀');
                 
-                // 300 DPI 기준 A4 픽셀 크기
-                const A4_WIDTH_300DPI = 2480;  // 8.27 inch × 300 DPI
-                const A4_HEIGHT_300DPI = 3508; // 11.69 inch × 300 DPI
-                
-                // PDF가 A4 크기인지 확인
-                const isA4 = Math.abs(originalViewport.width - A4_WIDTH_POINTS) < 10 && 
-                           Math.abs(originalViewport.height - A4_HEIGHT_POINTS) < 10;
-                
-                // 렌더링 모드 선택 - 인쇄 배치 일치를 위해 강제 A4 모드 권장
-                const FORCE_A4_SIZE = true; // PDF 인쇄와 PNG 인쇄 배치 일치를 위해 true 설정
-                
-                let viewport;
-                if (FORCE_A4_SIZE) {
-                  // 강제 A4 모드: 인쇄 배치 일치를 위해 항상 정확한 A4 크기
-                  const scale = 300 / 72; // 4.167배 정확한 스케일
-                  viewport = page.getViewport({ 
-                    scale: scale,
-                    offsetX: 0,
-                    offsetY: 0,
-                    dontFlip: false
-                  });
-                  
-                  // A4 크기로 강제 조정
-                  viewport.width = A4_WIDTH_300DPI;
-                  viewport.height = A4_HEIGHT_300DPI;
-                  
-                  console.log('🔒 강제 A4 모드 - 인쇄 배치 일치를 위해 정확한 A4 크기 적용');
-                } else if (isA4) {
-                  // A4 크기라면 정확한 A4 크기로 렌더링
-                  const scale = 300 / 72; // 4.167배
-                  viewport = page.getViewport({ 
-                    scale: scale,
-                    offsetX: 0,
-                    offsetY: 0
-                  });
-                  console.log('✅ A4 크기 PDF 감지 - 표준 A4로 렌더링');
-                } else {
-                  // A4가 아니라면 원본 비율 유지하며 300 DPI로 스케일링
-                  const scale = 300 / 72;
-                  viewport = page.getViewport({ scale: scale });
-                  console.log('📄 비표준 크기 PDF - 원본 비율 유지하며 300 DPI 렌더링');
-                }
-                
-                console.log('최종 렌더링 크기:', viewport.width, 'x', viewport.height, '픽셀');
-                console.log('A4 기준 크기:', A4_WIDTH_300DPI, 'x', A4_HEIGHT_300DPI, '픽셀');
-                
-                // 캔버스 설정 (정확한 1:1 매핑)
+                // 캔버스 설정 (기본 방식)
                 const canvas = document.getElementById('pdfCanvas');
                 const context = canvas.getContext('2d');
                 
-                // 캔버스 크기를 뷰포트와 정확히 일치시킴
-                canvas.width = Math.floor(viewport.width);
-                canvas.height = Math.floor(viewport.height);
-                canvas.style.width = Math.floor(viewport.width) + 'px';
-                canvas.style.height = Math.floor(viewport.height) + 'px';
+                // 기본 캔버스 크기 설정
+                canvas.width = viewport.width;
+                canvas.height = viewport.height;
                 
                 console.log('캔버스 크기 설정:', canvas.width, 'x', canvas.height);
                 
-                // 최고 품질 렌더링 설정
-                context.imageSmoothingEnabled = false; // 픽셀 단위 정확성을 위해 끔
-                context.textRenderingOptimization = 'optimizeQuality';
-                
-                // 캔버스 배경을 완전한 흰색으로 설정
-                context.fillStyle = '#FFFFFF';
+                // 기본 렌더링 설정
+                context.fillStyle = 'white';
                 context.fillRect(0, 0, canvas.width, canvas.height);
                 
-                // PDF 렌더링 컨텍스트 (최고 품질 설정)
+                // 기본 PDF 렌더링 컨텍스트
                 const renderContext = {
                   canvasContext: context,
-                  viewport: viewport,
-                  intent: 'print', // 인쇄 최적화
-                  renderInteractiveForms: false,
-                  optionalContentConfigPromise: null,
-                  // 고품질 렌더링을 위한 추가 옵션
-                  transform: null,
-                  imageLayer: null,
-                  canvasFactory: null,
-                  background: '#FFFFFF'
+                  viewport: viewport
                 };
                 
                 await page.render(renderContext).promise;
@@ -608,9 +526,9 @@ async function convertPdfToPng(pdfPath) {
       
       await pdfWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(pdfRenderHtml)}`);
       
-      // PDF 렌더링 완료까지 대기 (최대 45초)
+      // PDF 렌더링 완료까지 대기 (최대 30초)
       let attempts = 0;
-      const maxAttempts = 90; // 45초 (500ms * 90) - 고해상도 렌더링을 위해 시간 증가
+      const maxAttempts = 60; // 30초 (500ms * 60)
       
       while (attempts < maxAttempts) {
         await new Promise(resolve => setTimeout(resolve, 500));
@@ -652,7 +570,7 @@ async function convertPdfToPng(pdfPath) {
       // 파일 크기 확인
       const stats = await fs.stat(pngPath);
       
-      if (stats.size < 100000) { // 최소 100KB 이상이어야 함 (300 DPI 고해상도)
+      if (stats.size < 10000) { // 최소 10KB 이상이어야 함 (기본 검증)
         console.log('⚠️ PNG 파일 크기가 작음:', stats.size, 'bytes');
         throw new Error('생성된 PNG 파일이 너무 작습니다 (렌더링 실패 가능성)');
       }
@@ -687,27 +605,14 @@ async function printImageDirectly(imagePath, printerName, copies = 1) {
       console.log('📁 이미지 파일 경로:', cleanImagePath);
       console.log('🖨️ 대상 프린터:', cleanPrinterName);
       
-      // 방법 1: mspaint.exe 직접 사용 - 여백 없이 실제 크기로 인쇄
+      // 방법 1: mspaint.exe 기본 방식 (단순하고 안정적)
       try {
-        console.log('🎨 mspaint.exe 직접 사용한 인쇄 시도 (여백 없음)...');
+        console.log('🎨 mspaint.exe 기본 인쇄 시도...');
         
-        // Windows의 네이티브 mspaint 명령 사용 (실제 크기, 여백 없음)
-        // /pt 대신 /p 사용하여 더 정확한 제어
-        const paintCommand = `mspaint.exe /p "${cleanImagePath}"`;
+        // 검증된 기본 mspaint 명령 사용
+        const paintCommand = `mspaint.exe /pt "${cleanImagePath}" "${cleanPrinterName}"`;
         console.log('실행 명령어:', paintCommand);
         
-        // 프린터 설정을 위한 추가 PowerShell 명령
-        const printerSetupCommand = `powershell -command "
-          # 기본 프린터를 지정된 프린터로 설정
-          $printer = Get-Printer -Name '${cleanPrinterName}' -ErrorAction SilentlyContinue
-          if ($printer) {
-            Write-Host '프린터 설정: ${cleanPrinterName}'
-            # 여백 없이 인쇄하기 위한 레지스트리 설정 (임시)
-            Set-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Windows' -Name 'DeviceNotSelectedTimeout' -Value 5 -ErrorAction SilentlyContinue
-          }
-        "`;
-        
-        await execAsync(printerSetupCommand);
         const result = await execAsync(paintCommand, { timeout: 10000 });
         console.log('✅ mspaint.exe 인쇄 명령 실행 완료:', result);
         
@@ -725,83 +630,11 @@ async function printImageDirectly(imagePath, printerName, copies = 1) {
           
         } catch (cmdError) {
           console.log('❌ cmd mspaint도 실패:', cmdError.message);
-          console.log('🔄 PowerShell fallback 시도...');
-          
-          // 방법 3: PowerShell로 정확한 크기 인쇄 (여백 제거)
-          const psCommand = `powershell -command "
-            Add-Type -AssemblyName System.Drawing, System.Drawing.Printing
-            $image = [System.Drawing.Image]::FromFile('${escapedPath}')
-            $printDoc = New-Object System.Drawing.Printing.PrintDocument
-            $printDoc.PrinterSettings.PrinterName = '${escapedPrinterName}'
-            
-            # 여백 제거 및 실제 크기 설정
-            $printDoc.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins(0, 0, 0, 0)
-            $printDoc.DefaultPageSettings.Color = $true
-            
-            $printDoc.add_PrintPage({
-              param($sender, $e)
-              
-              # 페이지 크기 가져오기
-              $pageWidth = $e.PageBounds.Width
-              $pageHeight = $e.PageBounds.Height
-              
-              # 이미지를 페이지 전체에 맞춤 (여백 없음)
-              $destRect = New-Object System.Drawing.Rectangle(0, 0, $pageWidth, $pageHeight)
-              
-              # 고품질 렌더링 설정
-              $e.Graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-              $e.Graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
-              $e.Graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
-              
-              # 이미지를 페이지 크기에 맞게 그리기
-              $e.Graphics.DrawImage($image, $destRect)
-              
-              Write-Host '이미지를 페이지 전체 크기로 인쇄: ' $destRect.Width 'x' $destRect.Height
-            })
-            
-            if ($printDoc.PrinterSettings.IsValid) { 
-              $printDoc.Print()
-              Write-Host 'PowerShell 고품질 인쇄 완료' 
-            } else { 
-              Write-Host 'Printer not valid' 
-            }
-            $image.Dispose()
-          "`;
-          console.log('실행 명령어:', psCommand);
-          
-          const psResult = await execAsync(psCommand);
-          console.log('✅ PowerShell 고품질 인쇄 완료:', psResult);
+          throw new Error('mspaint 인쇄 실패: ' + cmdError.message);
         }
       }
       
-      // 방법 4: Windows print 명령어 시도 (추가 옵션)
-      try {
-        console.log('🔄 Windows print 명령어 추가 시도...');
-        const printCommand = `print /D:"${cleanPrinterName}" "${cleanImagePath}"`;
-        console.log('실행 명령어:', printCommand);
-        
-        const printResult = await execAsync(printCommand, { timeout: 5000 });
-        console.log('📝 Windows print 명령 결과:', printResult);
-        
-      } catch (printCmdError) {
-        console.log('⚠️ Windows print 명령 실패 (정상적, 이미지는 지원 안함):', printCmdError.message);
-      }
-      
-      // 인쇄 후 프린터 큐 확인
-      try {
-        console.log('🔍 프린터 큐 상태 확인 중...');
-        await new Promise(resolve => setTimeout(resolve, 2000)); // 2초 대기
-        
-        const queueCheck = await execAsync(`powershell -command "Get-PrintJob -PrinterName '${escapedPrinterName}' | ForEach-Object { Write-Host \"작업ID: $($_.Id), 상태: $($_.JobStatus), 문서: $($_.DocumentName)\" }"`);
-        console.log('📋 현재 프린터 큐:', queueCheck.stdout || '큐가 비어있음');
-        
-        // 프린터 상태도 확인
-        const printerStatus = await execAsync(`powershell -command "Get-Printer -Name '${escapedPrinterName}' | Select-Object Name, PrinterStatus, JobCount | Format-List"`);
-        console.log('🖨️ 프린터 상태:', printerStatus.stdout);
-        
-      } catch (queueError) {
-        console.log('⚠️ 프린터 큐 확인 실패:', queueError.message);
-      }
+      console.log('✅ mspaint 인쇄 명령 완료');
       
     } else if (process.platform === 'darwin') {
       let printCmd = `lpr -# ${copies}`;
@@ -835,7 +668,7 @@ async function printDirectly(pdfPath, printerName, copies = 1) {
       
       console.log('🪟 Windows 환경에서 PDF 직접 인쇄 시도...');
       
-      // Adobe Reader로 자동 인쇄 시도 (여백 설정 통일)
+      // Adobe Reader로 기본 자동 인쇄
       const adobeCommand = `powershell -command "
         $adobePath = @(
           'C:\\Program Files\\Adobe\\Acrobat DC\\Acrobat\\Acrobat.exe',
@@ -844,22 +677,17 @@ async function printDirectly(pdfPath, printerName, copies = 1) {
         ) | Where-Object { Test-Path $_ } | Select-Object -First 1
         
         if ($adobePath) {
-          Write-Host \"Adobe Reader 발견: $adobePath\"
-          # 여백 없이 실제 크기로 인쇄하기 위한 매개변수 추가
-          $process = Start-Process -FilePath $adobePath -ArgumentList '/s','/t','${escapedPath}','${escapedPrinterName}' -WindowStyle Hidden -PassThru
-          Start-Sleep -Seconds 8
+          $process = Start-Process -FilePath $adobePath -ArgumentList '/t','${escapedPath}','${escapedPrinterName}' -WindowStyle Hidden -PassThru
+          Start-Sleep -Seconds 5
           if (!$process.HasExited) { $process.Kill() }
-          Write-Host \"Adobe Reader 여백 없는 인쇄 완료\"
         } else {
-          Write-Host \"Adobe Reader 없음, 기본 뷰어 사용\"
-          # 기본 뷰어도 여백 최소화 시도
           Start-Process -FilePath '${escapedPath}' -Verb Print -WindowStyle Hidden
         }
       "`;
       console.log('실행 명령어:', adobeCommand);
       
       const result = await execAsync(adobeCommand);
-      console.log('✅ PDF 여백 없는 인쇄 명령 실행 완료:', result);
+      console.log('✅ PDF 기본 인쇄 명령 실행 완료:', result);
       
     } else if (process.platform === 'darwin') {
       let printCmd = `lpr -# ${copies}`;
