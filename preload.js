@@ -31,6 +31,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('loading-complete', (event, data) => callback(data));
   },
   
+  onRestartLoading: (callback) => {
+    ipcRenderer.on('restart-loading', (event, data) => callback(data));
+  },
+  
   // 업데이트 이벤트 (선택적)
   onUpdateDownloaded: (callback) => {
     ipcRenderer.on('update-downloaded', (event, info) => callback(info));

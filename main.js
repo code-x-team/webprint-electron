@@ -1,13 +1,21 @@
 const { app, Tray, Menu, dialog } = require('electron');
 const path = require('path');
-const { autoUpdater } = require('electron-updater');
 
 const { startHttpServer, stopHttpServer, loadSessionData, cleanOldSessions } = require('./modules/server');
 const { createPrintWindow, setupIpcHandlers, closeAllWindows } = require('./modules/window');
 const { cleanupOldPDFs } = require('./modules/printer');
 
 let tray = null;
+let autoUpdater = null;
 global.isQuitting = false;
+
+// electron-updater 조건부 로드
+try {
+  const { autoUpdater: updater } = require('electron-updater');
+  autoUpdater = updater;
+} catch (error) {
+  console.log('Auto-updater not available');
+}
 
 function createTray() {
   try {
@@ -56,7 +64,9 @@ function createTray() {
     tray.on('double-click', () => {
       createPrintWindow();
     });
-  } catch (error) {}
+  } catch (error) {
+    console.error('트레이 생성 실패:', error);
+  }
 }
 
 function registerProtocol() {
@@ -70,22 +80,41 @@ function registerProtocol() {
 }
 
 function setupAutoUpdater() {
-  if (process.env.NODE_ENV === 'development' || process.defaultApp) return;
+  if (!autoUpdater || process.env.NODE_ENV === 'development' || process.defaultApp) return;
   
-  autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
-  
-  setTimeout(() => autoUpdater.checkForUpdates(), 3000);
-  setInterval(() => autoUpdater.checkForUpdates(), 30 * 60 * 1000);
-  
-  autoUpdater.on('update-downloaded', () => {
-    if (tray && !tray.isDestroyed()) {
-      tray.displayBalloon({
-        title: 'WebPrinter 업데이트',
-        content: '새 버전이 다운로드되었습니다. 재시작 시 적용됩니다.'
+  try {
+    autoUpdater.autoDownload = true;
+    autoUpdater.autoInstallOnAppQuit = true;
+    
+    // 업데이트 확인
+    setTimeout(() => {
+      autoUpdater.checkForUpdates().catch(err => {
+        console.log('업데이트 확인 실패:', err);
       });
-    }
-  });
+    }, 3000);
+    
+    // 주기적 업데이트 확인
+    setInterval(() => {
+      autoUpdater.checkForUpdates().catch(err => {
+        console.log('업데이트 확인 실패:', err);
+      });
+    }, 30 * 60 * 1000);
+    
+    autoUpdater.on('update-downloaded', () => {
+      if (tray && !tray.isDestroyed()) {
+        tray.displayBalloon({
+          title: 'WebPrinter 업데이트',
+          content: '새 버전이 다운로드되었습니다. 재시작 시 적용됩니다.'
+        });
+      }
+    });
+    
+    autoUpdater.on('error', (error) => {
+      console.log('업데이트 오류:', error);
+    });
+  } catch (error) {
+    console.log('자동 업데이트 설정 실패:', error);
+  }
 }
 
 function setupAutoLaunch() {
@@ -95,7 +124,9 @@ function setupAutoLaunch() {
       openAsHidden: true,
       name: 'WebPrinter'
     });
-  } catch (error) {}
+  } catch (error) {
+    console.error('자동 시작 설정 실패:', error);
+  }
 }
 
 async function handleProtocolCall(protocolUrl) {
@@ -107,7 +138,9 @@ async function handleProtocolCall(protocolUrl) {
     if (action === 'print') {
       await createPrintWindow(params.session);
     }
-  } catch (error) {}
+  } catch (error) {
+    console.error('프로토콜 처리 실패:', error);
+  }
 }
 
 const gotTheLock = app.requestSingleInstanceLock();
@@ -121,23 +154,28 @@ if (!gotTheLock) {
   });
 
   app.whenReady().then(async () => {
-    registerProtocol();
-    setupAutoUpdater();
-    setupAutoLaunch();
-    createTray();
-    setupIpcHandlers();
-    
-    await startHttpServer();
-    loadSessionData();
-    cleanOldSessions();
-    cleanupOldPDFs();
-    
-    if (process.platform === 'darwin' && app.dock && tray && !tray.isDestroyed()) {
-      app.dock.hide();
+    try {
+      registerProtocol();
+      setupAutoUpdater();
+      setupAutoLaunch();
+      createTray();
+      setupIpcHandlers();
+      
+      await startHttpServer();
+      loadSessionData();
+      cleanOldSessions();
+      cleanupOldPDFs();
+      
+      if (process.platform === 'darwin' && app.dock && tray && !tray.isDestroyed()) {
+        app.dock.hide();
+      }
+      
+      const protocolUrl = process.argv.find(arg => arg.startsWith('webprinter://'));
+      if (protocolUrl) handleProtocolCall(protocolUrl);
+    } catch (error) {
+      console.error('앱 초기화 오류:', error);
+      dialog.showErrorBox('WebPrinter 오류', '앱을 시작할 수 없습니다.\n' + error.message);
     }
-    
-    const protocolUrl = process.argv.find(arg => arg.startsWith('webprinter://'));
-    if (protocolUrl) handleProtocolCall(protocolUrl);
   });
 
   app.on('open-url', (event, protocolUrl) => {

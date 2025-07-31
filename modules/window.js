@@ -143,15 +143,37 @@ function setupIpcHandlers() {
         : [];
       return { success: true, printers };
     } catch (error) {
-      return { success: false, error: error.message };
+      console.error('프린터 목록 가져오기 실패:', error);
+      return { success: false, error: error.message, printers: [] };
     }
   });
 
   ipcMain.handle('print-url', async (event, params) => {
     try {
-      if (!params.url || !params.paperSize) {
-        throw new Error('인쇄 매개변수가 누락되었습니다');
+      // 파라미터 검증
+      if (!params.url) {
+        throw new Error('인쇄할 URL이 없습니다');
       }
+      
+      if (!params.paperSize || !params.paperSize.width || !params.paperSize.height) {
+        throw new Error('용지 크기가 지정되지 않았습니다');
+      }
+      
+      // outputType 기본값 설정
+      const outputType = params.outputType || 'pdf';
+      
+      // 프린터 출력 시 프린터 선택 확인
+      if (outputType === 'printer' && !params.printerName) {
+        throw new Error('프린터가 선택되지 않았습니다');
+      }
+      
+      console.log('인쇄 시작:', {
+        url: params.url,
+        paperSize: params.paperSize,
+        outputType: outputType,
+        rotate180: params.rotate180,
+        printerName: params.printerName
+      });
       
       const result = await printViaPDF(
         params.url,
@@ -159,12 +181,18 @@ function setupIpcHandlers() {
         params.printSelector || '#print_wrap',
         params.copies || 1,
         params.silent !== false,
-        params.printerName
+        params.printerName,
+        outputType,
+        params.rotate180 || false
       );
       
       return result;
     } catch (error) {
-      return { success: false, error: error.message };
+      console.error('인쇄 오류:', error);
+      return { 
+        success: false, 
+        error: error.message || '알 수 없는 오류가 발생했습니다'
+      };
     }
   });
 

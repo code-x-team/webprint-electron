@@ -99,7 +99,10 @@ async function executePrint() {
             throw new Error('인쇄 정보가 부족합니다');
         }
         
-        UIManager.showStatus('PDF 생성 중...', 'info');
+        const outputType = UIManager.getSelectedOutputType();
+        const rotate180 = UIManager.isRotate180Checked();
+        
+        UIManager.showStatus(outputType === 'pdf' ? 'PDF 생성 중...' : '인쇄 중...', 'info');
         
         const result = await IPCHandler.printUrl({
             url: printUrl,
@@ -107,16 +110,22 @@ async function executePrint() {
             copies: parseInt(UIManager.elements.copiesInput.value) || 1,
             paperSize: currentPaperSize,
             printSelector: receivedUrls.printSelector || '#print_wrap',
-            silent: true
+            silent: true,
+            outputType: outputType,
+            rotate180: rotate180
         });
         
         if (result.success) {
-            UIManager.showStatus('PDF 미리보기가 열렸습니다!', 'success');
+            if (outputType === 'pdf') {
+                UIManager.showStatus('PDF 미리보기가 열렸습니다!', 'success');
+            } else {
+                UIManager.showStatus('프린터로 전송되었습니다!', 'success');
+            }
         } else {
             throw new Error(result.error);
         }
     } catch (error) {
-        UIManager.showStatus(`인쇄 실패: ${error.message}`, 'error');
+        UIManager.showStatus(`출력 실패: ${error.message}`, 'error');
     } finally {
         isPrinting = false;
         UIManager.setPrintButtonLoading(false);
@@ -126,7 +135,10 @@ async function executePrint() {
 // UI 상태 업데이트
 function updateUI() {
     const hasUrl = receivedUrls.printUrl || receivedUrls.previewUrl;
-    UIManager.updatePrintButton(hasUrl);
+    const outputType = UIManager.getSelectedOutputType();
+    const printerSelected = outputType === 'pdf' || UIManager.elements.printerSelect.value;
+    
+    UIManager.updatePrintButton(hasUrl && printerSelected);
 }
 
 // 키보드 단축키
