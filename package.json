@@ -114,7 +114,8 @@
       ],
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
-      "artifactName": "${productName}-${version}-${arch}.${ext}"
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "x64ArchFiles": "Contents/Resources/app/node_modules/@napi-rs/*-darwin-x64/**/*"
     },
     "win": {
       "target": "nsis",
