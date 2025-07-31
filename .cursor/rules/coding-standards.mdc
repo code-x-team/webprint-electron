@@ -1,0 +1,50 @@
+---
+alwaysApply: true
+---
+
+# WebPrinter 코딩 표준
+
+## 네이밍 규칙
+- 변수명: camelCase (예: currentSession, receivedUrls)
+- 함수명: 동사로 시작 (예: createPrintWindow, handleUrlsReceived)
+- 상수: UPPER_SNAKE_CASE (예: MAX_RETRIES)
+- 파일명: kebab-case (예: print-preview.js)
+
+## 에러 처리
+```javascript
+// 모든 async 함수에서 try-catch 사용
+try {
+  const result = await someAsyncOperation();
+  return { success: true, data: result };
+} catch (error) {
+  return { success: false, error: error.message };
+}
+```
+
+## 함수 구조
+- 한 함수당 하나의 책임
+- 매개변수는 최대 3개까지
+- 복잡한 로직은 별도 함수로 분리
+- 주석은 "왜"를 설명, "무엇"은 코드로 표현
+
+## 모듈 패턴
+```javascript
+// 명시적 exports
+module.exports = {
+  functionName,
+  anotherFunction
+};
+
+// 구조분해를 통한 깔끔한 imports
+const { createPrintWindow, notifyWindow } = require('./window');
+```
+
+## 비동기 처리
+- Promise보다 async/await 선호
+- setTimeout 대신 적절한 Promise wrapper 사용
+- 병렬 처리가 가능한 경우 Promise.all 활용
+
+## 타입 체크
+- 함수 시작 시 매개변수 유효성 검증
+- null/undefined 체크 필수
+- 숫자는 parseFloat/parseInt로 명시적 변환

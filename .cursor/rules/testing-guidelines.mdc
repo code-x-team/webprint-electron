@@ -1,0 +1,47 @@
+---
+globs: test/*.js
+description: Testing and quality assurance guidelines
+---
+
+# 테스팅 가이드라인
+
+## 기본 테스트 구조
+[test/basic.test.js](mdc:test/basic.test.js)를 참고하여 구조적 테스트 작성:
+- 필수 파일 존재 확인
+- JSON 파일 유효성 검증
+- 모듈 로딩 테스트
+
+## 테스트 패턴
+```javascript
+// 성공/실패 명확히 구분
+let failed = false;
+
+// 각 테스트 결과를 즉시 출력
+if (condition) {
+  console.log(`✅ ${testName} 성공`);
+} else {
+  console.error(`❌ ${testName} 실패`);
+  failed = true;
+}
+
+// 최종 결과로 프로세스 종료
+process.exit(failed ? 1 : 0);
+```
+
+## 테스트 범위
+- 파일 시스템 접근 (존재성, 권한)
+- JSON 구문 분석
+- 모듈 종속성
+- API 엔드포인트 응답
+- 에러 상황 처리
+
+## 예제 애플리케이션
+[example/](mdc:example/)을 통한 통합 테스트:
+- 실제 HTTP 요청/응답 흐름
+- 프로토콜 핸들링
+- 에러 케이스 시나리오
+
+## 디버깅
+- console.log 대신 적절한 로깅 레벨 사용
+- 에러 스택 트레이스 보존
+- 재현 가능한 테스트 케이스 작성

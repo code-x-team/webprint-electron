@@ -32,9 +32,9 @@
     "electron-builder": "^24.6.4"
   },
   "dependencies": {
-    "express": "^4.18.2",
     "cors": "^2.8.5",
-    "electron-updater": "^6.1.4"
+    "electron-updater": "^6.6.2",
+    "express": "^4.18.2"
   },
   "build": {
     "appId": "com.webprinter.app",
@@ -50,22 +50,17 @@
         ]
       }
     ],
+    "asar": true,
     "files": [
-      "main.js",
-      "preload.js",
-      "print-preview.html",
-      "modules/**/*",
-      "styles/**/*",
-      "renderer/**/*",
-      "example/**/*",
-      "assets/icon*.png",
-      "assets/icon*.ico",
-      "package.json",
-      "!node_modules",
+      "**/*",
+      "!node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
+      "!node_modules/*/{test,__tests__,tests,powered-test,example,examples}",
+      "!node_modules/**/*.d.ts",
       "!dist",
       "!test",
       "!scripts"
     ],
+    "includeSubNodeModules": true,
     "extraResources": [
       {
         "from": "assets",

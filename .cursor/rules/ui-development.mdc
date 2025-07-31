@@ -1,0 +1,40 @@
+---
+globs: renderer/*.js,*.html,styles/*.css
+---
+
+# UI 개발 가이드
+
+## 컴포넌트 구조
+- UIManager: DOM 요소 관리 및 상태 업데이트
+- IPCHandler: Electron IPC 통신 래퍼
+- print-preview.js: 메인 애플리케이션 로직
+
+## 상태 관리
+```javascript
+// 전역 상태 변수
+let serverInfo = null;
+let receivedUrls = {};
+let currentPaperSize = null;
+let availablePrinters = [];
+let isPrinting = false;
+```
+
+## 이벤트 처리
+- DOMContentLoaded에서 초기화
+- 키보드 단축키: Ctrl+P (인쇄), ESC (숨김)
+- 모든 비동기 작업에 로딩 상태 표시
+
+## UI 업데이트 패턴
+- 상태 변경 시 updateUI() 호출
+- 에러/성공 메시지는 3초 후 자동 숨김
+- 버튼 비활성화로 중복 클릭 방지
+
+## 스타일링
+- Tailwind 스타일 패턴 사용
+- 반응형 디자인 (모바일 지원)
+- 로딩 오버레이 및 스피너 애니메이션
+
+## 접근성
+- 적절한 ARIA 라벨 사용
+- 키보드 네비게이션 지원
+- 색상 대비 및 폰트 크기 고려

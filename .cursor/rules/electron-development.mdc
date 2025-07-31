@@ -1,0 +1,30 @@
+---
+globs: main.js,preload.js,modules/*.js
+---
+
+# Electron 개발 규칙
+
+## 보안 설정
+항상 다음 보안 설정을 사용:
+```javascript
+webPreferences: {
+  nodeIntegration: false,      // Node.js 접근 차단
+  contextIsolation: true,      // 컨텍스트 격리
+  webSecurity: false          // CORS 우회 (인쇄 전용)
+}
+```
+
+## IPC 통신
+- contextBridge를 통한 안전한 API 노출
+- 모든 IPC 핸들러는 async/await 사용
+- 에러 발생 시 { success: false, error: message } 형태로 반환
+
+## 리소스 관리
+- BrowserWindow 생성 후 반드시 destroy 확인
+- 임시 파일은 24시간 후 자동 정리
+- 메모리 누수 방지를 위한 이벤트 리스너 정리
+
+## 전역 상태
+- global.isQuitting으로 앱 종료 상태 관리
+- 윈도우 참조는 null 체크 필수
+- 싱글턴 패턴으로 중복 실행 방지
