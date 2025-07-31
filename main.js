@@ -255,21 +255,37 @@ function createTray() {
     
     // 플랫폼별 아이콘 경로 설정
     if (process.platform === 'win32') {
-      // Windows - 여러 경로 시도
+      // Windows - 여러 경로 시도 (ico 우선, 그다음 png)
       const possiblePaths = [
-        path.join(__dirname, 'icon-32.png'),  // 작은 아이콘 우선
+        path.join(__dirname, 'icon-32.ico'),
+        path.join(__dirname, 'icon.ico'),
+        path.join(__dirname, 'icon-32.png'),  
         path.join(__dirname, 'icon.png'),
+        path.join(process.resourcesPath, 'icon-32.ico'),
+        path.join(process.resourcesPath, 'icon.ico'),
         path.join(process.resourcesPath, 'icon-32.png'),
         path.join(process.resourcesPath, 'icon.png')
       ];
       
       iconPath = possiblePaths.find(p => {
         try {
-          return require('fs').existsSync(p);
+          const exists = require('fs').existsSync(p);
+          if (exists) {
+            console.log('✅ 트레이 아이콘 발견:', p);
+          }
+          return exists;
         } catch {
           return false;
         }
-      }) || possiblePaths[0]; // 없으면 첫 번째 경로 사용
+      });
+      
+      if (!iconPath) {
+        console.warn('⚠️ 적절한 트레이 아이콘을 찾을 수 없음');
+        console.log('📁 현재 디렉토리:', __dirname);
+        console.log('📂 사용 가능한 파일들:', require('fs').readdirSync(__dirname).filter(f => f.includes('icon')));
+        // 기본값으로 첫 번째 경로 사용
+        iconPath = possiblePaths[2]; // icon-32.png
+      }
       
     } else if (process.platform === 'linux') {
       iconPath = path.join(__dirname, 'icon.png');
@@ -279,16 +295,30 @@ function createTray() {
       return;
     }
     
-    console.log('🎯 트레이 아이콘 경로:', iconPath);
+    console.log('🎯 최종 트레이 아이콘 경로:', iconPath);
     
-    // 파일 존재 확인
-    if (!require('fs').existsSync(iconPath)) {
-      console.warn('⚠️ 트레이 아이콘 파일이 없음:', iconPath);
-      console.log('📁 현재 디렉토리:', __dirname);
-      console.log('📂 파일 목록:', require('fs').readdirSync(__dirname).filter(f => f.includes('icon')));
+    // Tray 생성 시도
+    try {
+      tray = new Tray(iconPath);
+      console.log('✅ 트레이 객체 생성 성공');
+    } catch (trayError) {
+      console.error('❌ 트레이 객체 생성 실패:', trayError.message);
+      
+      // 대체 아이콘으로 재시도
+      const fallbackIcon = path.join(__dirname, 'icon.png');
+      if (require('fs').existsSync(fallbackIcon) && fallbackIcon !== iconPath) {
+        console.log('🔄 대체 아이콘으로 재시도:', fallbackIcon);
+        try {
+          tray = new Tray(fallbackIcon);
+          console.log('✅ 대체 아이콘으로 트레이 생성 성공');
+        } catch (fallbackError) {
+          console.error('❌ 대체 아이콘으로도 실패:', fallbackError.message);
+          throw fallbackError;
+        }
+      } else {
+        throw trayError;
+      }
     }
-    
-    tray = new Tray(iconPath);
     const contextMenu = Menu.buildFromTemplate([
         {
           label: '📂 WebPrinter 열기',
@@ -371,7 +401,30 @@ function createTray() {
         },
         { type: 'separator' },
         {
-          label: '🛑 완전 종료 (프로세스 종료)',
+          label: '🚪 백그라운드 종료 (다시 자동시작)',
+          click: () => {
+            dialog.showMessageBox(null, {
+              type: 'question', 
+              title: 'WebPrinter 백그라운드 종료',
+              message: 'WebPrinter를 백그라운드에서 종료하시겠습니까?',
+              detail: [
+                '• 현재 실행 중인 프로세스가 종료됩니다',
+                '• 다음 부팅 시 자동으로 다시 시작됩니다',
+                '• 지금 당장은 웹에서 호출할 수 없게 됩니다'
+              ].join('\n'),
+              buttons: ['종료', '취소'],
+              defaultId: 0,
+              cancelId: 1
+            }).then((result) => {
+              if (result.response === 0) {
+                // 자동시작 설정은 유지하고 단순 종료
+                app.quit();
+              }
+            });
+          }
+        },
+        {
+          label: '🛑 완전 종료 (자동시작 해제)',
           click: () => {
             dialog.showMessageBox(null, {
               type: 'warning',
@@ -381,13 +434,17 @@ function createTray() {
                 '• 백그라운드 서비스가 완전히 중지됩니다',
                 '• 웹에서 더 이상 호출할 수 없게 됩니다', 
                 '• 다시 사용하려면 수동으로 실행해야 합니다',
-                '• 시작 프로그램에서도 제거됩니다'
+                '• 자동 시작 설정도 해제됩니다'
               ].join('\n'),
               buttons: ['완전 종료', '취소'],
               defaultId: 1,
               cancelId: 1
             }).then((result) => {
               if (result.response === 0) {
+                // 자동시작 해제
+                app.setLoginItemSettings({
+                  openAtLogin: false
+                });
                 cleanupAndExit('사용자 완전 종료');
               }
             });
@@ -404,11 +461,21 @@ function createTray() {
         }
       ]);
       
-      tray.setToolTip('WebPrinter - 우클릭으로 메뉴 열기');
+      tray.setToolTip('WebPrinter - 우클릭으로 메뉴 열기 | 더블클릭으로 창 열기');
       tray.setContextMenu(contextMenu);
+      
+      // 트레이 클릭 이벤트들
+      tray.on('click', () => {
+        console.log('🖱️ 트레이 아이콘 클릭됨');
+      });
+      
+      tray.on('right-click', () => {
+        console.log('🖱️ 트레이 아이콘 우클릭됨 - 컨텍스트 메뉴 표시');
+      });
       
       // 트레이 더블클릭 시 창 열기
       tray.on('double-click', () => {
+        console.log('🖱️ 트레이 아이콘 더블클릭됨 - 창 열기');
         if (printWindow) {
           printWindow.show();
           printWindow.focus();
@@ -417,7 +484,23 @@ function createTray() {
         }
       });
       
-      console.log('✅ 시스템 트레이 생성 완료 (개선된 메뉴)');
+      // 트레이가 실제로 표시되는지 확인
+      if (tray && !tray.isDestroyed()) {
+        console.log('✅ 시스템 트레이 생성 완료 (개선된 메뉴)');
+        console.log('💡 사용법: 트레이 아이콘을 우클릭하면 메뉴가 나타납니다');
+        console.log('💡 종료방법: 트레이 우클릭 → "백그라운드 종료" 또는 "완전 종료"');
+        
+        // 3초 후 알림으로 사용자에게 알려주기
+        setTimeout(() => {
+          tray.displayBalloon({
+            iconType: 'info',
+            title: 'WebPrinter 실행 중',
+            content: '트레이 아이콘을 우클릭하여 메뉴를 확인하세요!'
+          });
+        }, 3000);
+      } else {
+        console.error('❌ 트레이 객체가 생성되었지만 파괴된 상태');
+      }
     } catch (error) {
       console.warn('⚠️ 시스템 트레이 생성 실패:', error.message);
     }
