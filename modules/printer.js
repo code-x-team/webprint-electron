@@ -133,6 +133,25 @@ async function generatePDF(url, paperSize, printSelector, rotate180 = false) {
           return true;
         })()
       `);
+
+      await pdfWindow.webContents.insertCSS(`
+        @page {
+          margin: 0mm 0mm 0mm 0mm; 
+          padding: 0;
+          size: A4;
+        }
+        
+        @media print {
+          body {
+            padding: 0;
+            margin: 0;
+          }
+          .print-content {
+            padding: 0;
+            margin: 0;
+          }
+        }
+      `);
     }
     
     // PDF 생성 옵션
