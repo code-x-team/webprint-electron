@@ -119,10 +119,12 @@ async function executePrint() {
             if (outputType === 'pdf') {
                 UIManager.showStatus('PDF 미리보기가 열렸습니다!', 'success');
             } else {
-                UIManager.showStatus('프린터로 전송되었습니다!', 'success');
+                const message = result.message || '프린터로 전송되었습니다!';
+                UIManager.showStatus(message, 'success');
+                console.log('프린터 출력 성공:', result);
             }
         } else {
-            throw new Error(result.error);
+            throw new Error(result.error || '알 수 없는 오류가 발생했습니다');
         }
     } catch (error) {
         UIManager.showStatus(`출력 실패: ${error.message}`, 'error');

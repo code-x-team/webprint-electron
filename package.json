@@ -140,7 +140,8 @@
       "include": "installer.nsh",
       "uninstallDisplayName": "WebPrinter 제거",
       "shortcutName": "WebPrinter",
-      "artifactName": "${productName}-Setup-${version}.${ext}"
+      "artifactName": "${productName}-Setup-${version}.${ext}",
+      "menuCategory": "Utilities"
     },
     "dmg": {
       "title": "${productName} ${version}",

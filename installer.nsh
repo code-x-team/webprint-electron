@@ -147,6 +147,9 @@
   !define MUI_FINISHPAGE_RUN_TEXT "지금 WebPrinter 실행하기"
   !define MUI_FINISHPAGE_RUN_CHECKED
   !define MUI_FINISHPAGE_RUN_PARAMETERS "--hidden"
+  !define MUI_FINISHPAGE_SHOWREADME_NOTCHECKED
+  !define MUI_FINISHPAGE_LINK "WebPrinter 홈페이지 방문"
+  !define MUI_FINISHPAGE_LINK_LOCATION "https://github.com/code-x-team/webprint-electron"
 !macroend
 
 

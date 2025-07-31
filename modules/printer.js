@@ -30,21 +30,41 @@ async function printViaPDF(url, paperSize, printSelector, copies, silent, printe
     } else {
       // 프린터로 직접 출력
       console.log('프린터 출력 준비 중...');
-      const tempPdfPath = await saveTempPDF(pdfBuffer);
+      let tempPdfPath = null;
+      
       try {
+        tempPdfPath = await saveTempPDF(pdfBuffer);
+        console.log('임시 PDF 파일 준비 완료, 프린터 출력 시작...');
+        
         await printDirectly(tempPdfPath, printerName, copies);
-        // 출력 후 임시 파일 삭제
+        console.log('프린터 출력 명령 완료');
+        
+        // 출력 후 임시 파일 삭제 (더 긴 대기 시간)
         setTimeout(async () => {
           try {
             await fs.unlink(tempPdfPath);
-          } catch (error) {}
-        }, 5000);
+            console.log('임시 PDF 파일 삭제 완료:', tempPdfPath);
+          } catch (deleteError) {
+            console.warn('임시 파일 삭제 실패:', deleteError.message);
+          }
+        }, 10000); // 10초 대기로 증가
         
         // 작업 완료 알림
-        return { success: true, shouldClose: true };
-      } catch (error) {
-        await fs.unlink(tempPdfPath).catch(() => {});
-        throw error;
+        return { success: true, shouldClose: true, message: '프린터로 전송 완료' };
+      } catch (printError) {
+        console.error('프린터 출력 과정에서 오류:', printError);
+        
+        // 임시 파일 즉시 삭제
+        if (tempPdfPath) {
+          try {
+            await fs.unlink(tempPdfPath);
+            console.log('오류 발생 후 임시 파일 삭제:', tempPdfPath);
+          } catch (deleteError) {
+            console.warn('오류 후 임시 파일 삭제 실패:', deleteError.message);
+          }
+        }
+        
+        throw printError;
       }
     }
   } catch (error) {
@@ -344,45 +364,182 @@ async function savePermanentPDF(pdfBuffer) {
 }
 
 async function saveTempPDF(pdfBuffer) {
-  const tempDir = os.tmpdir();
-  const tempFileName = `webprinter_temp_${Date.now()}.pdf`;
-  const tempPath = path.join(tempDir, tempFileName);
-  
-  await fs.writeFile(tempPath, pdfBuffer);
-  return tempPath;
+  try {
+    const tempDir = os.tmpdir();
+    const tempFileName = `webprinter_temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.pdf`;
+    const tempPath = path.join(tempDir, tempFileName);
+    
+    console.log('임시 PDF 파일 생성:', tempPath);
+    
+    // 임시 디렉토리 존재 확인
+    await fs.mkdir(tempDir, { recursive: true });
+    
+    // PDF 파일 쓰기
+    await fs.writeFile(tempPath, pdfBuffer);
+    
+    // 파일 생성 확인
+    const stats = await fs.stat(tempPath);
+    console.log('임시 PDF 파일 생성 완료:', { 
+      path: tempPath, 
+      size: stats.size,
+      bufferSize: pdfBuffer.length 
+    });
+    
+    if (stats.size !== pdfBuffer.length) {
+      throw new Error('PDF 파일 크기가 일치하지 않습니다');
+    }
+    
+    return tempPath;
+  } catch (error) {
+    console.error('임시 PDF 파일 생성 실패:', error);
+    throw new Error(`임시 파일 생성 실패: ${error.message}`);
+  }
 }
 
 async function printDirectly(pdfPath, printerName, copies = 1) {
+  console.log('printDirectly 시작:', { pdfPath, printerName, copies, platform: process.platform });
+  
   try {
     if (process.platform === 'win32') {
-      // Windows: 기본 PDF 리더의 인쇄 기능 사용
+      // Windows: 향상된 PowerShell 명령어 사용
+      const escapedPath = pdfPath.replace(/'/g, "''");
+      
       if (printerName && printerName !== 'system-default') {
-        // 특정 프린터 지정
-        await execAsync(`powershell -command "Start-Process -FilePath '${pdfPath}' -Verb PrintTo -ArgumentList '${printerName}' -WindowStyle Hidden"`);
+        // 특정 프린터 지정 - 더 안정적인 방법 사용
+        const escapedPrinterName = printerName.replace(/'/g, "''");
+        console.log(`지정된 프린터로 인쇄: ${escapedPrinterName}`);
+        
+        // 프린터 존재 여부 확인
+        try {
+          const { stdout } = await execAsync(`powershell -command "Get-Printer | Where-Object {$_.Name -eq '${escapedPrinterName}'} | Select-Object Name"`);
+          if (!stdout.trim().includes(printerName)) {
+            throw new Error(`프린터 '${printerName}'를 찾을 수 없습니다.`);
+          }
+        } catch (checkError) {
+          console.warn('프린터 확인 실패:', checkError.message);
+        }
+        
+        // 다양한 방법으로 프린터 출력 시도
+        let printSuccess = false;
+        const printMethods = [
+          // 방법 1: SumatraPDF 사용 (가장 안정적)
+          async () => {
+            console.log('SumatraPDF 사용 시도...');
+            await execAsync(`powershell -command "if (Test-Path 'C:\\Program Files\\SumatraPDF\\SumatraPDF.exe') { & 'C:\\Program Files\\SumatraPDF\\SumatraPDF.exe' -print-to '${escapedPrinterName}' -silent '${escapedPath}' } else { throw 'SumatraPDF not found' }"`);
+          },
+          // 방법 2: Adobe Reader 사용
+          async () => {
+            console.log('Adobe Reader 사용 시도...');
+            await execAsync(`powershell -command "if (Get-ItemProperty HKLM:\\Software\\Adobe\\* -Name DisplayName -ErrorAction SilentlyContinue | Where-Object {$_.DisplayName -like '*Reader*'}) { Start-Process -FilePath '${escapedPath}' -ArgumentList '/t', '/h', '${escapedPrinterName}' -WindowStyle Hidden } else { throw 'Adobe Reader not found' }"`);
+          },
+          // 방법 3: PowerShell을 통한 직접 인쇄
+          async () => {
+            console.log('PowerShell 직접 인쇄 시도...');
+            await execAsync(`powershell -command "Add-Type -AssemblyName System.Drawing; Add-Type -AssemblyName System.Windows.Forms; $printer = new-object System.Drawing.Printing.PrintDocument; $printer.PrinterSettings.PrinterName = '${escapedPrinterName}'; if ($printer.PrinterSettings.IsValid) { Start-Process -FilePath '${escapedPath}' -Verb PrintTo -ArgumentList '${escapedPrinterName}' -WindowStyle Hidden } else { throw 'Printer invalid' }"`);
+          },
+          // 방법 4: 기본 PrintTo 사용
+          async () => {
+            console.log('기본 PrintTo 사용 시도...');
+            await execAsync(`powershell -command "Start-Process -FilePath '${escapedPath}' -Verb PrintTo -ArgumentList '${escapedPrinterName}' -WindowStyle Hidden"`);
+          }
+        ];
+        
+        for (const [index, method] of printMethods.entries()) {
+          try {
+            await method();
+            console.log(`인쇄 방법 ${index + 1} 성공`);
+            printSuccess = true;
+            break;
+          } catch (methodError) {
+            console.log(`인쇄 방법 ${index + 1} 실패:`, methodError.message);
+            if (index === printMethods.length - 1) {
+              throw methodError;
+            }
+          }
+        }
       } else {
         // 기본 프린터 사용
-        await execAsync(`powershell -command "Start-Process -FilePath '${pdfPath}' -Verb Print -WindowStyle Hidden"`);
+        console.log('기본 프린터로 인쇄');
+        await execAsync(`powershell -command "Start-Process -FilePath '${escapedPath}' -Verb Print -WindowStyle Hidden"`);
       }
+      
+      console.log('Windows 인쇄 명령 실행 완료');
+      
+      // 인쇄 작업 상태 확인 (선택적)
+      try {
+        await new Promise(resolve => setTimeout(resolve, 2000)); // 2초 대기
+        console.log('인쇄 작업 처리 대기 완료');
+      } catch (waitError) {
+        console.warn('인쇄 대기 중 오류:', waitError.message);
+      }
+      
     } else if (process.platform === 'darwin') {
       // macOS: lpr 명령어 사용
       let printCmd = `lpr -# ${copies}`;
       if (printerName && printerName !== 'system-default') {
+        // 프린터 존재 여부 확인
+        try {
+          const { stdout } = await execAsync('lpstat -p');
+          if (!stdout.includes(printerName)) {
+            throw new Error(`프린터 '${printerName}'를 찾을 수 없습니다.`);
+          }
+        } catch (checkError) {
+          console.warn('프린터 확인 실패:', checkError.message);
+        }
         printCmd += ` -P "${printerName}"`;
       }
       printCmd += ` "${pdfPath}"`;
-      await execAsync(printCmd);
+      
+      console.log('macOS 인쇄 명령 실행:', printCmd);
+      const result = await execAsync(printCmd);
+      console.log('macOS 인쇄 결과:', result);
+      
     } else {
       // Linux: lp 명령어 사용
       let printCmd = `lp -n ${copies}`;
       if (printerName && printerName !== 'system-default') {
+        // 프린터 존재 여부 확인
+        try {
+          const { stdout } = await execAsync('lpstat -p');
+          if (!stdout.includes(printerName)) {
+            throw new Error(`프린터 '${printerName}'를 찾을 수 없습니다.`);
+          }
+        } catch (checkError) {
+          console.warn('프린터 확인 실패:', checkError.message);
+        }
         printCmd += ` -d "${printerName}"`;
       }
       printCmd += ` "${pdfPath}"`;
-      await execAsync(printCmd);
+      
+      console.log('Linux 인쇄 명령 실행:', printCmd);
+      const result = await execAsync(printCmd);
+      console.log('Linux 인쇄 결과:', result);
     }
+    
+    console.log('printDirectly 성공 완료');
+    
   } catch (error) {
-    console.error('프린터 출력 오류:', error);
-    throw new Error('프린터로 출력할 수 없습니다. 프린터 상태를 확인해주세요.');
+    console.error('프린터 출력 상세 오류:', {
+      message: error.message,
+      code: error.code,
+      stderr: error.stderr,
+      stdout: error.stdout
+    });
+    
+    // 구체적인 에러 메시지 제공
+    let errorMessage = '프린터로 출력할 수 없습니다.';
+    
+    if (error.message.includes('not found') || error.message.includes('찾을 수 없습니다')) {
+      errorMessage = `선택한 프린터 '${printerName}'를 찾을 수 없습니다. 프린터가 설치되어 있고 온라인 상태인지 확인해주세요.`;
+    } else if (error.code === 'ENOENT') {
+      errorMessage = '인쇄 시스템에 접근할 수 없습니다. 시스템 권한을 확인해주세요.';
+    } else if (error.stderr && error.stderr.includes('Access')) {
+      errorMessage = '프린터에 접근할 수 없습니다. 프린터 권한을 확인해주세요.';
+    } else if (error.stderr && error.stderr.includes('offline')) {
+      errorMessage = '프린터가 오프라인 상태입니다. 프린터 연결을 확인해주세요.';
+    }
+    
+    throw new Error(errorMessage);
   }
 }
 
