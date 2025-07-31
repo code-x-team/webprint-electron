@@ -1,98 +1,76 @@
-const { BrowserWindow, app, session } = require('electron');
+const { BrowserWindow } = require('electron');
 const path = require('path');
 const fs = require('fs').promises;
 const os = require('os');
-const { exec } = require('child_process');
-const util = require('util');
-
-const execAsync = util.promisify(exec);
+const ptp = require('pdf-to-printer');
 
 // ========== 메인 함수 ==========
 async function printViaPDF(url, paperSize, printSelector, copies, silent, printerName, outputType = 'pdf', rotate180 = false) {
   try {
+    // PDF 생성
     const pdfBuffer = await generatePDF(url, paperSize, printSelector, rotate180);
     
     if (outputType === 'pdf') {
+      // PDF 저장 및 미리보기
       const pdfPath = await savePermanentPDF(pdfBuffer);
       await openPDFPreview(pdfPath);
       return { success: true, pdfPath, shouldClose: true };
+      
     } else {
-      let tempPdfPath = null;
-      let tempPngPath = null;
+      // PDF 임시 저장 후 인쇄
+      const tempPdfPath = await saveTempPDF(pdfBuffer);
       
       try {
-       
-        const pdfPath = await savePermanentPDF(pdfBuffer);
-        const hiddenPrintWindow = new BrowserWindow({
-          show: false,
-          webPreferences: { nodeIntegration: true }
+        // pdf-to-printer로 인쇄
+        const printOptions = {
+          printer: printerName === 'system-default' ? undefined : printerName,
+          copies: copies,
+          silent: silent
+        };
+        
+        // undefined 옵션 제거
+        Object.keys(printOptions).forEach(key => {
+          if (printOptions[key] === undefined) {
+            delete printOptions[key];
+          }
         });
-        await hiddenPrintWindow.webContents.executeJavaScript(`
-          (function() {
-            const iframe = document.createElement('iframe'); // ✅ 작동
-            iframe.style.display = 'none';
-            iframe.src = '${pdfPath}';
-            iframe.onload = () => {
-              iframe.contentWindow.print();
-              // 인쇄 후 iframe 제거
-              setTimeout(() => {
-                document.body.removeChild(iframe);
-              }, 1000);
-            };
-          
-            document.body.appendChild(iframe);
-          })()
-        `);
-
-        // function printPDF(pdfPath) {
-        //   const iframe = document.createElement('iframe');
-        //   iframe.style.display = 'none';
-        //   iframe.src = pdfPath;
-          
-        //   iframe.onload = () => {
-        //     iframe.contentWindow.print();
-        //     // 인쇄 후 iframe 제거
-        //     setTimeout(() => {
-        //       document.body.removeChild(iframe);
-        //     }, 1000);
-        //   };
-          
-        //   document.body.appendChild(iframe);
-        // }
-
         
-        // printPDF(tempPdfPath)
-
-
-        // tempPngPath = await convertPdfToPng(tempPdfPath);
-        // await printImageDirectly(tempPngPath, printerName, copies);
+        await ptp.print(tempPdfPath, printOptions);
         
+        // 30초 후 임시 파일 삭제
         setTimeout(async () => {
           try {
-            if (tempPdfPath) await fs.unlink(tempPdfPath);
-            if (tempPngPath) await fs.unlink(tempPngPath);
-          } catch (deleteError) {}
+            await fs.unlink(tempPdfPath);
+          } catch (deleteError) {
+            // 삭제 실패 무시
+          }
         }, 30000);
         
         return { 
           success: true, 
           shouldClose: true, 
-          message: '이미지로 변환하여 프린터 전송 완료' 
+          message: '인쇄 작업이 프린터로 전송되었습니다.' 
         };
         
       } catch (printError) {
-        if (tempPdfPath) await fs.unlink(tempPdfPath).catch(() => {});
-        if (tempPngPath) await fs.unlink(tempPngPath).catch(() => {});
-        throw printError;
+        // 인쇄 실패 시 임시 파일 즉시 삭제
+        await fs.unlink(tempPdfPath).catch(() => {});
+        throw new Error(`인쇄 실패: ${printError.message}`);
       }
     }
+    
   } catch (error) {
     let errorMessage = error.message;
+    
+    // 에러 메시지 사용자 친화적으로 변환
     if (error.message.includes('ERR_NAME_NOT_RESOLVED')) {
       errorMessage = 'URL에 접근할 수 없습니다. 인터넷 연결을 확인해주세요.';
     } else if (error.message.includes('ERR_CONNECTION_REFUSED')) {
       errorMessage = '서버에 연결할 수 없습니다.';
+    } else if (error.message.includes('printer')) {
+      errorMessage = '프린터 오류가 발생했습니다. 프린터 연결을 확인해주세요.';
     }
+    
     throw new Error(errorMessage);
   }
 }
@@ -113,255 +91,71 @@ async function generatePDF(url, paperSize, printSelector, rotate180 = false) {
   });
   
   try {
+    // URL 로드 및 대기
     await pdfWindow.loadURL(url);
     await new Promise(resolve => setTimeout(resolve, 3000));
     
-    await pdfWindow.webContents.executeJavaScript(`
-      (function() {
-        const targetElement = document.querySelector('${printSelector}');
-        if (targetElement) {
-          document.body.innerHTML = '';
-          document.body.appendChild(targetElement);
-          
-          targetElement.style.cssText = \`
-            width: ${paperSize.width}mm !important;
-            height: ${paperSize.height}mm !important;
-            transform: ${rotate180 ? 'rotate(180deg)' : 'none'} !important;
-            transform-origin: center center !important;
-          \`;
-        }
-        return true;
-      })()
-    `);
+    // 특정 요소만 선택하여 인쇄
+    if (printSelector) {
+      await pdfWindow.webContents.executeJavaScript(`
+        (function() {
+          const targetElement = document.querySelector('${printSelector}');
+          if (targetElement) {
+            // 기존 body 내용을 제거하고 대상 요소만 추가
+            document.body.innerHTML = '';
+            document.body.appendChild(targetElement.cloneNode(true));
+            
+            // 스타일 적용
+            const element = document.body.firstChild;
+            element.style.cssText = \`
+              width: ${paperSize.width}mm !important;
+              height: ${paperSize.height}mm !important;
+              margin: 0 auto !important;
+              transform: ${rotate180 ? 'rotate(180deg)' : 'none'} !important;
+              transform-origin: center center !important;
+            \`;
+            
+            // body 스타일 설정
+            document.body.style.cssText = \`
+              margin: 0 !important;
+              padding: 0 !important;
+              display: flex !important;
+              justify-content: center !important;
+              align-items: center !important;
+              min-height: 100vh !important;
+            \`;
+          }
+          return true;
+        })()
+      `);
+    }
     
+    // PDF 생성 옵션
     const pdfOptions = {
-      pageSize: 'A4',
-      margins: { top: 0, bottom: 0, left: 0, right: 0 },
+      pageSize: paperSize.format || 'A4',
+      margins: { 
+        top: 0, 
+        bottom: 0, 
+        left: 0, 
+        right: 0 
+      },
       printBackground: true,
       landscape: false
     };
     
+    // PDF 생성
     const pdfBuffer = await pdfWindow.webContents.printToPDF(pdfOptions);
     return pdfBuffer;
     
   } finally {
+    // 윈도우 정리
     if (pdfWindow && !pdfWindow.isDestroyed()) {
       pdfWindow.close();
     }
   }
 }
 
-// ========== PDF → PNG 변환 함수 ==========
-async function convertPdfToPng(pdfPath) {
-  try {
-    const pdfBuffer = await fs.readFile(pdfPath);
-    const pdfBase64 = pdfBuffer.toString('base64');
-    
-    const A4_WIDTH_300DPI = 2480;
-    const A4_HEIGHT_300DPI = 3508;
-    
-    const pdfWindow = new BrowserWindow({
-      show: false,
-      width: A4_WIDTH_300DPI,
-      height: A4_HEIGHT_300DPI,
-      webPreferences: {
-        nodeIntegration: true,
-        contextIsolation: false,
-        webSecurity: false,
-        offscreen: true,
-        backgroundThrottling: false,
-        zoomFactor: 1.0
-      }
-    });
-    
-    try {
-      const pdfRenderHtml = `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <style>
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-            html, body { 
-              margin: 0; 
-              padding: 0; 
-              background: #FFFFFF; 
-              overflow: hidden;
-              width: ${A4_WIDTH_300DPI}px;
-              height: ${A4_HEIGHT_300DPI}px;
-            }
-            canvas { 
-              display: block; 
-              background: #FFFFFF;
-              position: absolute;
-              top: 0;
-              left: 0;
-              image-rendering: pixelated;
-              image-rendering: -moz-crisp-edges;
-              image-rendering: crisp-edges;
-            }
-          </style>
-          <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-        </head>
-        <body>
-          <canvas id="pdfCanvas"></canvas>
-          <script>
-            async function renderPdf() {
-              try {
-                const pdfData = atob('${pdfBase64}');
-                const uint8Array = new Uint8Array(pdfData.length);
-                for (let i = 0; i < pdfData.length; i++) {
-                  uint8Array[i] = pdfData.charCodeAt(i);
-                }
-                
-                const pdf = await pdfjsLib.getDocument({ data: uint8Array }).promise;
-                const page = await pdf.getPage(1);
-                
-                const scale = 300 / 72;
-                const viewport = page.getViewport({ scale: scale });
-                
-                const canvas = document.getElementById('pdfCanvas');
-                const context = canvas.getContext('2d');
-                
-                canvas.width = ${A4_WIDTH_300DPI};
-                canvas.height = ${A4_HEIGHT_300DPI};
-                
-                context.imageSmoothingEnabled = false;
-                context.fillStyle = '#FFFFFF';
-                context.fillRect(0, 0, canvas.width, canvas.height);
-                
-                const offsetX = (${A4_WIDTH_300DPI} - viewport.width) / 2;
-                const offsetY = 0;
-                
-                const renderContext = {
-                  canvasContext: context,
-                  viewport: viewport,
-                  intent: 'print',
-                  transform: [1, 0, 0, 1, offsetX, offsetY]
-                };
-                
-                await page.render(renderContext).promise;
-                window.pdfRenderComplete = true;
-                
-              } catch (error) {
-                window.pdfRenderError = error.message;
-              }
-            }
-            
-            window.onload = () => {
-              setTimeout(renderPdf, 100);
-            };
-          </script>
-        </body>
-        </html>
-      `;
-      
-      await pdfWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(pdfRenderHtml)}`);
-      
-      let attempts = 0;
-      const maxAttempts = 60;
-      
-      while (attempts < maxAttempts) {
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        const isComplete = await pdfWindow.webContents.executeJavaScript('window.pdfRenderComplete || false');
-        const hasError = await pdfWindow.webContents.executeJavaScript('window.pdfRenderError || null');
-        
-        if (hasError) {
-          throw new Error(`PDF 렌더링 오류: ${hasError}`);
-        }
-        
-        if (isComplete) {
-          break;
-        }
-        
-        attempts++;
-      }
-      
-      if (attempts >= maxAttempts) {
-        throw new Error('PDF 렌더링 시간 초과');
-      }
-      
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      const image = await pdfWindow.capturePage();
-      
-      const tempDir = os.tmpdir();
-      const pngFileName = `webprinter_temp_${Date.now()}.png`;
-      const pngPath = path.join(tempDir, pngFileName);
-      
-      await fs.writeFile(pngPath, image.toPNG());
-      
-      pdfWindow.close();
-      return pngPath;
-      
-    } catch (renderError) {
-      if (pdfWindow && !pdfWindow.isDestroyed()) {
-        pdfWindow.close();
-      }
-      throw renderError;
-    }
-    
-  } catch (error) {
-    throw new Error(`PDF to PNG 변환 실패: ${error.message}`);
-  }
-}
-
-// ========== PNG 인쇄 함수 ==========
-async function printImageDirectly(imagePath, printerName, copies = 1) {
-  try {
-    if (process.platform === 'win32') {
-      const cleanImagePath = imagePath.replace(/\//g, '\\');
-      
-      try {
-        const paintCommand = `mspaint.exe /pt "${cleanImagePath}" "${printerName}"`;
-        await execAsync(paintCommand, { timeout: 15000 });
-        await new Promise(resolve => setTimeout(resolve, 3000));
-        
-      } catch (paintError) {
-        const psCommand = `powershell -command "
-          Add-Type -AssemblyName System.Drawing, System.Drawing.Printing
-          $image = [System.Drawing.Image]::FromFile('${imagePath.replace(/'/g, "''")}')
-          $printDoc = New-Object System.Drawing.Printing.PrintDocument
-          $printDoc.PrinterSettings.PrinterName = '${printerName.replace(/'/g, "''")}'
-          $printDoc.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins(0, 0, 0, 0)
-          $printDoc.add_PrintPage({
-            param($sender, $e)
-            $pageWidth = $e.PageBounds.Width
-            $pageHeight = $e.PageBounds.Height
-            $destRect = New-Object System.Drawing.Rectangle(0, 0, $pageWidth, $pageHeight)
-            $e.Graphics.DrawImage($image, $destRect)
-          })
-          if ($printDoc.PrinterSettings.IsValid) { 
-            $printDoc.Print()
-          }
-          $image.Dispose()
-        "`;
-        await execAsync(psCommand);
-      }
-      
-    } else if (process.platform === 'darwin') {
-      let printCmd = `lpr -# ${copies}`;
-      if (printerName && printerName !== 'system-default') {
-        printCmd += ` -P "${printerName}"`;
-      }
-      printCmd += ` -o fit-to-page=false -o scaling=100 "${imagePath}"`;
-      await execAsync(printCmd);
-      
-    } else {
-      let printCmd = `lp -n ${copies}`;
-      if (printerName && printerName !== 'system-default') {
-        printCmd += ` -d "${printerName}"`;
-      }
-      printCmd += ` -o fit-to-page=false -o scaling=100 "${imagePath}"`;
-      await execAsync(printCmd);
-    }
-    
-  } catch (error) {
-    throw new Error(`이미지 인쇄 실패: ${error.message}`);
-  }
-}
-
-// ========== 보조 함수 ==========
+// ========== 파일 저장 함수 ==========
 async function saveTempPDF(pdfBuffer) {
   const tempDir = os.tmpdir();
   const tempFileName = `webprinter_temp_${Date.now()}.pdf`;
@@ -372,9 +166,11 @@ async function saveTempPDF(pdfBuffer) {
 }
 
 async function savePermanentPDF(pdfBuffer) {
+  // Downloads/WebPrinter 폴더에 저장
   const saveDirectory = path.join(os.homedir(), 'Downloads', 'WebPrinter');
   await fs.mkdir(saveDirectory, { recursive: true });
   
+  // 타임스탬프가 포함된 파일명 생성
   const timestamp = new Date().toISOString()
     .replace(/[:.]/g, '-')
     .replace('T', '_')
@@ -387,29 +183,60 @@ async function savePermanentPDF(pdfBuffer) {
   return filePath;
 }
 
+// ========== PDF 미리보기 함수 ==========
 async function openPDFPreview(pdfPath) {
+  const { exec } = require('child_process');
+  const util = require('util');
+  const execAsync = util.promisify(exec);
+  
   try {
     if (process.platform === 'win32') {
+      // Windows
       await execAsync(`start "" "${pdfPath}"`);
     } else if (process.platform === 'darwin') {
+      // macOS
       await execAsync(`open "${pdfPath}"`);
     } else {
+      // Linux
       await execAsync(`xdg-open "${pdfPath}"`);
     }
   } catch (error) {
-    throw new Error(`PDF 뷰어 실행 실패`);
+    throw new Error('PDF 뷰어 실행 실패');
   }
 }
 
+// ========== 프린터 관련 함수 ==========
+async function getPrinters() {
+  try {
+    const printers = await ptp.getPrinters();
+    
+    // 시스템 기본 프린터 옵션 추가
+    return [
+      { name: 'system-default', displayName: '시스템 기본 프린터', isDefault: true },
+      ...printers.map(printer => ({
+        name: printer.name,
+        displayName: printer.name,
+        isDefault: printer.isDefault || false
+      }))
+    ];
+  } catch (error) {
+    console.error('프린터 목록 조회 실패:', error);
+    return [{ name: 'system-default', displayName: '시스템 기본 프린터', isDefault: true }];
+  }
+}
+
+// ========== 정리 함수 ==========
 async function cleanupOldPDFs() {
   try {
     const webprinterDir = path.join(os.homedir(), 'Downloads', 'WebPrinter');
+    
+    // 디렉토리 존재 확인
     const exists = await fs.access(webprinterDir).then(() => true).catch(() => false);
     if (!exists) return;
     
     const files = await fs.readdir(webprinterDir);
     const now = Date.now();
-    const maxAge = 24 * 60 * 60 * 1000;
+    const maxAge = 24 * 60 * 60 * 1000; // 24시간
     
     for (const file of files) {
       if (!file.startsWith('WebPrinter_') || !file.endsWith('.pdf')) continue;
@@ -419,16 +246,20 @@ async function cleanupOldPDFs() {
         const stats = await fs.stat(filePath);
         if (now - stats.mtime.getTime() > maxAge) {
           await fs.unlink(filePath);
+          console.log(`오래된 PDF 삭제: ${file}`);
         }
-      } catch (fileError) {}
+      } catch (fileError) {
+        // 파일 삭제 실패 무시
+      }
     }
-  } catch (error) {}
+  } catch (error) {
+    console.error('PDF 정리 중 오류:', error);
+  }
 }
 
 // ========== 내보내기 ==========
 module.exports = {
   printViaPDF,
-  cleanupOldPDFs,
-  convertPdfToPng,
-  printImageDirectly
+  getPrinters,
+  cleanupOldPDFs
 };
