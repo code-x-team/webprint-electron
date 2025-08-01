@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 앱 정보
   getServerInfo: () => ipcRenderer.invoke('get-server-info'),
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+  getSessionData: (sessionId) => ipcRenderer.invoke('get-session-data', sessionId),
   
   // 앱 제어
   hideToBackground: () => ipcRenderer.invoke('hide-to-background'),
@@ -33,6 +34,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   onRestartLoading: (callback) => {
     ipcRenderer.on('restart-loading', (event, data) => callback(data));
+  },
+  
+  onSessionChanged: (callback) => {
+    ipcRenderer.on('session-changed', (event, data) => callback(data));
   },
   
   // 업데이트 이벤트 (선택적)

@@ -2,7 +2,8 @@ const IPCHandler = {
     callbacks: {
         onServerInfo: null,
         onUrlsReceived: null,
-        onLoadingComplete: null
+        onLoadingComplete: null,
+        onSessionChanged: null
     },
   
     init(callbacks) {
@@ -37,6 +38,15 @@ const IPCHandler = {
         window.electronAPI.onShowWaitingMessage((msg) => {
             UIManager.showStatus(msg.message, 'info');
         });
+        
+        // 세션 변경 이벤트 추가
+        if (window.electronAPI.onSessionChanged) {
+            window.electronAPI.onSessionChanged((data) => {
+                if (this.callbacks.onSessionChanged) {
+                    this.callbacks.onSessionChanged(data);
+                }
+            });
+        }
     },
   
     async getServerInfo() {
@@ -48,6 +58,19 @@ const IPCHandler = {
             return await window.electronAPI.getServerInfo();
         } catch (error) {
             console.error('Failed to get server info:', error);
+            return null;
+        }
+    },
+    
+    async getSessionData(sessionId) {
+        if (!window.electronAPI || !window.electronAPI.getSessionData) {
+            console.error('getSessionData API not available');
+            return null;
+        }
+        try {
+            return await window.electronAPI.getSessionData(sessionId);
+        } catch (error) {
+            console.error('Failed to get session data:', error);
             return null;
         }
     },
@@ -126,4 +149,4 @@ const IPCHandler = {
             }
         }
     }
-  };
+};

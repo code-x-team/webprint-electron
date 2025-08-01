@@ -294,6 +294,14 @@ function setupImmortalMode() {
     if (protocolUrl) {
       handleProtocolCall(protocolUrl);
     }
+    
+    // 트레이 알림
+    if (tray && !tray.isDestroyed() && process.platform === 'win32') {
+      tray.displayBalloon({
+        title: 'WebPrinter',
+        content: '새 인쇄 작업을 받았습니다.'
+      });
+    }
   });
 
   // macOS에서 프로토콜 처리
@@ -391,10 +399,22 @@ async function handleProtocolCall(protocolUrl) {
     const action = parsedUrl.hostname;
     const params = Object.fromEntries(parsedUrl.searchParams);
     
+    console.log('프로토콜 호출 처리:', { action, params });
+    
     if (action === 'print') {
       // 프로토콜 호출시 창 생성/표시
       const { createPrintWindow } = require('./modules/window');
       await createPrintWindow(params.session);
+      
+      // 창이 준비되면 강제로 표시
+      setTimeout(() => {
+        const { BrowserWindow } = require('electron');
+        const windows = BrowserWindow.getAllWindows();
+        if (windows.length > 0) {
+          windows[0].show();
+          windows[0].focus();
+        }
+      }, 500);
     }
   } catch (error) {
     console.error('프로토콜 처리 실패:', error);
