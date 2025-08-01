@@ -317,6 +317,12 @@ function initializeEventListeners() {
     UIManager.elements.refreshPrintersBtn.addEventListener('click', loadPrinters);
     UIManager.elements.printButton.addEventListener('click', executePrint);
     UIManager.elements.printerSelect.addEventListener('change', updateUI);
+    
+    // 앞면/뒷면 선택 라디오 버튼 이벤트
+    const sideRadios = document.querySelectorAll('input[name="side-selection"]');
+    sideRadios.forEach(radio => {
+        radio.addEventListener('change', handleSideSelectionChange);
+    });
 }
 
 // 서버 정보 처리
@@ -349,14 +355,115 @@ function handleUrlsReceived(urlData) {
         UIManager.displayPaperSize(currentPaperSize);
     }
     
-    if (urlData.previewUrl || urlData.printUrl) {
-        const url = urlData.previewUrl || urlData.printUrl;
-        UIManager.showPreview(url);
+    // 현재 선택된 면에 따라 미리보기 URL 결정
+    const currentSide = getCurrentSelectedSide();
+    const previewUrl = getPreviewUrlForSide(currentSide);
+    
+    if (previewUrl) {
+        console.log(`📄 ${currentSide} 미리보기 URL 설정:`, previewUrl);
+        UIManager.showPreview(previewUrl);
         UIManager.showStatus('미리보기 로드 중...', 'info');
         showToast('📄 인쇄 데이터 수신됨', 'success', 2000);
+        
+        // 앞면/뒷면 표시 업데이트
+        updateSideIndicator(currentSide);
+    } else {
+        console.log('⚠️ 미리보기 URL이 없습니다:', urlData);
+        UIManager.showStatus('미리보기 URL이 없습니다', 'warning');
     }
     
+    // 뒷면 데이터 존재 여부에 따라 뒷면 라디오 버튼 활성화/비활성화
+    updateSideSelectionUI();
+    
     updateUI();
+}
+
+// 현재 선택된 면 가져오기
+function getCurrentSelectedSide() {
+    const selectedRadio = document.querySelector('input[name="side-selection"]:checked');
+    return selectedRadio ? selectedRadio.value : 'front';
+}
+
+// 선택된 면에 맞는 미리보기 URL 가져오기
+function getPreviewUrlForSide(side) {
+    if (!receivedUrls) return null;
+    
+    if (side === 'back') {
+        return receivedUrls.backPreviewUrl || receivedUrls.backPrintUrl;
+    } else {
+        return receivedUrls.frontPreviewUrl || receivedUrls.previewUrl || 
+               receivedUrls.frontPrintUrl || receivedUrls.printUrl;
+    }
+}
+
+// 선택된 면에 맞는 인쇄 URL 가져오기
+function getPrintUrlForSide(side) {
+    if (!receivedUrls) return null;
+    
+    if (side === 'back') {
+        return receivedUrls.backPrintUrl || receivedUrls.backPreviewUrl;
+    } else {
+        return receivedUrls.frontPrintUrl || receivedUrls.printUrl || 
+               receivedUrls.frontPreviewUrl || receivedUrls.previewUrl;
+    }
+}
+
+// 앞면/뒷면 선택 변경 처리
+function handleSideSelectionChange(event) {
+    const selectedSide = event.target.value;
+    console.log('🔄 면 선택 변경:', selectedSide);
+    
+    const previewUrl = getPreviewUrlForSide(selectedSide);
+    
+    if (previewUrl) {
+        console.log(`📄 ${selectedSide} 미리보기 표시:`, previewUrl);
+        UIManager.showPreview(previewUrl);
+        updateSideIndicator(selectedSide);
+        UIManager.showStatus(`${selectedSide === 'front' ? '앞면' : '뒷면'} 미리보기`, 'info');
+    } else {
+        console.log(`⚠️ ${selectedSide} 데이터가 없습니다`);
+        UIManager.hidePreview();
+        UIManager.showStatus(`${selectedSide === 'front' ? '앞면' : '뒷면'} 데이터가 없습니다`, 'warning');
+    }
+}
+
+// 면 표시 업데이트 (헤더의 앞면/뒷면 표시)
+function updateSideIndicator(side) {
+    const indicator = document.getElementById('preview-side-indicator');
+    if (indicator) {
+        indicator.textContent = side === 'front' ? '(앞면)' : '(뒷면)';
+    }
+}
+
+// 앞면/뒷면 선택 UI 업데이트
+function updateSideSelectionUI() {
+    const backRadio = document.querySelector('input[name="side-selection"][value="back"]');
+    const backLabel = backRadio ? backRadio.closest('.radio-label') : null;
+    
+    if (backRadio && backLabel) {
+        const hasBackData = receivedUrls && (receivedUrls.backPreviewUrl || receivedUrls.backPrintUrl);
+        
+        if (hasBackData) {
+            backRadio.disabled = false;
+            backLabel.style.opacity = '1';
+            backLabel.style.cursor = 'pointer';
+            backLabel.title = '';
+        } else {
+            backRadio.disabled = true;
+            backLabel.style.opacity = '0.5';
+            backLabel.style.cursor = 'not-allowed';
+            backLabel.title = '뒷면 데이터가 없습니다';
+            
+            // 뒷면이 선택되어 있고 뒷면 데이터가 없으면 앞면으로 전환
+            if (backRadio.checked) {
+                const frontRadio = document.querySelector('input[name="side-selection"][value="front"]');
+                if (frontRadio) {
+                    frontRadio.checked = true;
+                    handleSideSelectionChange({ target: frontRadio });
+                }
+            }
+        }
+    }
 }
 
 // 프린터 목록 로드
@@ -430,8 +537,14 @@ async function executePrint() {
         UIManager.showStatus(outputType === 'pdf' ? 'PDF 생성 중...' : '인쇄 중...', 'info');
         showToast('🖨️ 인쇄 요청 전송 중...', 'info', 3000);
         
+        // 현재 선택된 면에 맞는 인쇄 URL 사용
+        const currentSide = getCurrentSelectedSide();
+        const actualPrintUrl = getPrintUrlForSide(currentSide) || printUrl;
+        
+        console.log(`🖨️ ${currentSide} 인쇄 URL:`, actualPrintUrl);
+        
         const result = await IPCHandler.printUrl({
-            url: printUrl,
+            url: actualPrintUrl,
             printerName: UIManager.elements.printerSelect.value,
             copies: 1, // 고정값 1매
             paperSize: currentPaperSize,

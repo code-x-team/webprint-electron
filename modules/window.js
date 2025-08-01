@@ -11,22 +11,27 @@ function generateSessionId() {
 }
 
 async function createPrintWindow(sessionId = null) {
+  // 기존 창이 있으면 재사용
   if (printWindow && !printWindow.isDestroyed()) {
+    console.log('🔄 기존 창 재사용, 새 창 생성하지 않음:', sessionId);
     if (sessionId) currentSession = sessionId;
     
-    // 기존 창에 새 세션 데이터 전송
-    printWindow.webContents.send('restart-loading', { session: currentSession });
+    // 기존 창에 서버 정보 전송
+    printWindow.webContents.send('server-info', { 
+      port: getServerPort(), 
+      session: currentSession 
+    });
     
-    // 세션 데이터가 있으면 즉시 전송
+    // 세션 데이터가 있으면 전송
     const urlData = getSessionData(currentSession);
     if (urlData) {
-      console.log('기존 창에 세션 데이터 전송:', currentSession);
+      console.log('🔄 기존 창에 세션 데이터 재전송');
       printWindow.webContents.send('urls-received', urlData);
     }
     
     printWindow.show();
     printWindow.focus();
-    return;
+    return currentSession;
   }
 
   if (!sessionId) sessionId = generateSessionId();
@@ -52,43 +57,51 @@ async function createPrintWindow(sessionId = null) {
   printWindow.loadFile('print-preview.html');
 
   printWindow.once('ready-to-show', () => {
-    console.log('창 준비 완료, 세션:', currentSession);
-    
-    // 서버 정보 전송
-    printWindow.webContents.send('server-info', {
-      port: getServerPort(),
-      session: currentSession
-    });
-    
-    // 세션 데이터가 있으면 즉시 전송
-    const urlData = getSessionData(currentSession);
-    if (urlData) {
-      console.log('초기 세션 데이터 전송:', urlData);
-      printWindow.webContents.send('urls-received', urlData);
-    } else {
-      // 세션 데이터가 없으면 최신 세션 확인
-      const sessions = Object.keys(getAllSessions());
-      if (sessions.length > 0) {
-        const latestSession = sessions.sort((a, b) => 
-          (getAllSessions()[b].timestamp || 0) - (getAllSessions()[a].timestamp || 0)
-        )[0];
-        const latestData = getAllSessions()[latestSession];
-        if (latestData) {
-          currentSession = latestSession;
-          console.log('최신 세션 데이터 사용:', latestSession);
-          printWindow.webContents.send('urls-received', latestData);
-        }
+    setTimeout(() => {
+      if (printWindow && !printWindow.isDestroyed() && !printWindow.isVisible()) {
+        printWindow.show();
+        printWindow.focus();
       }
-    }
+    }, 5000);
     
-    // 창 표시 (백그라운드 모드가 아닌 경우)
-    if (!global.startupMode) {
-      printWindow.show();
-      printWindow.focus();
-    }
+    printWindow.webContents.once('did-finish-load', () => {
+      setTimeout(() => {
+        if (printWindow && !printWindow.isDestroyed()) {
+          printWindow.webContents.send('server-info', {
+            port: getServerPort(),
+            session: sessionId
+          });
+          
+          let urlData = getSessionData(sessionId);
+          if (!urlData) {
+            const sessions = Object.keys(getAllSessions());
+            if (sessions.length > 0) {
+              const latestSession = sessions.sort((a, b) => 
+                (getAllSessions()[b].timestamp || 0) - (getAllSessions()[a].timestamp || 0)
+              )[0];
+              urlData = getAllSessions()[latestSession];
+              currentSession = latestSession;
+            }
+          }
+          
+          if (urlData) {
+            printWindow.webContents.send('urls-received', urlData);
+          } else {
+            printWindow.webContents.send('show-waiting-message', {
+              title: '인쇄 데이터 대기 중',
+              message: '웹페이지에서 인쇄 요청을 기다리고 있습니다.'
+            });
+            setTimeout(() => {
+              printWindow.webContents.send('loading-complete', { reason: 'waiting_for_data' });
+            }, 500);
+          }
+        }
+      }, 1000);
+    });
   });
 
   printWindow.on('close', (event) => {
+    // 트레이에서 완전 종료가 아닌 경우에만 숨기기
     if (!global.isQuitting) {
       console.log('창 닫기 - 백그라운드로 전환');
       event.preventDefault();
@@ -96,6 +109,9 @@ async function createPrintWindow(sessionId = null) {
       if (process.platform === 'darwin' && app.dock) {
         app.dock.hide();
       }
+    } else {
+      console.log('완전 종료 - 창 정리');
+      // 완전 종료 시에는 정상적으로 닫히도록 허용
     }
   });
 
@@ -112,50 +128,48 @@ function notifyWindow(sessionId, urlData) {
   
   // 창이 없거나 닫혀있으면 새로 생성
   if (!printWindow || printWindow.isDestroyed()) {
-    console.log('새 창 생성 필요');
+    console.log('📱 새 인쇄 창 생성:', sessionId);
     createPrintWindow(sessionId);
     
-    // 창이 준비되면 데이터 전송
-    const checkAndSend = () => {
-      if (printWindow && !printWindow.isDestroyed()) {
-        console.log('창 준비됨, 데이터 전송');
-        printWindow.webContents.send('urls-received', urlData);
-        printWindow.show();
-        printWindow.focus();
-      } else {
-        // 창이 아직 준비되지 않았으면 재시도
-        setTimeout(checkAndSend, 100);
-      }
-    };
-    
-    setTimeout(checkAndSend, 300);
-    
-  } else if (currentSession === sessionId) {
-    // 같은 세션이면 데이터만 업데이트
-    console.log('동일 세션 데이터 업데이트');
-    printWindow.webContents.send('urls-received', urlData);
-    printWindow.show();
-    printWindow.focus();
+    // 창 생성 후 데이터 전송 (한 번만)
+    printWindow.webContents.once('did-finish-load', () => {
+      setTimeout(() => {
+        if (printWindow && !printWindow.isDestroyed()) {
+          console.log('✅ 새 창에 데이터 전송');
+          printWindow.webContents.send('urls-received', urlData);
+          printWindow.show();
+          printWindow.focus();
+        }
+      }, 500);
+    });
     
   } else {
-    // 다른 세션이면 새 세션으로 전환
-    console.log('새 세션으로 전환:', sessionId);
+    // 기존 창이 있으면 세션과 상관없이 데이터 업데이트
+    console.log('🔄 기존 창 재사용:', sessionId);
     currentSession = sessionId;
     
     // 새 세션 알림
     printWindow.webContents.send('session-changed', { session: sessionId });
     
-    // 데이터 전송
-    setTimeout(() => {
+    // 창 로딩 상태 확인
+    if (printWindow.webContents.isLoading()) {
+      printWindow.webContents.once('did-finish-load', () => {
+        setTimeout(() => {
+          if (printWindow && !printWindow.isDestroyed()) {
+            console.log('✅ 기존 창에 데이터 전송 (로딩 완료 후)');
+            printWindow.webContents.send('urls-received', urlData);
+          }
+        }, 300);
+      });
+    } else {
+      console.log('✅ 기존 창에 데이터 전송 (즉시)');
       printWindow.webContents.send('urls-received', urlData);
-      printWindow.show();
-      printWindow.focus();
-    }, 100);
+    }
+    
   }
 }
 
 function setupIpcHandlers() {
-  // 창 표시 요청
   ipcMain.on('request-show-window', () => {
     if (printWindow && !printWindow.isDestroyed()) {
       printWindow.show();
@@ -163,33 +177,52 @@ function setupIpcHandlers() {
     }
   });
 
-  // 로딩 준비 완료
-  ipcMain.on('loading-ready', () => {
-    console.log('렌더러 프로세스 준비 완료');
-  });
+  ipcMain.on('loading-ready', () => {});
 
-  // 프린터 목록 가져오기
   ipcMain.handle('get-printers', async () => {
     try {
-      console.log('프린터 목록 요청');
+      console.log('프린터 목록 가져오기 시작...');
       
-      // printWindow가 있으면 사용, 없으면 전역 상태에서 가져오기
-      let targetWindow = printWindow;
-      if (!targetWindow || targetWindow.isDestroyed()) {
-        const { BrowserWindow } = require('electron');
-        const windows = BrowserWindow.getAllWindows();
-        targetWindow = windows.find(w => !w.isDestroyed());
-      }
-      
-      const printers = targetWindow 
-        ? await targetWindow.webContents.getPrintersAsync() 
+      const electronPrinters = (printWindow && !printWindow.isDestroyed()) 
+        ? await printWindow.webContents.getPrintersAsync() 
         : [];
       
-      console.log(`프린터 ${printers.length}개 발견`);
+      console.log('Electron에서 가져온 프린터:', electronPrinters.map(p => ({ 
+        name: p.name, 
+        status: p.status, 
+        isDefault: p.isDefault 
+      })));
+      
+      // 시스템 프린터 정보 추가 확인
+      let systemPrinters = [];
+      try {
+        if (process.platform === 'win32') {
+          const { execAsync } = require('util').promisify(require('child_process').exec);
+          const { stdout } = await execAsync('powershell -command "Get-Printer | Select-Object Name, PrinterStatus | ConvertTo-Json"');
+          systemPrinters = JSON.parse(stdout || '[]');
+          console.log('Windows 시스템 프린터:', systemPrinters);
+        }
+      } catch (sysError) {
+        console.warn('시스템 프린터 정보 가져오기 실패:', sysError.message);
+      }
+      
+      // 프린터 목록 병합 및 상태 정보 보강
+      const enhancedPrinters = electronPrinters.map(printer => {
+        const sysPrinter = systemPrinters.find(sp => sp.Name === printer.name);
+        return {
+          ...printer,
+          systemStatus: sysPrinter?.PrinterStatus || 'Unknown',
+          available: printer.status === 0 // 0 = idle/available
+        };
+      });
+      
+      console.log('향상된 프린터 목록:', enhancedPrinters);
+      
       return { 
         success: true, 
-        printers: printers,
-        totalCount: printers.length
+        printers: enhancedPrinters,
+        totalCount: enhancedPrinters.length,
+        availableCount: enhancedPrinters.filter(p => p.available).length
       };
     } catch (error) {
       console.error('프린터 목록 가져오기 실패:', error);
@@ -197,11 +230,9 @@ function setupIpcHandlers() {
     }
   });
 
-  // 인쇄 실행
   ipcMain.handle('print-url', async (event, params) => {
     try {
-      console.log('인쇄 요청:', params);
-      
+      // 파라미터 검증
       if (!params.url) {
         throw new Error('인쇄할 URL이 없습니다');
       }
@@ -210,16 +241,26 @@ function setupIpcHandlers() {
         throw new Error('용지 크기가 지정되지 않았습니다');
       }
       
+      // outputType 기본값 설정
       const outputType = params.outputType || 'pdf';
       
+      // 프린터 출력 시 프린터 선택 확인
       if (outputType === 'printer' && !params.printerName) {
         throw new Error('프린터가 선택되지 않았습니다');
       }
       
+      console.log('인쇄 시작:', {
+        url: params.url,
+        paperSize: params.paperSize,
+        outputType: outputType,
+        rotate180: params.rotate180,
+        printerName: params.printerName
+      });
+      
       const result = await printViaPDF(
         params.url,
         params.paperSize,
-        params.printSelector || '.print_wrap',
+                      params.printSelector || '.print_wrap',
         params.copies || 1,
         params.silent !== false,
         params.printerName,
@@ -237,7 +278,6 @@ function setupIpcHandlers() {
     }
   });
 
-  // 서버 정보 가져오기
   ipcMain.handle('get-server-info', () => ({
     port: getServerPort(),
     session: currentSession,
@@ -246,13 +286,17 @@ function setupIpcHandlers() {
 
   // 세션 데이터 가져오기
   ipcMain.handle('get-session-data', (event, sessionId) => {
-    console.log('세션 데이터 요청:', sessionId);
-    const data = getSessionData(sessionId || currentSession);
-    console.log('반환할 데이터:', data ? '있음' : '없음');
-    return data;
+    try {
+      console.log('get-session-data 요청:', sessionId);
+      const data = getSessionData(sessionId || currentSession);
+      console.log('세션 데이터 응답:', data);
+      return data;
+    } catch (error) {
+      console.error('세션 데이터 가져오기 실패:', error);
+      return null;
+    }
   });
 
-  // 백그라운드로 숨기기
   ipcMain.handle('hide-to-background', () => {
     if (printWindow && !printWindow.isDestroyed()) {
       printWindow.hide();
@@ -262,14 +306,12 @@ function setupIpcHandlers() {
     }
   });
 
-  // 앱 종료
   ipcMain.handle('quit-app', () => {
     global.isQuitting = true;
     app.quit();
     return { success: true };
   });
 
-  // 앱 버전 가져오기
   ipcMain.handle('get-app-version', () => app.getVersion());
 }
 

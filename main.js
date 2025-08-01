@@ -146,15 +146,31 @@ async function setupHttpServer() {
     
     // 라우트 설정
     server.post('/send-urls', async (data) => {
-      const { session, front_preview_url, paper_width, paper_height, print_selector } = data;
+      const { 
+        session, 
+        front_preview_url, 
+        back_preview_url,
+        front_print_url,
+        back_print_url,
+        paper_width, 
+        paper_height, 
+        print_selector 
+      } = data;
       
-      if (!session || !front_preview_url) {
+      if (!session || (!front_preview_url && !front_print_url)) {
         throw new Error('필수 파라미터가 없습니다');
       }
 
       const sessionData = {
+        // 앞면 데이터
+        frontPreviewUrl: front_preview_url,
+        frontPrintUrl: front_print_url || front_preview_url,
+        // 뒷면 데이터
+        backPreviewUrl: back_preview_url,
+        backPrintUrl: back_print_url || back_preview_url,
+        // 하위 호환성을 위한 기존 필드 (기본적으로 앞면)
         previewUrl: front_preview_url,
-        printUrl: data.front_print_url || front_preview_url,
+        printUrl: front_print_url || front_preview_url,
         paperSize: {
           width: parseFloat(paper_width) || 210,
           height: parseFloat(paper_height) || 297
@@ -165,9 +181,13 @@ async function setupHttpServer() {
 
       appState.sessions.set(session, sessionData);
       
-      // 윈도우에 알림
-      if (appState.mainWindow && !appState.mainWindow.isDestroyed()) {
-        appState.mainWindow.webContents.send('urls-received', sessionData);
+      // 인쇄 윈도우에 알림
+      try {
+        const { notifyWindow } = require('./modules/window');
+        notifyWindow(session, sessionData);
+        console.log('✅ 인쇄 창에 데이터 전송:', session);
+      } catch (notifyError) {
+        console.error('❌ 윈도우 알림 실패:', notifyError);
       }
 
       return { success: true, session };

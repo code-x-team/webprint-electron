@@ -185,23 +185,63 @@ const UIManager = {
         
         this.showStatus('미리보기 로딩 중...', 'info');
         
+        // iframe을 먼저 표시하고 placeholder 숨김
+        iframe.style.display = 'block';
+        iframe.style.visibility = 'visible';
+        iframe.style.opacity = '1';
+        
         if (placeholder) {
             placeholder.style.display = 'none';
         }
         
+        // iframe 이벤트 리스너 설정
         iframe.onload = () => {
-            console.log('iframe 로드 완료:', url);
+            console.log('✅ iframe 로드 완료:', url);
             this.showStatus('미리보기 로드 완료', 'success');
+            if (placeholder) {
+                placeholder.style.display = 'none';
+            }
+            iframe.style.display = 'block';
         };
         
-        iframe.onerror = () => {
-            console.error('iframe 로드 실패:', url);
+        iframe.onerror = (error) => {
+            console.error('❌ iframe 로드 실패:', url, error);
             this.showStatus('미리보기 로드 실패', 'error');
+            if (placeholder) {
+                placeholder.style.display = 'flex';
+            }
         };
         
-        console.log('iframe src 설정 중:', url);
+        // 보안 정책으로 인한 로드 실패 감지
+        const checkLoad = () => {
+            try {
+                // iframe의 contentDocument 접근을 시도해서 CORS 오류 감지
+                const doc = iframe.contentDocument;
+                if (doc && doc.readyState === 'complete') {
+                    console.log('✅ iframe 콘텐츠 로드 확인됨');
+                }
+            } catch (e) {
+                if (e.name === 'SecurityError') {
+                    console.log('⚠️ CORS로 인한 접근 제한 (정상적인 외부 사이트 로드)');
+                } else {
+                    console.error('❌ iframe 콘텐츠 접근 오류:', e);
+                }
+            }
+        };
+        
+        console.log('🔗 iframe src 설정 중:', url);
         iframe.src = url;
-        console.log('iframe src 설정 완료, 현재 src:', iframe.src);
+        console.log('🔗 iframe src 설정 완료, 현재 src:', iframe.src);
+        
+        // 로드 상태 체크 (여러 시점에서)
+        setTimeout(checkLoad, 1000);
+        setTimeout(checkLoad, 3000);
+        setTimeout(checkLoad, 5000);
+        
+        // iframe 표시 강제 확인 (디버깅용)
+        setTimeout(() => {
+            this.debugIframeState();
+        }, 2000);
     },
     
     hidePreview() {
@@ -240,5 +280,41 @@ const UIManager = {
   
     isRotate180Checked() {
         return false; // 180도 회전 기능 비활성화
+    },
+    
+    // 디버깅용 iframe 상태 체크 함수
+    debugIframeState() {
+        const iframe = this.elements.previewFrame;
+        const placeholder = this.elements.previewPlaceholder;
+        
+        console.group('🔍 iframe 디버그 정보');
+        console.log('iframe 요소 존재:', !!iframe);
+        console.log('placeholder 요소 존재:', !!placeholder);
+        
+        if (iframe) {
+            console.log('iframe.src:', iframe.src);
+            console.log('iframe.style.display:', iframe.style.display);
+            console.log('iframe.style.visibility:', iframe.style.visibility);
+            console.log('iframe.style.opacity:', iframe.style.opacity);
+            console.log('iframe.style.zIndex:', iframe.style.zIndex);
+            console.log('iframe 크기:', { width: iframe.offsetWidth, height: iframe.offsetHeight });
+            console.log('iframe 위치:', { top: iframe.offsetTop, left: iframe.offsetLeft });
+            
+            try {
+                const computedStyle = window.getComputedStyle(iframe);
+                console.log('계산된 스타일:');
+                console.log('- display:', computedStyle.display);
+                console.log('- visibility:', computedStyle.visibility);
+                console.log('- opacity:', computedStyle.opacity);
+                console.log('- z-index:', computedStyle.zIndex);
+            } catch (e) {
+                console.log('스타일 계산 오류:', e);
+            }
+        }
+        
+        if (placeholder) {
+            console.log('placeholder.style.display:', placeholder.style.display);
+        }
+        console.groupEnd();
     }
   };
