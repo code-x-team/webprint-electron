@@ -28,8 +28,10 @@ const WebPrinterApp = {
   cacheElements() {
       this.elements = {
           form: document.getElementById('print-form'),
-          previewUrl: document.getElementById('preview-url'),
-          printUrl: document.getElementById('print-url'),
+          previewFrontUrl: document.getElementById('preview-front-url'),
+          previewBackUrl: document.getElementById('preview-back-url'),
+          printFrontUrl: document.getElementById('print-front-url'),
+          printBackUrl: document.getElementById('print-back-url'),
           paperWidth: document.getElementById('paper-width'),
           paperHeight: document.getElementById('paper-height'),
           printBtn: document.getElementById('print-btn'),
@@ -128,13 +130,15 @@ const WebPrinterApp = {
 
   // Validate form inputs
   validateInputs() {
-      const previewUrl = this.elements.previewUrl.value.trim();
-      const printUrl = this.elements.printUrl.value.trim();
+      const previewFrontUrl = this.elements.previewFrontUrl.value.trim();
+      const previewBackUrl = this.elements.previewBackUrl.value.trim();
+      const printFrontUrl = this.elements.printFrontUrl.value.trim();
+      const printBackUrl = this.elements.printBackUrl.value.trim();
       const paperWidth = parseFloat(this.elements.paperWidth.value);
       const paperHeight = parseFloat(this.elements.paperHeight.value);
 
-      if (!previewUrl && !printUrl) {
-          this.showStatus('URL을 입력하세요.', 'error');
+      if (!previewFrontUrl && !printFrontUrl) {
+          this.showStatus('최소한 앞면 URL을 입력하세요.', 'error');
           return null;
       }
 
@@ -143,7 +147,7 @@ const WebPrinterApp = {
           return null;
       }
 
-      return { previewUrl, printUrl, paperWidth, paperHeight };
+      return { previewFrontUrl, previewBackUrl, printFrontUrl, printBackUrl, paperWidth, paperHeight };
   },
 
   // Send data to WebPrinter
@@ -155,8 +159,10 @@ const WebPrinterApp = {
           },
           body: JSON.stringify({
               session: sessionId,
-              preview_url: data.previewUrl,
-              print_url: data.printUrl,
+              front_preview_url: data.previewFrontUrl,
+              back_preview_url: data.previewBackUrl,
+              front_print_url: data.printFrontUrl,
+              back_print_url: data.printBackUrl,
               paper_width: data.paperWidth,
               paper_height: data.paperHeight,
               paper_size: 'Custom',

@@ -246,15 +246,25 @@ async function startHttpServer() {
     
     app.post('/send-urls', (req, res) => {
       try {
-        const { session, preview_url, print_url, paper_width, paper_height, paper_size, print_selector } = req.body;
+        const { 
+          session, 
+          front_preview_url, 
+          back_preview_url, 
+          front_print_url, 
+          back_print_url, 
+          paper_width, 
+          paper_height, 
+          paper_size, 
+          print_selector 
+        } = req.body;
         
         // 파라미터 검증
         if (!session) {
           return res.status(400).json({ error: '세션 ID가 없습니다' });
         }
         
-        if (!preview_url && !print_url) {
-          return res.status(400).json({ error: 'URL이 제공되지 않았습니다' });
+        if (!front_preview_url && !front_print_url) {
+          return res.status(400).json({ error: '최소한 앞면 URL이 제공되어야 합니다' });
         }
         
         const paperWidth = parseFloat(paper_width);
@@ -264,10 +274,15 @@ async function startHttpServer() {
           return res.status(400).json({ error: '잘못된 용지 크기입니다' });
         }
         
-        // 데이터 저장
+        // 데이터 저장 (하위 호환성을 위해 기존 필드도 유지)
         receivedUrls[session] = {
-          previewUrl: preview_url,
-          printUrl: print_url,
+          frontPreviewUrl: front_preview_url,
+          backPreviewUrl: back_preview_url,
+          frontPrintUrl: front_print_url,
+          backPrintUrl: back_print_url,
+          // 하위 호환성을 위한 기존 필드
+          previewUrl: front_preview_url,
+          printUrl: front_print_url,
           paperSize: { 
             name: paper_size || 'Custom', 
             width: paperWidth, 

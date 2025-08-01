@@ -4,6 +4,7 @@ let receivedUrls = {};
 let currentPaperSize = null;
 let availablePrinters = [];
 let isPrinting = false;
+let currentSide = 'front'; // 현재 보고 있는 면
 
 // 초기화
 document.addEventListener('DOMContentLoaded', async () => {
@@ -47,7 +48,46 @@ function initializeEventListeners() {
     UIManager.elements.printButton.addEventListener('click', executePrint);
     UIManager.elements.cancelButton.addEventListener('click', () => IPCHandler.hideToBackground());
     UIManager.elements.printerSelect.addEventListener('change', updateUI);
-    UIManager.elements.copiesInput.addEventListener('input', updateUI);
+    
+    // 앞면/뒷면 선택 이벤트
+    document.querySelectorAll('input[name="side-selection"]').forEach(radio => {
+        radio.addEventListener('change', handleSideChange);
+    });
+}
+
+// 앞면/뒷면 전환 처리
+function handleSideChange() {
+    const selectedRadio = document.querySelector('input[name="side-selection"]:checked');
+    currentSide = selectedRadio ? selectedRadio.value : 'front';
+    
+    // 미리보기 업데이트
+    showPreviewForSide(currentSide);
+    updatePreviewHeader();
+}
+
+// 선택된 면의 미리보기 표시
+function showPreviewForSide(side) {
+    if (!receivedUrls) return;
+    
+    let url;
+    if (side === 'front') {
+        url = receivedUrls.frontPreviewUrl || receivedUrls.previewUrl;
+    } else {
+        url = receivedUrls.backPreviewUrl;
+    }
+    
+    if (url) {
+        UIManager.showPreview(url);
+        UIManager.showStatus(`${side === 'front' ? '앞면' : '뒷면'} 미리보기 로드 중...`, 'info');
+    }
+}
+
+// 미리보기 헤더 업데이트
+function updatePreviewHeader() {
+    const indicator = document.getElementById('preview-side-indicator');
+    if (indicator) {
+        indicator.textContent = `(${currentSide === 'front' ? '앞면' : '뒷면'})`;
+    }
 }
 
 // 서버 정보 처리
@@ -65,11 +105,9 @@ function handleUrlsReceived(urlData) {
         UIManager.displayPaperSize(currentPaperSize);
     }
     
-    if (urlData.previewUrl || urlData.printUrl) {
-        const url = urlData.previewUrl || urlData.printUrl;
-        UIManager.showPreview(url);
-        UIManager.showStatus('미리보기 로드 중...', 'info');
-    }
+    // 현재 선택된 면의 미리보기 표시
+    showPreviewForSide(currentSide);
+    updatePreviewHeader();
     
     updateUI();
 }
@@ -106,14 +144,20 @@ async function loadPrinters() {
 
 // 인쇄 실행
 async function executePrint() {
-    if (isPrinting || !receivedUrls.printUrl) return;
+    // 현재 선택된 면의 인쇄 URL 확인
+    let printUrl;
+    if (currentSide === 'front') {
+        printUrl = receivedUrls.frontPrintUrl || receivedUrls.printUrl;
+    } else {
+        printUrl = receivedUrls.backPrintUrl;
+    }
+    
+    if (isPrinting || !printUrl) return;
     
     isPrinting = true;
     UIManager.setPrintButtonLoading(true);
     
     try {
-        const printUrl = receivedUrls.printUrl || receivedUrls.previewUrl;
-        
         if (!printUrl || !currentPaperSize) {
             throw new Error('인쇄 정보가 부족합니다');
         }
@@ -121,12 +165,12 @@ async function executePrint() {
         const outputType = UIManager.getSelectedOutputType();
         const rotate180 = UIManager.isRotate180Checked();
         
-        UIManager.showStatus(outputType === 'pdf' ? 'PDF 생성 중...' : '인쇄 중...', 'info');
+        UIManager.showStatus(outputType === 'pdf' ? `${currentSide === 'front' ? '앞면' : '뒷면'} PDF 생성 중...` : `${currentSide === 'front' ? '앞면' : '뒷면'} 인쇄 중...`, 'info');
         
         const result = await IPCHandler.printUrl({
             url: printUrl,
             printerName: UIManager.elements.printerSelect.value,
-            copies: parseInt(UIManager.elements.copiesInput.value) || 1,
+            copies: 1, // 복사본 수 고정
             paperSize: currentPaperSize,
             printSelector: receivedUrls.printSelector || '.print_wrap',
             silent: true,
@@ -169,7 +213,14 @@ async function executePrint() {
 
 // UI 상태 업데이트
 function updateUI() {
-    const hasUrl = receivedUrls.printUrl || receivedUrls.previewUrl;
+    // 현재 선택된 면의 URL 확인
+    let hasUrl = false;
+    if (currentSide === 'front') {
+        hasUrl = receivedUrls.frontPrintUrl || receivedUrls.printUrl || receivedUrls.frontPreviewUrl || receivedUrls.previewUrl;
+    } else {
+        hasUrl = receivedUrls.backPrintUrl || receivedUrls.backPreviewUrl;
+    }
+    
     const hasPaperSize = currentPaperSize && currentPaperSize.width && currentPaperSize.height;
     const outputType = UIManager.getSelectedOutputType();
     

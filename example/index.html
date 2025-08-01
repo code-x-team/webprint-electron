@@ -25,17 +25,31 @@
         <main class="content">
             <form id="print-form" class="print-form">
                 <div class="form-group">
-                    <label for="preview-url">미리보기 URL:</label>
-                    <input type="url" id="preview-url" class="form-input" 
-                           placeholder="https://example.com/preview" 
+                    <label for="preview-front-url">미리보기 앞면 URL:</label>
+                    <input type="url" id="preview-front-url" class="form-input" 
+                           placeholder="https://example.com/preview/front" 
                            value="https://print-seven-nu.vercel.app/team/team1/preview/front/key123">
                 </div>
                 
                 <div class="form-group">
-                    <label for="print-url">인쇄 URL:</label>
-                    <input type="url" id="print-url" class="form-input"
-                           placeholder="https://example.com/print" 
+                    <label for="preview-back-url">미리보기 뒷면 URL:</label>
+                    <input type="url" id="preview-back-url" class="form-input" 
+                           placeholder="https://example.com/preview/back" 
+                           value="https://print-seven-nu.vercel.app/team/team1/preview/back/key123">
+                </div>
+                
+                <div class="form-group">
+                    <label for="print-front-url">인쇄 앞면 URL:</label>
+                    <input type="url" id="print-front-url" class="form-input"
+                           placeholder="https://example.com/print/front" 
                            value="https://print-seven-nu.vercel.app/team/team1/print/front/key123">
+                </div>
+                
+                <div class="form-group">
+                    <label for="print-back-url">인쇄 뒷면 URL:</label>
+                    <input type="url" id="print-back-url" class="form-input"
+                           placeholder="https://example.com/print/back" 
+                           value="https://print-seven-nu.vercel.app/team/team1/print/back/key123">
                 </div>
                
                 <div class="size-group">

@@ -43,7 +43,7 @@
     <div class="main-content">
         <div class="preview-section">
             <div class="preview-header">
-                <h2>인쇄 미리보기</h2>
+                <h2>인쇄 미리보기 <span id="preview-side-indicator">(앞면)</span></h2>
                 <div class="url-display" id="server-display"></div>
             </div>
             <div class="preview-container">
@@ -79,8 +79,17 @@
                 </div>
 
                 <div class="control-group">
-                    <label class="control-label" for="copies">복사본 수:</label>
-                    <input type="number" class="control-input" id="copies" min="1" max="99" value="1">
+                    <label class="control-label">인쇄면 선택:</label>
+                    <div class="radio-group">
+                        <label class="radio-label">
+                            <input type="radio" name="side-selection" value="front" checked>
+                            <span>앞면</span>
+                        </label>
+                        <label class="radio-label">
+                            <input type="radio" name="side-selection" value="back">
+                            <span>뒷면</span>
+                        </label>
+                    </div>
                 </div>
 
                 <!-- <div class="control-group">
