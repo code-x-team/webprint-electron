@@ -316,9 +316,7 @@ async function attemptIpcRecovery() {
 function initializeEventListeners() {
     UIManager.elements.refreshPrintersBtn.addEventListener('click', loadPrinters);
     UIManager.elements.printButton.addEventListener('click', executePrint);
-    UIManager.elements.cancelButton.addEventListener('click', () => IPCHandler.hideToBackground());
     UIManager.elements.printerSelect.addEventListener('change', updateUI);
-    UIManager.elements.copiesInput.addEventListener('input', updateUI);
 }
 
 // 서버 정보 처리
@@ -435,7 +433,7 @@ async function executePrint() {
         const result = await IPCHandler.printUrl({
             url: printUrl,
             printerName: UIManager.elements.printerSelect.value,
-            copies: parseInt(UIManager.elements.copiesInput.value) || 1,
+            copies: 1, // 고정값 1매
             paperSize: currentPaperSize,
             printSelector: receivedUrls.printSelector || '.print_wrap',
             silent: true,

@@ -238,32 +238,7 @@ async function createMainWindow() {
   }
 }
 
-// IPC 핸들러 설정
-function setupIpcHandlers() {
-  // 서버 정보 요청
-  ipcMain.handle('get-server-info', () => ({
-    port: appState.serverPort,
-    ready: appState.serverReady,
-    session: Array.from(appState.sessions.keys())[0] || null
-  }));
-
-  // 세션 데이터 요청
-  ipcMain.handle('get-session-data', (event, sessionId) => {
-    return appState.sessions.get(sessionId) || null;
-  });
-
-  // 프린터 및 인쇄 관련 핸들러는 modules/window.js에서 처리
-
-  // 앱 정보
-  ipcMain.handle('get-app-version', () => app.getVersion());
-  
-  // 종료
-  ipcMain.handle('hide-to-background', () => {
-    if (appState.mainWindow && !appState.mainWindow.isDestroyed()) {
-      appState.mainWindow.hide();
-    }
-  });
-}
+// IPC 핸들러는 modules/window.js에서 처리
 
 // 트레이 생성
 function createTray() {
@@ -306,7 +281,6 @@ async function initialize() {
     
     // 1. 기본 설정
     app.setAsDefaultProtocolClient('webprinter');
-    setupIpcHandlers();
     setupWindowIpcHandlers(); // window 모듈의 IPC 핸들러 설정
     createTray();
     initManager.updateStep('app', 'completed');
