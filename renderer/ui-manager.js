@@ -3,6 +3,7 @@ const UIManager = {
         statusText: null,
         serverDisplay: null,
         previewFrame: null,
+        previewPlaceholder: null,
         printerSelect: null,
         copiesInput: null,
         statusMessage: null,
@@ -25,6 +26,7 @@ const UIManager = {
             statusText: document.getElementById('status-text'),
             serverDisplay: document.getElementById('server-display'),
             previewFrame: document.getElementById('preview-frame'),
+            previewPlaceholder: document.getElementById('preview-placeholder'),
             printerSelect: document.getElementById('printer-select'),
             copiesInput: document.getElementById('copies'),
             statusMessage: document.getElementById('status-message'),
@@ -153,8 +155,10 @@ const UIManager = {
   
     updateServerInfo(serverInfo) {
         if (serverInfo) {
-            this.elements.statusText.textContent = `준비 완료 - 포트: ${serverInfo.port}`;
-            this.elements.serverDisplay.textContent = `세션: ${serverInfo.session}`;
+            this.elements.statusText.textContent = `준비 완료`;
+            if (this.elements.serverDisplay) {
+                this.elements.serverDisplay.textContent = `포트: ${serverInfo.port} | 세션: ${serverInfo.session}`;
+            }
         }
     },
   
@@ -179,14 +183,44 @@ const UIManager = {
   
     showPreview(url) {
         const iframe = this.elements.previewFrame;
-        iframe.style.display = 'block';
+        const placeholder = this.elements.previewPlaceholder;
+        
+        if (!iframe || !placeholder) {
+            console.error('미리보기 요소를 찾을 수 없습니다.');
+            return;
+        }
+        
+        // 로딩 상태 표시
+        placeholder.style.display = 'flex';
+        iframe.style.display = 'none';
+        
+        // placeholder 내용 업데이트
+        placeholder.innerHTML = `
+            <div class="placeholder-content">
+                <div class="placeholder-icon">🔄</div>
+                <h3>페이지 로딩 중...</h3>
+                <p>잠시만 기다려주세요</p>
+            </div>
+        `;
+        
         iframe.src = url;
         
         iframe.onload = () => {
+            // 로딩 완료 시 iframe 표시, placeholder 숨김
+            placeholder.style.display = 'none';
+            iframe.style.display = 'block';
             this.showStatus('웹페이지 로드 완료', 'success');
         };
         
         iframe.onerror = () => {
+            // 오류 시 placeholder에 오류 메시지 표시
+            placeholder.innerHTML = `
+                <div class="placeholder-content">
+                    <div class="placeholder-icon">❌</div>
+                    <h3>페이지 로드 실패</h3>
+                    <p>URL을 확인하고 다시 시도해주세요</p>
+                </div>
+            `;
             this.showStatus('웹페이지 로드 실패', 'error');
         };
     },
@@ -210,7 +244,8 @@ const UIManager = {
     displayPaperSize(paperSize) {
         if (paperSize && this.elements.serverDisplay) {
             const sizeText = `${paperSize.width}mm × ${paperSize.height}mm`;
-            this.elements.serverDisplay.innerHTML += `<br>용지: ${sizeText}`;
+            const currentText = this.elements.serverDisplay.textContent;
+            this.elements.serverDisplay.textContent = `${currentText} | 용지: ${sizeText}`;
         }
     },
   
