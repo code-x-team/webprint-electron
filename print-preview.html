@@ -35,27 +35,74 @@
         </div>
     </div>
 
-    <div class="header">
-        <h1>🖨️ WebPrinter</h1>
-        <p id="status-text">준비 중...</p>
+    <div class="app-header">
+        <div class="app-title">
+            <div class="app-icon">🖨️</div>
+            <div class="title-info">
+                <h1>WebPrinter</h1>
+                <span class="version-badge">v2.0.6</span>
+            </div>
+        </div>
+        <div class="connection-status">
+            <div class="status-indicator" id="header-status-indicator">
+                <div class="status-dot"></div>
+                <span id="status-text">준비 중...</span>
+            </div>
+        </div>
     </div>
 
-    <div class="main-content">
-        <div class="preview-section">
-            <div class="preview-header">
-                <h2>인쇄 미리보기</h2>
-                <div class="url-display" id="server-display"></div>
+    <div class="workspace">
+        <!-- 상단 툴바 -->
+        <div class="toolbar">
+            <div class="toolbar-section">
+                <div class="document-info">
+                    <span class="document-icon">📄</span>
+                    <div class="document-details">
+                        <div class="document-title">인쇄 문서</div>
+                        <div class="document-url" id="server-display">URL 로딩 중...</div>
+                    </div>
+                </div>
             </div>
-            <div class="preview-container">
-                <iframe id="preview-frame" class="preview-iframe" style="display: none;"></iframe>
+            <div class="toolbar-section">
+                <div class="quick-actions">
+                    <button class="toolbar-btn" id="refresh-preview" title="미리보기 새로고침">
+                        <span class="btn-icon">🔄</span>
+                    </button>
+                    <button class="toolbar-btn" id="fit-to-page" title="페이지에 맞춤">
+                        <span class="btn-icon">⚖️</span>
+                    </button>
+                </div>
             </div>
         </div>
 
-        <div class="controls-section">
-            <div class="controls-header">
-                <h2>인쇄 설정</h2>
+        <div class="main-workspace">
+            <!-- 미리보기 영역 -->
+            <div class="preview-area">
+                <div class="preview-wrapper">
+                    <div class="paper-container">
+                        <div class="paper-shadow">
+                            <iframe id="preview-frame" class="preview-frame" style="display: none;"></iframe>
+                            <div class="preview-placeholder" id="preview-placeholder">
+                                <div class="placeholder-content">
+                                    <div class="placeholder-icon">📄</div>
+                                    <h3>문서 로딩 중...</h3>
+                                    <p>잠시만 기다려주세요</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
-            <div class="controls-body">
+
+            <!-- 설정 패널 -->
+            <div class="settings-panel">
+                <div class="panel-header">
+                    <h2>
+                        <span class="panel-icon">⚙️</span>
+                        인쇄 설정
+                    </h2>
+                </div>
+                <div class="panel-content">
                 <div class="control-group">
                     <label class="control-label">출력 방식:</label>
                     <div class="radio-group">
@@ -90,14 +137,26 @@
                     </label>
                 </div> -->
 
-                <div class="status-message" id="status-message"></div>
-
-                <div class="button-group">
-                    <button class="btn btn-primary" id="print-button" disabled>📄 출력하기</button>
-                    <button class="btn btn-danger" id="cancel-button">✕ 취소</button>
+                    <!-- 액션 버튼 -->
+                    <div class="panel-actions">
+                        <button id="cancel-button" class="action-btn btn-secondary">
+                            <span class="btn-icon">✖️</span>
+                            취소
+                        </button>
+                        <button id="print-button" class="action-btn btn-primary" disabled>
+                            <span class="btn-spinner" style="display: none;"></span>
+                            <span class="btn-icon">🖨️</span>
+                            출력하기
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
+    </div>
+
+    <!-- 상태 메시지 -->
+    <div class="status-bar">
+        <div class="status-message" id="status-message"></div>
     </div>
 
     <script src="renderer/ui-manager.js"></script>
