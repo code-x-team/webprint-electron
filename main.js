@@ -18,6 +18,9 @@ const appState = {
   initPromise: null
 };
 
+// 모듈 import
+const { setupIpcHandlers: setupWindowIpcHandlers } = require('./modules/window');
+
 // 간단한 HTTP 서버 (Express 의존성 제거)
 class SimpleHttpServer {
   constructor(port) {
@@ -249,56 +252,7 @@ function setupIpcHandlers() {
     return appState.sessions.get(sessionId) || null;
   });
 
-  // 프린터 목록
-  ipcMain.handle('get-printers', async () => {
-    try {
-      if (!appState.mainWindow || appState.mainWindow.isDestroyed()) {
-        throw new Error('윈도우가 없습니다');
-      }
-      
-      const printers = await appState.mainWindow.webContents.getPrintersAsync();
-      return { success: true, printers };
-    } catch (error) {
-      return { success: false, error: error.message, printers: [] };
-    }
-  });
-
-  // 인쇄
-  ipcMain.handle('print-url', async (event, params) => {
-    try {
-      // 간단한 PDF 인쇄 로직
-      const pdfOptions = {
-        marginsType: 1,
-        pageSize: 'A4',
-        printBackground: true,
-        landscape: false
-      };
-      
-      const pdf = await appState.mainWindow.webContents.printToPDF(pdfOptions);
-      
-      if (params.outputType === 'pdf') {
-        // PDF 저장
-        const pdfPath = path.join(os.homedir(), 'Downloads', `WebPrinter_${Date.now()}.pdf`);
-        await fs.writeFile(pdfPath, pdf);
-        
-        // PDF 열기
-        require('electron').shell.openPath(pdfPath);
-        
-        return { success: true, message: 'PDF가 생성되었습니다' };
-      } else {
-        // 프린터로 인쇄
-        await appState.mainWindow.webContents.print({
-          silent: true,
-          printBackground: true,
-          deviceName: params.printerName
-        });
-        
-        return { success: true, message: '인쇄가 시작되었습니다' };
-      }
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
-  });
+  // 프린터 및 인쇄 관련 핸들러는 modules/window.js에서 처리
 
   // 앱 정보
   ipcMain.handle('get-app-version', () => app.getVersion());
@@ -353,6 +307,7 @@ async function initialize() {
     // 1. 기본 설정
     app.setAsDefaultProtocolClient('webprinter');
     setupIpcHandlers();
+    setupWindowIpcHandlers(); // window 모듈의 IPC 핸들러 설정
     createTray();
     initManager.updateStep('app', 'completed');
     

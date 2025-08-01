@@ -172,8 +172,17 @@ function setupIpcHandlers() {
   ipcMain.handle('get-printers', async () => {
     try {
       console.log('프린터 목록 요청');
-      const printers = (printWindow && !printWindow.isDestroyed()) 
-        ? await printWindow.webContents.getPrintersAsync() 
+      
+      // printWindow가 있으면 사용, 없으면 전역 상태에서 가져오기
+      let targetWindow = printWindow;
+      if (!targetWindow || targetWindow.isDestroyed()) {
+        const { BrowserWindow } = require('electron');
+        const windows = BrowserWindow.getAllWindows();
+        targetWindow = windows.find(w => !w.isDestroyed());
+      }
+      
+      const printers = targetWindow 
+        ? await targetWindow.webContents.getPrintersAsync() 
         : [];
       
       console.log(`프린터 ${printers.length}개 발견`);
