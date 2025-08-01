@@ -89,60 +89,24 @@ function updatePreviewHeader() {
     }
 }
 
-// 다음 면으로 부드럽게 자동 전환 (앞면 → 뒷면)
-async function switchToNextSide() {
+// 다음 면으로 간단한 자동 전환 (앞면 → 뒷면)
+function switchToNextSide() {
     if (currentSide === 'front' && receivedUrls.backPreviewUrl) {
-        // 전환 시작 표시
-        const indicator = document.getElementById('preview-side-indicator');
-        const iframe = UIManager.elements.previewFrame;
-        const printBtn = UIManager.elements.printButton;
-        
-        // 1. 전환 애니메이션 시작
-        if (indicator) indicator.classList.add('changing');
-        if (printBtn) printBtn.classList.add('transitioning');
-        
-        UIManager.showStatus('앞면 인쇄 완료! 뒷면으로 전환 중...', 'info');
-        
-        // 2. 페이드 아웃
-        if (iframe) iframe.classList.add('fade-out');
-        
-        // 3. 잠시 대기 (페이드 아웃 완료)
-        await new Promise(resolve => setTimeout(resolve, 200));
-        
-        // 4. 상태 변경
+        // 앞면에서 뒷면으로 전환
         currentSide = 'back';
         
-        // 5. 라디오 버튼 업데이트
+        // 라디오 버튼 업데이트
         const backRadio = document.querySelector('input[name="side-selection"][value="back"]');
         if (backRadio) {
             backRadio.checked = true;
         }
         
-        // 6. 뒷면 URL 로드 (페이드 아웃 상태에서)
+        // 뒷면 미리보기 표시
         showPreviewForSide(currentSide);
-        
-        // 7. 헤더 업데이트
         updatePreviewHeader();
-        
-        // 8. 잠시 대기 후 페이드 인
-        await new Promise(resolve => setTimeout(resolve, 100));
-        
-        if (iframe) {
-            iframe.classList.remove('fade-out');
-            iframe.classList.add('fade-in');
-        }
-        
-        // 9. 전환 효과 제거
-        await new Promise(resolve => setTimeout(resolve, 200));
-        
-        if (indicator) indicator.classList.remove('changing');
-        if (printBtn) printBtn.classList.remove('transitioning');
-        if (iframe) iframe.classList.remove('fade-in');
-        
-        // 10. UI 업데이트 및 성공 메시지
         updateUI();
-        UIManager.showStatus('뒷면으로 전환되었습니다. 뒷면을 인쇄해주세요.', 'success');
         
+        UIManager.showStatus('앞면 인쇄 완료. 뒷면을 인쇄해주세요.', 'success');
         return true; // 전환됨
     }
     return false; // 전환되지 않음 (뒷면이 없거나 이미 뒷면)
@@ -244,7 +208,7 @@ async function executePrint() {
             
             // 앞면/뒷면 전환 로직
             if (result.shouldClose) {
-                const switchedToBack = await switchToNextSide();
+                const switchedToBack = switchToNextSide();
                 
                 if (switchedToBack) {
                     // 앞면 완료 → 뒷면으로 전환됨

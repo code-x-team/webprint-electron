@@ -3,13 +3,12 @@ const UIManager = {
         statusText: null,
         serverDisplay: null,
         previewFrame: null,
+        previewPlaceholder: null,
         printerSelect: null,
         statusMessage: null,
         printButton: null,
         loadingOverlay: null,
         refreshPrintersBtn: null,
-        printerGroup: null,
-        rotate180Checkbox: null,
         loadingMainText: null,
         loadingProgress: null
     },
@@ -22,18 +21,15 @@ const UIManager = {
             statusText: document.getElementById('status-text'),
             serverDisplay: document.getElementById('server-display'),
             previewFrame: document.getElementById('preview-frame'),
+            previewPlaceholder: document.getElementById('preview-placeholder'),
             printerSelect: document.getElementById('printer-select'),
             statusMessage: document.getElementById('status-message'),
             printButton: document.getElementById('print-button'),
             loadingOverlay: document.getElementById('loading-overlay'),
             refreshPrintersBtn: document.getElementById('refresh-printers'),
-            printerGroup: document.getElementById('printer-group'),
-            rotate180Checkbox: document.getElementById('rotate-180'),
             loadingMainText: document.getElementById('loading-main-text'),
             loadingProgress: document.getElementById('loading-progress')
         };
-        
-        // 프린터 그룹은 CSS에서 항상 표시됨 (프린터 출력 전용)
     },
   
     handleOutputTypeChange() {
@@ -167,17 +163,44 @@ const UIManager = {
     },
   
     showPreview(url) {
-        const iframe = this.elements.previewFrame;
-        iframe.style.display = 'block';
-        iframe.src = url;
+        if (!url) {
+            this.hidePreview();
+            return;
+        }
         
+        const iframe = this.elements.previewFrame;
+        const placeholder = this.elements.previewPlaceholder;
+        
+        // 미리보기 로딩 시작
+        this.showStatus('미리보기 로딩 중...', 'info');
+        
+        // iframe 이벤트 설정
         iframe.onload = () => {
-            this.showStatus('웹페이지 로드 완료', 'success');
+            // 로드 성공 시 iframe 표시, placeholder 숨김
+            iframe.classList.add('show');
+            if (placeholder) placeholder.style.display = 'none';
+            this.showStatus('미리보기 로드 완료', 'success');
         };
         
         iframe.onerror = () => {
-            this.showStatus('웹페이지 로드 실패', 'error');
+            // 로드 실패 시 iframe 숨김, placeholder 표시
+            iframe.classList.remove('show');
+            if (placeholder) placeholder.style.display = 'flex';
+            this.showStatus('미리보기 로드 실패', 'error');
         };
+        
+        // URL 설정
+        iframe.src = url;
+    },
+    
+    hidePreview() {
+        const iframe = this.elements.previewFrame;
+        const placeholder = this.elements.previewPlaceholder;
+        
+        // iframe 숨기고 placeholder 표시
+        iframe.classList.remove('show');
+        iframe.src = '';
+        if (placeholder) placeholder.style.display = 'flex';
     },
   
     updatePrintButton(enabled) {
@@ -205,6 +228,6 @@ const UIManager = {
     },
   
     isRotate180Checked() {
-        return this.elements.rotate180Checkbox && this.elements.rotate180Checkbox.checked;
+        return false; // 180도 회전 기능 비활성화
     }
   };
