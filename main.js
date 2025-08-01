@@ -187,12 +187,16 @@ function setupAutoLaunch() {
     // 시작 인수 확인
     const isStartupLaunch = process.argv.includes('--startup');
     const isHidden = process.argv.includes('--hidden');
+    const isFirstRun = !app.getLoginItemSettings().wasOpenedAtLogin;
     
-    console.log('🚀 시작 모드:', { isStartupLaunch, isHidden, argv: process.argv });
+    console.log('🚀 시작 모드:', { isStartupLaunch, isHidden, isFirstRun, argv: process.argv });
     
     // 백그라운드 모드 강제 적용 조건
-    if (isHidden || isStartupLaunch) {
+    // 1. 명시적 --hidden, --startup 매개변수
+    // 2. 설치 후 첫 실행 (runAfterFinish에서 실행됨)
+    if (isHidden || isStartupLaunch || isFirstRun) {
       console.log('🔕 백그라운드 모드 활성화됨');
+      global.startupMode = true;
     }
     
     // macOS/Linux용 자동 시작 설정
@@ -230,11 +234,7 @@ function setupAutoLaunch() {
       }
     }
     
-    // 시작 시 숨김 모드로 실행
-    if (isStartupLaunch || isHidden) {
-      global.startupMode = true;
-      console.log('🔕 숨김 모드로 시작됨');
-    }
+
   } catch (error) {
     console.error('⚠️ 자동 시작 설정 실패:', error.message);
   }
@@ -406,12 +406,10 @@ const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
   app.quit();
 } else {
+  // second-instance 이벤트는 setupImmortalMode()에서 처리됨
+  // 중복 방지를 위해 여기서는 트레이 알림만 처리
   app.on('second-instance', (event, commandLine) => {
-    const protocolUrl = commandLine.find(arg => arg.startsWith('webprinter://'));
-    if (protocolUrl) {
-      handleProtocolCall(protocolUrl);
-    }
-    // 두 번째 인스턴스가 실행되면 트레이 아이콘 강조
+    // 두 번째 인스턴스가 실행되면 트레이 아이콘 강조만
     if (tray && !tray.isDestroyed()) {
       if (process.platform === 'win32') {
         tray.displayBalloon({
