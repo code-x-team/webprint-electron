@@ -7,6 +7,10 @@ const ptp = require('pdf-to-printer');
 // ========== 메인 함수 ==========
 async function printViaPDF(url, paperSize, printSelector, copies, silent, printerName, outputType = 'pdf', rotate180 = false) {
   try {
+    // 먼저 요소 개수 확인
+    const elementCount = await getElementCount(url, printSelector);
+    console.log(`발견된 ${printSelector} 요소 개수:`, elementCount);
+    
     // PDF 생성
     const pdfBuffer = await generatePDF(url, paperSize, printSelector, rotate180);
     
@@ -14,7 +18,8 @@ async function printViaPDF(url, paperSize, printSelector, copies, silent, printe
       // PDF 저장 및 미리보기
       const pdfPath = await savePermanentPDF(pdfBuffer);
       await openPDFPreview(pdfPath);
-      return { success: true, pdfPath, shouldClose: true };
+      const message = elementCount > 1 ? `${elementCount}개 페이지 PDF가 생성되었습니다` : 'PDF가 생성되었습니다';
+      return { success: true, pdfPath, message, shouldClose: true };
       
     } else {
       // PDF 임시 저장 후 인쇄
@@ -46,10 +51,14 @@ async function printViaPDF(url, paperSize, printSelector, copies, silent, printe
           }
         }, 30000);
         
+        const message = elementCount > 1 ? 
+          `${elementCount}개 페이지가 프린터로 전송되었습니다.` : 
+          '인쇄 작업이 프린터로 전송되었습니다.';
+          
         return { 
           success: true, 
           shouldClose: true, 
-          message: '인쇄 작업이 프린터로 전송되었습니다.' 
+          message: message
         };
         
       } catch (printError) {
@@ -75,6 +84,39 @@ async function printViaPDF(url, paperSize, printSelector, copies, silent, printe
   }
 }
 
+// ========== 요소 개수 확인 함수 ==========
+async function getElementCount(url, printSelector) {
+  const tempWindow = new BrowserWindow({
+    show: false,
+    width: 1200,
+    height: 1600,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      webSecurity: false,
+      offscreen: true
+    }
+  });
+  
+  try {
+    await tempWindow.loadURL(url);
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    const count = await tempWindow.webContents.executeJavaScript(`
+      (function() {
+        const elements = document.querySelectorAll('${printSelector}');
+        return elements.length;
+      })()
+    `);
+    
+    return count;
+  } finally {
+    if (tempWindow && !tempWindow.isDestroyed()) {
+      tempWindow.close();
+    }
+  }
+}
+
 // ========== PDF 생성 함수 ==========
 async function generatePDF(url, paperSize, printSelector, rotate180 = false) {
   const pdfWindow = new BrowserWindow({
@@ -95,37 +137,40 @@ async function generatePDF(url, paperSize, printSelector, rotate180 = false) {
     await pdfWindow.loadURL(url);
     await new Promise(resolve => setTimeout(resolve, 3000));
     
-    // 특정 요소만 선택하여 인쇄
+    // 특정 요소들을 선택하여 인쇄
     if (printSelector) {
       await pdfWindow.webContents.executeJavaScript(`
         (function() {
-          const targetElement = document.querySelector('${printSelector}');
-          if (targetElement) {
-            // 기존 body 내용을 제거하고 대상 요소만 추가
+          const targetElements = document.querySelectorAll('${printSelector}');
+          if (targetElements.length > 0) {
+            // 기존 body 내용을 제거
             document.body.innerHTML = '';
-            document.body.appendChild(targetElement.cloneNode(true));
             
-            // 스타일 적용
-            const element = document.body.firstChild;
-            element.style.cssText = \`
-              width: ${paperSize.width}mm !important;
-              height: ${paperSize.height}mm !important;
-              margin: 0 auto !important;
-              transform: ${rotate180 ? 'rotate(180deg)' : 'none'} !important;
-              transform-origin: center center !important;
-            \`;
+            // 모든 대상 요소들을 body에 추가
+            targetElements.forEach((targetElement, index) => {
+              const clonedElement = targetElement.cloneNode(true);
+              
+              // 스타일 적용
+              clonedElement.style.cssText = \`
+                width: ${paperSize.width}mm !important;
+                height: ${paperSize.height}mm !important;
+                margin: 0 auto !important;
+                transform: ${rotate180 ? 'rotate(180deg)' : 'none'} !important;
+                transform-origin: center center !important;
+                page-break-after: \${index < targetElements.length - 1 ? 'always' : 'auto'} !important;
+                display: block !important;
+              \`;
+              
+              document.body.appendChild(clonedElement);
+            });
             
             // body 스타일 설정
             document.body.style.cssText = \`
               margin: 0 !important;
               padding: 0 !important;
-              display: flex !important;
-              justify-content: center !important;
-              align-items: center !important;
-              min-height: 100vh !important;
             \`;
           }
-          return true;
+          return targetElements.length;
         })()
       `);
 
