@@ -188,13 +188,13 @@ async function loadPrinters() {
         console.error('프린터 목록 로드 실패:', error);
         UIManager.showStatus('프린터 목록을 불러올 수 없습니다. 시스템 기본 프린터를 사용합니다.', 'error');
         
-        // 기본 옵션 추가
-        availablePrinters = [{ name: 'system-default', displayName: '시스템 기본 프린터' }];
-        const defaultOption = document.createElement('option');
-        defaultOption.value = 'system-default';
-        defaultOption.textContent = '시스템 기본 프린터';
-        UIManager.elements.printerSelect.appendChild(defaultOption);
-        UIManager.elements.printerSelect.value = 'system-default';
+        // UIManager를 통한 일관된 프린터 목록 처리
+        availablePrinters = [{ 
+            name: 'system-default', 
+            displayName: '시스템 기본 프린터',
+            isDefault: true
+        }];
+        UIManager.updatePrinterList(availablePrinters);
     }
     
     updateUI();

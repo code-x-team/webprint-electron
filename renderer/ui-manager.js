@@ -33,10 +33,7 @@ const UIManager = {
             loadingProgress: document.getElementById('loading-progress')
         };
         
-        // 프린터 그룹을 항상 표시 (기본이 프린터 출력이므로)
-        if (this.elements.printerGroup) {
-            this.elements.printerGroup.classList.add('show');
-        }
+        // 프린터 그룹은 CSS에서 항상 표시됨 (프린터 출력 전용)
     },
   
     handleOutputTypeChange() {

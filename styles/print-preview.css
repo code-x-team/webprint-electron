@@ -216,12 +216,8 @@ body {
   cursor: pointer;
 }
 
-/* 프린터 그룹 숨김 처리 */
+/* 프린터 그룹 항상 표시 (프린터 출력 전용) */
 #printer-group {
-  display: none;
-}
-
-#printer-group.show {
   display: flex;
   flex-direction: column;
 }
