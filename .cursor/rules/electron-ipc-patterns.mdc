@@ -1,0 +1,268 @@
+---
+globs: *.js,preload.js,main.js,modules/**/*.js,renderer/**/*.js
+---
+# Electron IPC 통신 패턴
+
+## IPC 채널 명명 규칙
+
+### 1. 명령형 채널 (Main → Renderer)
+```javascript
+// ✅ 좋은 예 - 동작을 설명하는 명확한 이름
+'server-info'        // 서버 정보 전달
+'urls-received'      // URL 데이터 수신
+'session-changed'    // 세션 변경 알림
+'loading-complete'   // 로딩 완료 알림
+
+// ❌ 나쁜 예 - 불명확한 이름
+'data'
+'update'
+'message'
+```
+
+### 2. 요청/응답 채널 (Renderer → Main)
+```javascript
+// ✅ 좋은 예 - 동사-명사 형식
+'get-printers'       // 프린터 목록 요청
+'print-url'          // URL 인쇄 실행
+'get-server-info'    // 서버 정보 요청
+'hide-to-background' // 백그라운드로 숨기기
+
+// ❌ 나쁜 예
+'printers'
+'print'
+'server'
+```
+
+## Preload 스크립트 패턴
+
+### contextBridge 노출 구조
+```javascript
+// ✅ 표준 패턴 (preload.js)
+const { contextBridge, ipcRenderer } = require('electron');
+
+contextBridge.exposeInMainWorld('electronAPI', {
+  // 단방향 통신 (invoke)
+  getPrinters: () => ipcRenderer.invoke('get-printers'),
+  printUrl: (options) => ipcRenderer.invoke('print-url', options),
+  
+  // 이벤트 리스너
+  onServerInfo: (callback) => {
+    ipcRenderer.on('server-info', (event, info) => callback(info));
+  },
+  
+  onUrlsReceived: (callback) => {
+    ipcRenderer.on('urls-received', (event, urlData) => callback(urlData));
+  }
+});
+```
+
+## Main Process IPC 핸들러
+
+### ipcMain.handle 패턴
+```javascript
+// ✅ 표준 비동기 핸들러
+ipcMain.handle('get-printers', async (event) => {
+  console.log('get-printers IPC 호출됨');
+  
+  try {
+    const printers = await someAsyncOperation();
+    
+    return { 
+      success: true, 
+      printers: printers,
+      totalCount: printers.length
+    };
+  } catch (error) {
+    console.error('프린터 목록 가져오기 실패:', error);
+    return { 
+      success: false, 
+      error: error.message, 
+      printers: [] 
+    };
+  }
+});
+```
+
+### 파라미터 검증
+```javascript
+// ✅ 파라미터 검증 포함
+ipcMain.handle('print-url', async (event, params) => {
+  // 1. 파라미터 존재 확인
+  if (!params) {
+    return { success: false, error: '파라미터가 없습니다' };
+  }
+  
+  // 2. 필수 필드 검증
+  if (!params.url) {
+    return { success: false, error: 'URL이 필요합니다' };
+  }
+  
+  // 3. 타입 검증
+  if (typeof params.copies !== 'number' || params.copies < 1) {
+    params.copies = 1; // 기본값 설정
+  }
+  
+  // 4. 메인 로직
+  try {
+    const result = await executePrint(params);
+    return result;
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+```
+
+## Renderer Process IPC 사용
+
+### IPCHandler 모듈 패턴
+```javascript
+// ✅ 중앙집중식 IPC 관리 (renderer/ipc-handler.js)
+const IPCHandler = {
+  async getPrinters() {
+    console.log('getPrinters 요청 시작');
+    
+    if (!window.electronAPI) {
+      throw new Error('Electron API를 사용할 수 없습니다');
+    }
+    
+    try {
+      const result = await window.electronAPI.getPrinters();
+      console.log('getPrinters 응답:', result);
+      
+      if (!result.success) {
+        throw new Error(result.error || '프린터 목록 조회 실패');
+      }
+      
+      return result;
+    } catch (error) {
+      console.error('프린터 목록 조회 실패:', error);
+      throw error;
+    }
+  }
+};
+```
+
+### 이벤트 리스너 설정
+```javascript
+// ✅ 초기화 시 이벤트 설정
+function setupListeners() {
+  if (!window.electronAPI) {
+    console.error('Electron API not available');
+    return;
+  }
+
+  // 서버 정보 수신
+  window.electronAPI.onServerInfo((info) => {
+    console.log('onServerInfo 이벤트 수신:', info);
+    handleServerInfo(info);
+  });
+
+  // URL 데이터 수신
+  window.electronAPI.onUrlsReceived((urlData) => {
+    console.log('onUrlsReceived 이벤트 수신:', urlData);
+    handleUrlsReceived(urlData);
+  });
+}
+```
+
+## 양방향 통신 패턴
+
+### Main에서 Renderer로 데이터 전송
+```javascript
+// Main Process
+function notifyWindow(sessionId, urlData) {
+  if (printWindow && !printWindow.isDestroyed()) {
+    printWindow.webContents.send('urls-received', urlData);
+  }
+}
+
+// Renderer Process (via preload)
+window.electronAPI.onUrlsReceived((urlData) => {
+  // 데이터 처리
+});
+```
+
+### 상태 동기화
+```javascript
+// ✅ 세션 변경 시 동기화
+// Main Process
+currentSession = newSessionId;
+printWindow.webContents.send('session-changed', { 
+  session: newSessionId,
+  timestamp: Date.now()
+});
+
+// Renderer Process
+window.electronAPI.onSessionChanged((data) => {
+  console.log('새 세션:', data.session);
+  updateUIForNewSession(data.session);
+});
+```
+
+## 에러 처리 및 복구
+
+### IPC 통신 모니터링
+```javascript
+// ✅ 연결 상태 주기적 확인
+let consecutiveFailures = 0;
+
+setInterval(async () => {
+  try {
+    await window.electronAPI.getAppVersion();
+    consecutiveFailures = 0;
+  } catch (error) {
+    consecutiveFailures++;
+    
+    if (consecutiveFailures >= 3) {
+      console.error('IPC 통신 실패');
+      attemptRecovery();
+    }
+  }
+}, 10000);
+```
+
+### 통신 실패 시 복구
+```javascript
+// ✅ 자동 복구 메커니즘
+async function attemptRecovery() {
+  try {
+    // 1. 서버 정보 재요청
+    const info = await window.electronAPI.getServerInfo();
+    if (info) {
+      showToast('✅ 연결 복구됨', 'success');
+      return;
+    }
+  } catch (error) {
+    // 2. 복구 실패 시 페이지 새로고침
+    showToast('🔄 페이지를 새로고침합니다...', 'info');
+    setTimeout(() => window.location.reload(), 2000);
+  }
+}
+```
+
+## 보안 고려사항
+
+### 1. Context Isolation 필수
+```javascript
+// ✅ webPreferences 설정
+webPreferences: {
+  nodeIntegration: false,    // Node.js 통합 비활성화
+  contextIsolation: true,    // 컨텍스트 격리 활성화
+  preload: path.join(__dirname, 'preload.js')
+}
+```
+
+### 2. 화이트리스트 방식
+```javascript
+// ✅ 명시적으로 허용된 채널만 노출
+const ALLOWED_CHANNELS = [
+  'get-printers',
+  'print-url',
+  'get-server-info'
+];
+
+// 채널 검증
+if (!ALLOWED_CHANNELS.includes(channel)) {
+  throw new Error('허용되지 않은 채널');
+}
+```

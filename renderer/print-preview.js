@@ -93,7 +93,10 @@ async function checkIpcCommunication() {
     
     // 2. getServerInfo API 테스트
     try {
-        const serverInfo = await window.electronAPI.getServerInfo();
+        const serverInfo = await Promise.race([
+            window.electronAPI.getServerInfo(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 3000))
+        ]);
         if (serverInfo && typeof serverInfo === 'object') {
             checks.getServerInfo = true;
             checks.totalPassed++;
@@ -105,7 +108,10 @@ async function checkIpcCommunication() {
     
     // 3. getPrinters API 테스트
     try {
-        const result = await window.electronAPI.getPrinters();
+        const result = await Promise.race([
+            window.electronAPI.getPrinters(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 3000))
+        ]);
         if (result && typeof result === 'object') {
             checks.getPrinters = true;
             checks.totalPassed++;
@@ -117,7 +123,10 @@ async function checkIpcCommunication() {
     
     // 4. getAppVersion API 테스트
     try {
-        const version = await window.electronAPI.getAppVersion();
+        const version = await Promise.race([
+            window.electronAPI.getAppVersion(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 3000))
+        ]);
         if (version) {
             checks.getAppVersion = true;
             checks.totalPassed++;
@@ -206,22 +215,31 @@ document.addEventListener('DOMContentLoaded', async () => {
     UIManager.updateLoadingStep('server', '서버와 연결을 확인하고 있습니다...');
     
     try {
-        const serverInfo = await IPCHandler.getServerInfo();
+        const serverInfo = await Promise.race([
+            IPCHandler.getServerInfo(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('서버 응답 시간 초과')), 5000))
+        ]);
         console.log('서버 정보:', serverInfo);
-        handleServerInfo(serverInfo);
         
-        // 세션 데이터 확인
-        if (serverInfo && serverInfo.session) {
-            console.log('기존 세션 확인:', serverInfo.session);
-            const sessionData = await IPCHandler.getSessionData(serverInfo.session);
-            if (sessionData) {
-                console.log('기존 세션 데이터 발견');
-                handleUrlsReceived(sessionData);
+        if (serverInfo) {
+            handleServerInfo(serverInfo);
+            
+            // 세션 데이터 확인
+            if (serverInfo.session) {
+                console.log('기존 세션 확인:', serverInfo.session);
+                const sessionData = await Promise.race([
+                    IPCHandler.getSessionData(serverInfo.session),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('세션 데이터 시간 초과')), 3000))
+                ]);
+                if (sessionData) {
+                    console.log('기존 세션 데이터 발견');
+                    handleUrlsReceived(sessionData);
+                }
             }
         }
     } catch (error) {
         console.error('서버 정보 가져오기 실패:', error);
-        showToast('⚠️ 서버 연결 실패', 'warning', 3000);
+        showToast('⚠️ 서버 연결 실패: ' + error.message, 'warning', 3000);
     }
     
     // 3단계: 프린터 목록 로드

@@ -1,5 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+console.log('🔍 Preload script loaded');
+
 contextBridge.exposeInMainWorld('electronAPI', {
   // 인쇄 기능
   getPrinters: () => ipcRenderer.invoke('get-printers'),

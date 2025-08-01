@@ -91,6 +91,14 @@ function createTray() {
       },
       { type: 'separator' },
       {
+        label: '🖥️ 창 열기',
+        click: () => {
+          console.log('트레이에서 창 열기');
+          createPrintWindow();
+        }
+      },
+      { type: 'separator' },
+      {
         label: '🔄 재시작',
         click: () => {
           console.log('트레이에서 재시작');
@@ -486,13 +494,20 @@ if (!gotTheLock) {
         if (protocolUrl) {
           handleProtocolCall(protocolUrl);
         } else {
-          // 일반 실행도 백그라운드에서 시작 (더 조용한 UX)
-          console.log('💡 일반 실행 - 백그라운드에서 대기');
+          // 개발 모드에서는 테스트를 위해 창 열기
+          if (process.env.NODE_ENV === 'development' || process.defaultApp) {
+            console.log('🔧 개발 모드 - 테스트 창 열기');
+            createPrintWindow();
+          } else {
+            // 프로덕션에서는 백그라운드에서 대기
+            console.log('💡 일반 실행 - 백그라운드에서 대기');
+          }
         }
       }
       
-      // 모든 플랫폼에서 백그라운드 실행
-      if (process.platform === 'darwin' && app.dock) {
+      // 프로덕션에서만 백그라운드 실행
+      if (process.platform === 'darwin' && app.dock && 
+          process.env.NODE_ENV !== 'development' && !process.defaultApp) {
         app.dock.hide();
       }
       

@@ -1,0 +1,332 @@
+---
+globs: main.js,modules/**/*.js
+---
+# 백그라운드 서비스 패턴
+
+## 불사조 모드 (종료 방지)
+
+### 종료 이벤트 차단
+```javascript
+// ✅ before-quit 이벤트로 종료 방지
+app.on('before-quit', (event) => {
+  if (!allowQuit && !global.isQuitting) {
+    console.log('🔥 종료 방지: 백그라운드로 전환');
+    event.preventDefault();
+    
+    // 모든 창 숨기기
+    BrowserWindow.getAllWindows().forEach(window => {
+      if (window && !window.isDestroyed()) {
+        window.hide();
+      }
+    });
+    
+    // macOS dock 숨기기
+    if (process.platform === 'darwin' && app.dock) {
+      app.dock.hide();
+    }
+  }
+});
+```
+
+### 창 닫기 처리
+```javascript
+// ✅ 창 닫기 시 숨기기로 대체
+printWindow.on('close', (event) => {
+  if (!global.isQuitting) {
+    event.preventDefault();
+    printWindow.hide();
+    
+    // macOS Dock 아이콘 숨기기
+    if (process.platform === 'darwin' && app.dock) {
+      app.dock.hide();
+    }
+  }
+});
+```
+
+## 자동 시작 설정
+
+### 크로스 플랫폼 자동 시작
+```javascript
+// ✅ 플랫폼별 자동 시작 설정
+function setupAutoLaunch() {
+  // Electron API 사용 (크로스 플랫폼)
+  app.setLoginItemSettings({
+    openAtLogin: true,
+    openAsHidden: true,
+    name: 'WebPrinter',
+    args: ['--hidden', '--startup']
+  });
+  
+  // Windows 전용 추가 설정
+  if (process.platform === 'win32') {
+    try {
+      // 레지스트리 등록
+      const startupArgs = `"${process.execPath}" --hidden --startup`;
+      execSync(`reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v "WebPrinter" /d "${startupArgs}" /f`, 
+        { windowsHide: true }
+      );
+      
+      // 작업 스케줄러 백업
+      execSync(`schtasks /create /tn "WebPrinter" /tr "${startupArgs}" /sc onlogon /f /rl highest`, 
+        { windowsHide: true }
+      );
+    } catch (error) {
+      console.log('⚠️ Windows 시작 프로그램 등록 실패:', error.message);
+    }
+  }
+}
+```
+
+## 서비스 감시 및 복구
+
+### 감시자(Watchdog) 패턴
+```javascript
+// ✅ 주기적 서비스 상태 확인
+let watchdogTimer = null;
+
+function startWatchdog() {
+  if (watchdogTimer) {
+    clearInterval(watchdogTimer);
+  }
+  
+  watchdogTimer = setInterval(() => {
+    if (!allowQuit && !global.isQuitting) {
+      // 핵심 서비스 확인
+      if (!server || !tray || tray.isDestroyed()) {
+        console.log('🔄 핵심 서비스 복구 중...');
+        restoreServices();
+      }
+    }
+  }, 5000); // 5초마다 체크
+}
+```
+
+### 서비스 복구
+```javascript
+// ✅ 서비스 복구 함수
+function restoreServices() {
+  try {
+    // HTTP 서버 복구
+    if (!server) {
+      const httpServer = startHttpServer();
+      if (httpServer) {
+        server = httpServer;
+        console.log('✅ HTTP 서버 복구됨');
+      }
+    }
+    
+    // 시스템 트레이 복구
+    if (!tray || tray.isDestroyed()) {
+      createTray();
+      console.log('✅ 트레이 복구됨');
+    }
+    
+    // IPC 핸들러 재설정
+    try {
+      setupIpcHandlers();
+      console.log('✅ IPC 핸들러 복구됨');
+    } catch (error) {
+      console.log('⚠️ IPC 핸들러 복구 실패:', error.message);
+    }
+  } catch (error) {
+    console.error('❌ 서비스 복구 실패:', error);
+  }
+}
+```
+
+## 에러 복구 시스템
+
+### 전역 에러 핸들링
+```javascript
+// ✅ 예상치 못한 에러 처리
+process.on('uncaughtException', (error) => {
+  console.error('🚨 예상치 못한 오류:', error);
+  
+  if (!global.isQuitting && !allowQuit) {
+    console.log('🔄 오류 복구 시도...');
+    
+    // 3초 후 서비스 복구
+    setTimeout(() => {
+      try {
+        restoreServices();
+      } catch (restoreError) {
+        console.error('❌ 복구 실패:', restoreError);
+      }
+    }, 3000);
+  }
+});
+
+// Promise 거부 처리
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('🚨 처리되지 않은 Promise 거부:', reason);
+  // 로그만 남기고 계속 실행
+});
+```
+
+## 시스템 트레이 관리
+
+### 트레이 생성 및 메뉴
+```javascript
+// ✅ 시스템 트레이 설정
+function createTray() {
+  try {
+    const iconPath = path.join(__dirname, 
+      process.platform === 'win32' ? 'assets/icon-32.png' : 'assets/icon.png'
+    );
+    
+    tray = new Tray(iconPath);
+    
+    const contextMenu = Menu.buildFromTemplate([
+      {
+        label: '📋 WebPrinter 상태',
+        enabled: false
+      },
+      {
+        label: '✅ 백그라운드에서 실행 중',
+        enabled: false
+      },
+      { type: 'separator' },
+      {
+        label: '🔄 재시작',
+        click: () => {
+          allowQuit = true;
+          global.isQuitting = true;
+          app.relaunch();
+          app.quit();
+        }
+      },
+      {
+        label: '🛑 완전 종료',
+        click: () => {
+          allowQuit = true;
+          global.isQuitting = true;
+          
+          // 정리 작업
+          if (watchdogTimer) {
+            clearInterval(watchdogTimer);
+          }
+          stopHttpServer();
+          app.quit();
+        }
+      }
+    ]);
+    
+    tray.setToolTip('WebPrinter - 백그라운드에서 실행 중');
+    tray.setContextMenu(contextMenu);
+  } catch (error) {
+    console.error('트레이 생성 실패:', error);
+  }
+}
+```
+
+## HTTP 서버 관리
+
+### 포트 자동 할당
+```javascript
+// ✅ 사용 가능한 포트 찾기
+async function startHttpServer() {
+  const tryPort = async (port) => {
+    const server = app.listen(port, 'localhost', () => {
+      serverPort = server.address().port;
+      httpServer = server;
+      console.log(`HTTP 서버가 포트 ${serverPort}에서 시작되었습니다.`);
+      resolve(server);
+    });
+    
+    server.on('error', async (err) => {
+      if (err.code === 'EADDRINUSE' && port < 18740) {
+        // 다음 포트 시도
+        console.log(`포트 ${port}가 사용 중입니다. 다음 포트를 시도합니다...`);
+        await tryPort(port + 1);
+      } else {
+        reject(err);
+      }
+    });
+  };
+  
+  return tryPort(18731);
+}
+```
+
+## 세션 데이터 영속성
+
+### 세션 저장 및 복구
+```javascript
+// ✅ 파일 시스템 기반 세션 저장
+const sessionDataPath = path.join(os.homedir(), '.webprinter-sessions.json');
+
+function saveSessionData() {
+  try {
+    fs.writeFileSync(sessionDataPath, JSON.stringify({
+      lastSaved: new Date().toISOString(),
+      receivedUrls: receivedUrls
+    }, null, 2));
+  } catch (error) {
+    console.error('세션 데이터 저장 실패:', error);
+  }
+}
+
+function loadSessionData() {
+  try {
+    if (!fs.existsSync(sessionDataPath)) return;
+    
+    const data = JSON.parse(fs.readFileSync(sessionDataPath, 'utf8'));
+    const hoursDiff = (new Date() - new Date(data.lastSaved)) / (1000 * 60 * 60);
+    
+    // 24시간 이내 데이터만 복구
+    if (hoursDiff <= 24) {
+      receivedUrls = data.receivedUrls || {};
+      console.log(`${Object.keys(receivedUrls).length}개의 세션 데이터를 불러왔습니다.`);
+    }
+  } catch (error) {
+    console.error('세션 데이터 로드 실패:', error);
+  }
+}
+```
+
+## 프로토콜 핸들링
+
+### 커스텀 프로토콜 등록
+```javascript
+// ✅ webprinter:// 프로토콜 처리
+function registerProtocol() {
+  const protocolName = 'webprinter';
+  
+  if (process.defaultApp) {
+    app.setAsDefaultProtocolClient(protocolName, 
+      process.execPath, 
+      [path.resolve(process.argv[1])]
+    );
+  } else {
+    app.setAsDefaultProtocolClient(protocolName);
+  }
+}
+
+// 프로토콜 호출 처리
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  handleProtocolCall(url);
+});
+```
+
+## 시작 모드 처리
+
+### 백그라운드 시작
+```javascript
+// ✅ 시작 인수 확인
+const isStartupLaunch = process.argv.includes('--startup');
+const isHidden = process.argv.includes('--hidden');
+
+if (isHidden || isStartupLaunch) {
+  console.log('🔕 백그라운드 모드 활성화됨');
+  global.startupMode = true;
+  
+  // 창을 열지 않고 트레이에서만 실행
+  if (tray && process.platform === 'win32') {
+    tray.displayBalloon({
+      title: 'WebPrinter',
+      content: '백그라운드에서 실행되었습니다.'
+    });
+  }
+}

@@ -1,22 +1,23 @@
 ---
-globs: test/*.js
+globs: test/**/*.js,test/*.js,*.test.js
 description: Testing and quality assurance guidelines
 ---
 
-# 테스팅 가이드라인
+# WebPrinter 테스팅 가이드라인
 
 ## 기본 테스트 구조
-[test/basic.test.js](mdc:test/basic.test.js)를 참고하여 구조적 테스트 작성:
+
+### 현재 구현된 테스트
+[test/basic.test.js](mdc:test/basic.test.js) - 기본 유효성 검사:
 - 필수 파일 존재 확인
 - JSON 파일 유효성 검증
 - 모듈 로딩 테스트
 
-## 테스트 패턴
+### 기본 테스트 패턴
 ```javascript
-// 성공/실패 명확히 구분
+// ✅ 기존 패턴 (간단한 테스트)
 let failed = false;
 
-// 각 테스트 결과를 즉시 출력
 if (condition) {
   console.log(`✅ ${testName} 성공`);
 } else {
@@ -24,24 +25,171 @@ if (condition) {
   failed = true;
 }
 
-// 최종 결과로 프로세스 종료
 process.exit(failed ? 1 : 0);
 ```
 
+## 확장 테스트 전략
+
+### 단위 테스트
+```javascript
+// ✅ 모듈별 테스트 (Jest 사용 시)
+describe('Server Module', () => {
+  test('포트 자동 할당', async () => {
+    const server = await startHttpServer();
+    const port = getServerPort();
+    expect(port).toBeGreaterThanOrEqual(18731);
+    expect(port).toBeLessThanOrEqual(18740);
+  });
+});
+```
+
+### 통합 테스트
+```javascript
+// ✅ API 엔드포인트 테스트
+const response = await fetch('http://localhost:18731/send-urls', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    session: 'test-session',
+    front_preview_url: 'https://example.com',
+    paper_width: 210,
+    paper_height: 297
+  })
+});
+
+const result = await response.json();
+assert(result.success === true);
+```
+
 ## 테스트 범위
-- 파일 시스템 접근 (존재성, 권한)
-- JSON 구문 분석
-- 모듈 종속성
-- API 엔드포인트 응답
-- 에러 상황 처리
 
-## 예제 애플리케이션
-[example/](mdc:example/)을 통한 통합 테스트:
-- 실제 HTTP 요청/응답 흐름
-- 프로토콜 핸들링
-- 에러 케이스 시나리오
+### 핵심 기능 테스트
+- [ ] HTTP 서버 시작/종료
+- [ ] 포트 자동 할당 (18731-18740)
+- [ ] 프린터 목록 조회
+- [ ] PDF 생성 (단일/다중 페이지)
+- [ ] 직접 인쇄 기능
+- [ ] 세션 데이터 관리
+- [ ] IPC 통신
 
-## 디버깅
-- console.log 대신 적절한 로깅 레벨 사용
-- 에러 스택 트레이스 보존
-- 재현 가능한 테스트 케이스 작성
+### 백그라운드 서비스
+- [ ] 시스템 트레이 생성
+- [ ] 자동 시작 설정
+- [ ] 종료 방지 (불사조 모드)
+- [ ] 서비스 복구 메커니즘
+- [ ] 프로토콜 핸들링 (webprinter://)
+
+### 에러 처리
+- [ ] 네트워크 오류
+- [ ] 잘못된 URL 처리
+- [ ] 프린터 연결 실패
+- [ ] 메모리 부족
+- [ ] 권한 오류
+
+## 플랫폼별 테스트
+
+### Windows
+```javascript
+// 레지스트리 확인
+const { exec } = require('child_process');
+exec('reg query HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run /v WebPrinter', 
+  (error, stdout) => {
+    if (!error && stdout.includes('WebPrinter')) {
+      console.log('✅ Windows 자동 시작 등록됨');
+    }
+  }
+);
+```
+
+### macOS
+```javascript
+// 로그인 항목 확인
+const loginItems = app.getLoginItemSettings();
+if (loginItems.openAtLogin) {
+  console.log('✅ macOS 로그인 시작 설정됨');
+}
+```
+
+## 성능 테스트
+
+### 메모리 사용량
+```javascript
+// 메모리 누수 체크
+const initialMemory = process.memoryUsage().heapUsed;
+// ... 작업 수행 ...
+const finalMemory = process.memoryUsage().heapUsed;
+const increase = (finalMemory - initialMemory) / 1024 / 1024; // MB
+console.log(`메모리 증가: ${increase.toFixed(2)} MB`);
+```
+
+### 응답 시간
+```javascript
+// API 응답 시간 측정
+const start = Date.now();
+await someAsyncOperation();
+const duration = Date.now() - start;
+assert(duration < 1000, '1초 이내 응답 필요');
+```
+
+## 예제 애플리케이션 테스트
+
+[example/](mdc:example/) 디렉토리를 통한 실제 시나리오 테스트:
+
+### 테스트 시나리오
+1. example/index.html 열기
+2. "인쇄 테스트" 버튼 클릭
+3. WebPrinter 창 표시 확인
+4. PDF 미리보기 생성 확인
+5. 프린터로 출력 테스트
+
+### 에러 시나리오
+- 서버 미실행 상태에서 요청
+- 잘못된 세션 ID
+- 네트워크 연결 끊김
+- 프린터 오프라인
+
+## 디버깅 가이드
+
+### 로깅 전략
+```javascript
+// 개발 환경에서만 상세 로그
+if (process.env.NODE_ENV === 'development') {
+  console.log('🔍 상세 디버그 정보:', data);
+}
+
+// 중요 이벤트는 항상 로그
+console.log('🚀 서버 시작됨:', port);
+console.error('❌ 치명적 오류:', error);
+```
+
+### 에러 추적
+```javascript
+// 스택 트레이스 보존
+try {
+  await riskyOperation();
+} catch (error) {
+  console.error('작업 실패:', error.message);
+  console.error('스택:', error.stack);
+  // 에러를 상위로 전파
+  throw error;
+}
+```
+
+## CI/CD 통합
+
+### GitHub Actions 예제
+```yaml
+name: Test
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-node@v2
+      - run: npm install
+      - run: npm test
+```

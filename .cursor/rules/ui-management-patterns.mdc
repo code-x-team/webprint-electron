@@ -1,0 +1,368 @@
+---
+globs: renderer/**/*.js,print-preview.html,styles/**/*.css
+---
+# UI 관리 패턴
+
+## UIManager 싱글톤 패턴
+
+### 중앙집중식 UI 관리
+```javascript
+// ✅ UIManager 구조
+const UIManager = {
+  elements: {
+    statusText: null,
+    serverDisplay: null,
+    previewFrame: null,
+    printerSelect: null,
+    // ... 모든 DOM 요소 참조
+  },
+  
+  init() {
+    // DOM 요소 초기화
+    this.elements = {
+      statusText: document.getElementById('status-text'),
+      serverDisplay: document.getElementById('server-display'),
+      // ... 나머지 요소들
+    };
+    
+    // 필수 요소 검증
+    const requiredElements = ['statusText', 'printButton'];
+    for (const elementName of requiredElements) {
+      if (!this.elements[elementName]) {
+        console.error(`필수 요소를 찾을 수 없습니다: ${elementName}`);
+      }
+    }
+  }
+};
+```
+
+### UI 상태 업데이트
+```javascript
+// ✅ 상태별 UI 업데이트 메서드
+showStatus(message, type = 'info') {
+  const statusMessage = this.elements.statusMessage;
+  if (!statusMessage) return;
+  
+  // 타입별 스타일 적용
+  statusMessage.className = `status-message ${type}`;
+  statusMessage.textContent = message;
+  
+  // 자동 숨김 (성공/정보 메시지만)
+  if (type === 'success' || type === 'info') {
+    setTimeout(() => {
+      statusMessage.classList.add('fade-out');
+    }, 3000);
+  }
+}
+```
+
+## Toast 알림 시스템
+
+### Toast 생성 함수
+```javascript
+// ✅ 동적 Toast 알림
+function showToast(message, type = 'info', duration = 3000) {
+  const toast = document.createElement('div');
+  
+  const colors = {
+    success: 'linear-gradient(135deg, #28a745, #20c997)',
+    error: 'linear-gradient(135deg, #dc3545, #fd7e14)',
+    warning: 'linear-gradient(135deg, #ffc107, #fd7e14)',
+    info: 'linear-gradient(135deg, #007bff, #6f42c1)'
+  };
+  
+  toast.style.cssText = `
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: ${colors[type]};
+    color: white;
+    padding: 16px 24px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    z-index: 10000;
+    transform: translateX(400px);
+    transition: transform 0.3s ease;
+  `;
+  
+  toast.textContent = message;
+  document.body.appendChild(toast);
+  
+  // 애니메이션
+  setTimeout(() => toast.style.transform = 'translateX(0)', 10);
+  
+  // 자동 제거
+  setTimeout(() => {
+    toast.style.transform = 'translateX(400px)';
+    setTimeout(() => toast.remove(), 300);
+  }, duration);
+}
+```
+
+## 로딩 상태 관리
+
+### 단계별 로딩 표시
+```javascript
+// ✅ 진행 단계 표시
+updateLoadingStep(step, message) {
+  const steps = ['init', 'server', 'printers', 'ready'];
+  const currentIndex = steps.indexOf(step);
+  
+  if (this.elements.loadingMainText) {
+    this.elements.loadingMainText.textContent = message || '';
+  }
+  
+  if (this.elements.loadingProgress) {
+    const progress = ((currentIndex + 1) / steps.length) * 100;
+    this.elements.loadingProgress.style.width = `${progress}%`;
+  }
+  
+  // 단계별 아이콘 업데이트
+  steps.forEach((s, index) => {
+    const stepElement = document.getElementById(`step-${s}`);
+    if (stepElement) {
+      stepElement.classList.toggle('completed', index <= currentIndex);
+      stepElement.classList.toggle('active', index === currentIndex);
+    }
+  });
+}
+```
+
+### 로딩 오버레이
+```javascript
+// ✅ 로딩 화면 제어
+showLoading(show = true) {
+  if (this.elements.loadingOverlay) {
+    if (show) {
+      this.elements.loadingOverlay.classList.remove('hidden');
+      this.currentStep = 0;
+      this.updateLoadingStep('init');
+    } else {
+      this.elements.loadingOverlay.classList.add('hidden');
+    }
+  }
+}
+```
+
+## 폼 컨트롤 관리
+
+### 프린터 선택 UI
+```javascript
+// ✅ 프린터 목록 업데이트
+updatePrinterList(printers) {
+  const select = this.elements.printerSelect;
+  if (!select) return;
+  
+  // 기존 옵션 제거
+  select.innerHTML = '';
+  
+  // 프린터 옵션 추가
+  printers.forEach(printer => {
+    const option = document.createElement('option');
+    option.value = printer.name;
+    option.textContent = printer.displayName;
+    
+    if (printer.isDefault) {
+      option.textContent += ' (기본)';
+      option.selected = true;
+    }
+    
+    select.appendChild(option);
+  });
+  
+  // 프린터가 없는 경우
+  if (printers.length === 0) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = '사용 가능한 프린터가 없습니다';
+    option.disabled = true;
+    select.appendChild(option);
+  }
+}
+```
+
+### 출력 방식 토글
+```javascript
+// ✅ PDF/프린터 출력 전환
+handleOutputTypeChange() {
+  const selectedType = this.getSelectedOutputType();
+  
+  // 프린터 그룹 표시/숨김
+  if (this.elements.printerGroup) {
+    this.elements.printerGroup.classList.toggle('show', selectedType === 'printer');
+  }
+  
+  // 버튼 텍스트 업데이트
+  this.updatePrintButtonText();
+}
+
+updatePrintButtonText() {
+  const outputType = this.getSelectedOutputType();
+  const btn = this.elements.printButton;
+  
+  if (btn && !btn.disabled) {
+    btn.textContent = outputType === 'pdf' ? '📄 PDF 미리보기' : '🖨️ 프린터로 출력';
+  }
+}
+```
+
+## 미리보기 관리
+
+### iframe 미리보기
+```javascript
+// ✅ URL 미리보기 표시
+showPreview(url) {
+  const previewFrame = this.elements.previewFrame;
+  if (!previewFrame) return;
+  
+  // 로딩 표시
+  previewFrame.style.opacity = '0.5';
+  
+  // iframe src 설정
+  previewFrame.src = url;
+  
+  // 로드 완료 처리
+  previewFrame.onload = () => {
+    previewFrame.style.opacity = '1';
+    this.showStatus('미리보기 로드 완료', 'success');
+  };
+  
+  // 에러 처리
+  previewFrame.onerror = () => {
+    this.showStatus('미리보기 로드 실패', 'error');
+    previewFrame.style.opacity = '1';
+  };
+}
+```
+
+## 반응형 디자인 패턴
+
+### CSS 변수 활용
+```css
+/* ✅ CSS 변수로 테마 관리 */
+:root {
+  --primary-color: #007bff;
+  --success-color: #28a745;
+  --error-color: #dc3545;
+  --warning-color: #ffc107;
+  --info-color: #17a2b8;
+  
+  --border-radius: 8px;
+  --box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  --transition: all 0.3s ease;
+}
+
+/* 다크 모드 지원 */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-color: #1a1a1a;
+    --text-color: #ffffff;
+    --border-color: #333333;
+  }
+}
+```
+
+### 애니메이션 패턴
+```css
+/* ✅ 부드러운 전환 효과 */
+.fade-enter {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+.fade-enter-active {
+  opacity: 1;
+  transform: translateY(0);
+  transition: var(--transition);
+}
+
+/* 로딩 스피너 */
+.spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+```
+
+## 키보드 접근성
+
+### 단축키 처리
+```javascript
+// ✅ 키보드 단축키
+document.addEventListener('keydown', (event) => {
+  // Ctrl/Cmd + P: 인쇄
+  if ((event.ctrlKey || event.metaKey) && event.key === 'p') {
+    event.preventDefault();
+    if (!UIManager.elements.printButton.disabled) {
+      executePrint();
+    }
+  }
+  
+  // Escape: 창 닫기
+  if (event.key === 'Escape') {
+    IPCHandler.hideToBackground();
+  }
+  
+  // Tab 네비게이션 개선
+  if (event.key === 'Tab') {
+    // 포커스 트랩 구현
+    handleTabNavigation(event);
+  }
+});
+```
+
+## 에러 상태 표시
+
+### 사용자 친화적 에러 메시지
+```javascript
+// ✅ 에러 타입별 메시지 처리
+function displayError(error) {
+  let userMessage = '오류가 발생했습니다';
+  let icon = '❌';
+  
+  // 에러 타입별 처리
+  if (error.code === 'ERR_INTERNET_DISCONNECTED') {
+    userMessage = '인터넷 연결을 확인해주세요';
+    icon = '🌐';
+  } else if (error.message.includes('printer')) {
+    userMessage = '프린터를 확인해주세요';
+    icon = '🖨️';
+  } else if (error.message.includes('permission')) {
+    userMessage = '권한이 필요합니다';
+    icon = '🔒';
+  }
+  
+  // Toast로 표시
+  showToast(`${icon} ${userMessage}`, 'error', 5000);
+  
+  // 상태 메시지 업데이트
+  UIManager.showStatus(userMessage, 'error');
+}
+```
+
+## 상태 동기화
+
+### UI와 데이터 동기화
+```javascript
+// ✅ 전체 UI 상태 업데이트
+function updateUI() {
+  const hasUrl = receivedUrls.printUrl || receivedUrls.previewUrl;
+  const outputType = UIManager.getSelectedOutputType();
+  const printerSelected = outputType === 'pdf' || UIManager.elements.printerSelect.value;
+  
+  // 인쇄 버튼 활성화
+  UIManager.updatePrintButton(hasUrl && printerSelected);
+  
+  // 상태 표시
+  if (!hasUrl) {
+    UIManager.showStatus('인쇄할 데이터를 기다리는 중...', 'info');
+  } else if (!printerSelected && outputType === 'printer') {
+    UIManager.showStatus('프린터를 선택해주세요', 'warning');
+  } else {
+    UIManager.showStatus('인쇄 준비 완료', 'success');
+  }
+}
+```

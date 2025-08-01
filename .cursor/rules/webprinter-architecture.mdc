@@ -4,26 +4,198 @@ alwaysApply: true
 
 # WebPrinter 아키텍처 가이드
 
-## 프로젝트 구조
-- [main.js](mdc:main.js): Electron 메인 프로세스, 앱 진입점
-- [preload.js](mdc:preload.js): 메인-렌더러 프로세스 간 IPC 브릿지
-- [print-preview.html](mdc:print-preview.html): 메인 UI 레이아웃
+## 프로젝트 개요
+WebPrinter는 웹 페이지에서 로컬 프린터로 직접 인쇄할 수 있게 해주는 Electron 기반 브릿지 애플리케이션입니다. 백그라운드에서 실행되며 HTTP API를 통해 인쇄 요청을 받아 처리합니다.
 
-## 핵심 모듈
-- [modules/server.js](mdc:modules/server.js): HTTP 서버 (포트 18731-18740)
-- [modules/window.js](mdc:modules/window.js): 윈도우 관리 및 IPC 핸들러
-- [modules/printer.js](mdc:modules/printer.js): PDF 생성 및 인쇄 기능
+## 핵심 아키텍처
 
-## 렌더러 프로세스
-- [renderer/print-preview.js](mdc:renderer/print-preview.js): 메인 애플리케이션 로직
-- [renderer/ui-manager.js](mdc:renderer/ui-manager.js): UI 컴포넌트 관리
-- [renderer/ipc-handler.js](mdc:renderer/ipc-handler.js): IPC 통신 래퍼
+### 1. 프로세스 구조
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Main Process                          │
+│  [main.js]                                              │
+│  - Electron 생명주기 관리                                │
+│  - HTTP 서버 (18731-18740)                             │
+│  - 시스템 트레이                                        │
+│  - 불사조 모드 (종료 방지)                              │
+└─────────────────────────────────────────────────────────┘
+                            │
+                    IPC Communication
+                            │
+┌─────────────────────────────────────────────────────────┐
+│                  Renderer Process                        │
+│  [print-preview.html + renderer/*.js]                   │
+│  - 인쇄 미리보기 UI                                     │
+│  - 프린터 선택                                          │
+│  - PDF/프린터 출력                                      │
+└─────────────────────────────────────────────────────────┘
+```
+
+### 2. 핵심 모듈
+
+#### [modules/server.js](mdc:modules/server.js) - HTTP 서버
+- Express 기반 REST API (포트 18731-18740 자동 할당)
+- 엔드포인트:
+  - `POST /send-urls` - 인쇄 데이터 수신
+  - `GET /status` - 서버 상태 확인
+  - `GET /version` - 버전 정보
+- 세션 기반 데이터 관리
+- Express 없을 경우 내장 HTTP 서버로 폴백
+
+#### [modules/window.js](mdc:modules/window.js) - 윈도우 관리
+- BrowserWindow 생성 및 생명주기 관리
+- IPC 핸들러 설정
+- 세션별 창 관리 (재사용 또는 새로 생성)
+- 백그라운드 모드 지원
+
+#### [modules/printer.js](mdc:modules/printer.js) - 인쇄 엔진
+- PDF 생성 (단일/다중 페이지)
+- 시스템 프린터 목록 조회
+- 직접 인쇄 기능
+- 임시/영구 PDF 파일 관리
+
+### 3. 렌더러 프로세스
+
+#### [renderer/print-preview.js](mdc:renderer/print-preview.js) - 메인 로직
+- 애플리케이션 초기화
+- IPC 이벤트 처리
+- 인쇄 실행 조정
+
+#### [renderer/ui-manager.js](mdc:renderer/ui-manager.js) - UI 관리
+- 싱글톤 패턴으로 DOM 조작 중앙화
+- 상태 표시, Toast 알림
+- 로딩 단계 관리
+
+#### [renderer/ipc-handler.js](mdc:renderer/ipc-handler.js) - IPC 래퍼
+- electronAPI 호출 캡슐화
+- 에러 처리 및 로깅
+- 타입 검증
+
+### 4. IPC 통신 구조
+
+#### [preload.js](mdc:preload.js) - 브릿지
+```javascript
+// 렌더러 → 메인 (invoke)
+- get-printers     // 프린터 목록
+- print-url        // 인쇄 실행
+- get-server-info  // 서버 정보
+
+// 메인 → 렌더러 (send)
+- server-info      // 서버 정보 전달
+- urls-received    // 인쇄 데이터 수신
+- session-changed  // 세션 변경
+```
 
 ## 데이터 흐름
-1. 웹페이지 → HTTP POST /send-urls → 세션 저장
-2. 서버 → 윈도우 (IPC) → PDF 생성 → 시스템 뷰어
 
-## 에러 처리 원칙
-- 각 모듈에서 독립적으로 에러 캐칭
-- 사용자 친화적 메시지 제공
-- 실패 시 대안 경로 준비
+### 1. 인쇄 요청 흐름
+```
+웹 페이지
+    │
+    ├─[1]─ HTTP POST /send-urls ─────→ HTTP Server (modules/server.js)
+    │                                        │
+    │                                        ├─[2]─ 세션 데이터 저장
+    │                                        │
+    │                                        └─[3]─ notifyWindow()
+    │                                                  │
+    │                                                  ↓
+    │                                           Window Manager
+    │                                           (modules/window.js)
+    │                                                  │
+    │                              ┌──────────────────┤
+    │                              │                  │
+    │                         [4] 새 창 생성    [4] 기존 창 재사용
+    │                              │                  │
+    │                              └──────────────────┘
+    │                                        │
+    │                                        ├─[5]─ IPC: urls-received
+    │                                        │
+    │                                        ↓
+    │                                  Renderer Process
+    │                                  (print-preview.js)
+    │                                        │
+    │                                        ├─[6]─ UI 업데이트
+    │                                        │
+    │                                        └─[7]─ 사용자 확인
+    │                                                  │
+    └────────────────────────────────────────────────┘
+                                                      │
+                                              [8] 인쇄/PDF 생성
+                                                (modules/printer.js)
+```
+
+### 2. 백그라운드 실행 모드
+```
+시스템 시작
+    │
+    ├─ 자동 시작 (--hidden --startup)
+    │
+    ├─ 시스템 트레이 생성
+    │
+    ├─ HTTP 서버 시작
+    │
+    └─ 백그라운드 대기
+           │
+           ├─ 인쇄 요청 수신 → 창 표시 → 처리
+           │
+           └─ 프로토콜 호출 (webprinter://) → 처리
+```
+
+## 주요 기능
+
+### 1. 불사조 모드 (종료 방지)
+- `before-quit` 이벤트 차단
+- 창 닫기 시 숨기기로 대체
+- 5초마다 핵심 서비스 상태 확인
+- 오류 발생 시 자동 복구
+
+### 2. 세션 관리
+- 파일 기반 영속성 (`~/.webprinter-sessions.json`)
+- 24시간 자동 만료
+- 다중 세션 지원
+
+### 3. 인쇄 모드
+- **PDF 미리보기**: 병합된 단일 PDF 생성 → 시스템 뷰어
+- **직접 인쇄**: 개별 페이지 PDF 생성 → 순차 인쇄
+
+### 4. 플랫폼별 기능
+- **Windows**: 레지스트리 등록, 작업 스케줄러
+- **macOS**: LoginItems, Dock 숨기기
+- **Linux**: 자동 시작, 시스템 트레이
+
+## 보안 고려사항
+
+### 1. Electron 보안 설정
+```javascript
+webPreferences: {
+  nodeIntegration: false,     // Node.js 통합 비활성화
+  contextIsolation: true,     // 컨텍스트 격리
+  webSecurity: false,         // 크로스 오리진 허용 (인쇄용)
+  preload: 'preload.js'       // 명시적 브릿지만 노출
+}
+```
+
+### 2. API 보안
+- localhost 바인딩으로 외부 접근 차단
+- CORS 설정으로 허용된 오리진만 접근
+- 세션 기반 요청 검증
+
+## 에러 처리 전략
+
+### 1. 계층별 에러 처리
+- **HTTP 레벨**: 400/500 상태 코드와 명확한 에러 메시지
+- **IPC 레벨**: `{ success: false, error: message }` 패턴
+- **UI 레벨**: Toast 알림과 상태 메시지
+
+### 2. 복구 메커니즘
+- 서비스 자동 재시작
+- IPC 통신 재연결
+- 3회 실패 시 페이지 새로고침
+
+### 3. 사용자 친화적 메시지
+```javascript
+// 기술적 에러 → 사용자 메시지 변환
+'ERR_NAME_NOT_RESOLVED' → '인터넷 연결을 확인해주세요'
+'ERR_PRINTER_NOT_FOUND' → '프린터를 확인해주세요'
+'ECONNREFUSED' → '서버에 연결할 수 없습니다'
+```
