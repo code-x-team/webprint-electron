@@ -127,10 +127,8 @@ function handleUrlsReceived(urlData) {
         UIManager.displayPaperSize(currentPaperSize);
     }
     
-    // 현재 선택된 면의 미리보기 표시
     showPreviewForSide(currentSide);
     updatePreviewHeader();
-    
     updateUI();
 }
 
@@ -251,10 +249,7 @@ function updateUI() {
     }
     
     const hasPaperSize = currentPaperSize && currentPaperSize.width && currentPaperSize.height;
-    
-    // 프린터가 선택되어야 함 (항상 프린터 출력)
-    const printerSelected = UIManager.elements.printerSelect.value && 
-                          UIManager.elements.printerSelect.value !== '';
+    const printerSelected = UIManager.elements.printerSelect.value && UIManager.elements.printerSelect.value !== '';
     const canPrint = hasUrl && hasPaperSize && printerSelected;
     
     UIManager.updatePrintButton(canPrint);

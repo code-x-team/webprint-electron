@@ -171,25 +171,20 @@ const UIManager = {
         const iframe = this.elements.previewFrame;
         const placeholder = this.elements.previewPlaceholder;
         
-        // 미리보기 로딩 시작
         this.showStatus('미리보기 로딩 중...', 'info');
         
-        // iframe 이벤트 설정
+        if (placeholder) {
+            placeholder.style.display = 'none';
+        }
+        
         iframe.onload = () => {
-            // 로드 성공 시 iframe 표시, placeholder 숨김
-            iframe.classList.add('show');
-            if (placeholder) placeholder.style.display = 'none';
             this.showStatus('미리보기 로드 완료', 'success');
         };
         
         iframe.onerror = () => {
-            // 로드 실패 시 iframe 숨김, placeholder 표시
-            iframe.classList.remove('show');
-            if (placeholder) placeholder.style.display = 'flex';
             this.showStatus('미리보기 로드 실패', 'error');
         };
         
-        // URL 설정
         iframe.src = url;
     },
     
@@ -197,10 +192,10 @@ const UIManager = {
         const iframe = this.elements.previewFrame;
         const placeholder = this.elements.previewPlaceholder;
         
-        // iframe 숨기고 placeholder 표시
-        iframe.classList.remove('show');
         iframe.src = '';
-        if (placeholder) placeholder.style.display = 'flex';
+        if (placeholder) {
+            placeholder.style.display = 'flex';
+        }
     },
   
     updatePrintButton(enabled) {
