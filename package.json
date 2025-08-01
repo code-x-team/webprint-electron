@@ -13,7 +13,8 @@
     "build-mac": "npm run prepare && electron-builder --mac",
     "build-all": "npm run build-mac && npm run build-win",
     "build-all-parallel": "npm run prepare && electron-builder -mw",
-    "publish": "npm run prepare && electron-builder --publish=always"
+    "publish": "npm run prepare && electron-builder --publish=always",
+    "diagnostic": "electron test.js"
   },
   "keywords": [
     "electron",
