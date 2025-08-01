@@ -106,7 +106,9 @@ jobs:
         with:
           name: build-${{ matrix.platform }}-${{ matrix.arch }}
           path: |
-            dist/WebPrinter-Setup-*.exe
+            dist/*.exe
+            dist/*.blockmap
+            dist/latest*.yml
           retention-days: 7
           if-no-files-found: error
 
@@ -147,7 +149,9 @@ jobs:
             ### 변경사항
             자동 생성된 릴리즈 노트를 확인하세요.
           files: |
-            dist/**/WebPrinter-Setup-*.exe
+            dist/**/*.exe
+            dist/**/*.blockmap
+            dist/**/*.yml
           draft: false
           prerelease: false
           generate_release_notes: true
