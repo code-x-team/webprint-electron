@@ -7,56 +7,87 @@ const ptp = require('pdf-to-printer');
 // ========== 메인 함수 ==========
 async function printViaPDF(url, paperSize, printSelector, copies, silent, printerName, outputType = 'pdf', rotate180 = false) {
   try {
-    // PDF 생성
-    const pdfBuffer = await generatePDF(url, paperSize, printSelector, rotate180);
+    // 먼저 요소 개수 확인
+    const elementCount = await getElementCount(url, printSelector);
+    console.log(`발견된 ${printSelector} 요소 개수:`, elementCount);
     
     if (outputType === 'pdf') {
-      // PDF 저장 및 미리보기
+      // PDF 모드: 기존 방식 (병합된 1개 PDF)
+      const pdfBuffer = await generatePDF(url, paperSize, printSelector, rotate180);
       const pdfPath = await savePermanentPDF(pdfBuffer);
       await openPDFPreview(pdfPath);
-      return { success: true, pdfPath, shouldClose: true };
+      const message = elementCount > 1 ? `${elementCount}개 페이지 PDF가 생성되었습니다` : 'PDF가 생성되었습니다';
+      return { success: true, pdfPath, message, shouldClose: true };
       
     } else {
-      // PDF 임시 저장 후 인쇄
-      const tempPdfPath = await saveTempPDF(pdfBuffer);
+      // 프린터 모드: 개별 PDF 생성 → 순차 인쇄
+      console.log(`개별 PDF 생성 시작 - 총 ${elementCount}개 페이지`);
       
-      try {
-        // pdf-to-printer로 인쇄
-        const printOptions = {
-          printer: printerName === 'system-default' ? undefined : printerName,
-          copies: copies,
-          silent: silent
-        };
+      for (let i = 0; i < elementCount; i++) {
+        const currentPage = i + 1;
+        console.log(`${currentPage}/${elementCount} 페이지 처리 중...`);
         
-        // undefined 옵션 제거
-        Object.keys(printOptions).forEach(key => {
-          if (printOptions[key] === undefined) {
-            delete printOptions[key];
-          }
-        });
+        // 진행 상황 알림 (선택적)
+        try {
+          const { notifyWindow } = require('./window');
+          notifyWindow(null, null, {
+            type: 'progress',
+            message: `${currentPage}/${elementCount} 페이지 인쇄 중...`,
+            current: currentPage,
+            total: elementCount
+          });
+        } catch (notifyError) {
+          // 알림 실패 무시
+        }
         
-        await ptp.print(tempPdfPath, printOptions);
-        
-        // 30초 후 임시 파일 삭제
-        setTimeout(async () => {
-          try {
-            await fs.unlink(tempPdfPath);
-          } catch (deleteError) {
-            // 삭제 실패 무시
-          }
-        }, 30000);
-        
-        return { 
-          success: true, 
-          shouldClose: true, 
-          message: '인쇄 작업이 프린터로 전송되었습니다.' 
-        };
-        
-      } catch (printError) {
-        // 인쇄 실패 시 임시 파일 즉시 삭제
-        await fs.unlink(tempPdfPath).catch(() => {});
-        throw new Error(`인쇄 실패: ${printError.message}`);
+        try {
+          // 개별 PDF 생성
+          const pdfBuffer = await generatePDFByIndex(url, paperSize, printSelector, i, rotate180);
+          
+          // 임시 저장
+          const tempPdfPath = await saveTempPDF(pdfBuffer, `page_${currentPage}`);
+          
+          // 프린터로 전송
+          const printOptions = {
+            printer: printerName === 'system-default' ? undefined : printerName,
+            copies: 1, // 개별 인쇄는 항상 1부
+            silent: silent
+          };
+          
+          // undefined 옵션 제거
+          Object.keys(printOptions).forEach(key => {
+            if (printOptions[key] === undefined) {
+              delete printOptions[key];
+            }
+          });
+          
+          await ptp.print(tempPdfPath, printOptions);
+          console.log(`${currentPage}/${elementCount} 페이지 인쇄 완료`);
+          
+          // 5초 후 임시 파일 삭제
+          setTimeout(async () => {
+            try {
+              await fs.unlink(tempPdfPath);
+            } catch (deleteError) {
+              // 삭제 실패 무시
+            }
+          }, 5000);
+          
+        } catch (pageError) {
+          console.error(`${currentPage}/${elementCount} 페이지 처리 실패:`, pageError);
+          // 개별 페이지 실패해도 계속 진행
+        }
       }
+      
+      const message = elementCount > 1 ? 
+        `${elementCount}개 페이지가 순차적으로 프린터로 전송되었습니다.` : 
+        '인쇄 작업이 프린터로 전송되었습니다.';
+        
+      return { 
+        success: true, 
+        shouldClose: true, 
+        message: message
+      };
     }
     
   } catch (error) {
@@ -75,8 +106,41 @@ async function printViaPDF(url, paperSize, printSelector, copies, silent, printe
   }
 }
 
-// ========== PDF 생성 함수 ==========
-async function generatePDF(url, paperSize, printSelector, rotate180 = false) {
+// ========== 요소 개수 확인 함수 ==========
+async function getElementCount(url, printSelector) {
+  const tempWindow = new BrowserWindow({
+    show: false,
+    width: 1200,
+    height: 1600,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      webSecurity: false,
+      offscreen: true
+    }
+  });
+  
+  try {
+    await tempWindow.loadURL(url);
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    const count = await tempWindow.webContents.executeJavaScript(`
+      (function() {
+        const elements = document.querySelectorAll('${printSelector}');
+        return elements.length;
+      })()
+    `);
+    
+    return count;
+  } finally {
+    if (tempWindow && !tempWindow.isDestroyed()) {
+      tempWindow.close();
+    }
+  }
+}
+
+// ========== 개별 PDF 생성 함수 ==========
+async function generatePDFByIndex(url, paperSize, printSelector, index, rotate180 = false) {
   const pdfWindow = new BrowserWindow({
     show: false,
     width: 1200,
@@ -95,15 +159,15 @@ async function generatePDF(url, paperSize, printSelector, rotate180 = false) {
     await pdfWindow.loadURL(url);
     await new Promise(resolve => setTimeout(resolve, 3000));
     
-    // 특정 요소만 선택하여 인쇄
+    // 특정 인덱스의 요소만 선택하여 인쇄
     if (printSelector) {
       await pdfWindow.webContents.executeJavaScript(`
         (function() {
-          const targetElement = document.querySelector('${printSelector}');
-          if (targetElement) {
-            // 기존 body 내용을 제거하고 대상 요소만 추가
+          const targetElements = document.querySelectorAll('${printSelector}');
+          if (targetElements.length > ${index} && targetElements[${index}]) {
+            // 기존 body 내용을 제거하고 특정 인덱스의 요소만 추가
             document.body.innerHTML = '';
-            document.body.appendChild(targetElement.cloneNode(true));
+            document.body.appendChild(targetElements[${index}].cloneNode(true));
             
             // 스타일 적용
             const element = document.body.firstChild;
@@ -113,6 +177,7 @@ async function generatePDF(url, paperSize, printSelector, rotate180 = false) {
               margin: 0 auto !important;
               transform: ${rotate180 ? 'rotate(180deg)' : 'none'} !important;
               transform-origin: center center !important;
+              display: block !important;
             \`;
             
             // body 스타일 설정
@@ -175,10 +240,114 @@ async function generatePDF(url, paperSize, printSelector, rotate180 = false) {
   }
 }
 
+// ========== PDF 생성 함수 ==========
+async function generatePDF(url, paperSize, printSelector, rotate180 = false) {
+  const pdfWindow = new BrowserWindow({
+    show: false,
+    width: 1200,
+    height: 1600,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      webSecurity: false,
+      offscreen: true,
+      backgroundThrottling: false
+    }
+  });
+  
+  try {
+    // URL 로드 및 대기
+    await pdfWindow.loadURL(url);
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    
+    // 특정 요소들을 선택하여 인쇄
+    if (printSelector) {
+      await pdfWindow.webContents.executeJavaScript(`
+        (function() {
+          const targetElements = document.querySelectorAll('${printSelector}');
+          if (targetElements.length > 0) {
+            // 기존 body 내용을 제거
+            document.body.innerHTML = '';
+            
+            // 모든 대상 요소들을 body에 추가
+            targetElements.forEach((targetElement, index) => {
+              const clonedElement = targetElement.cloneNode(true);
+              
+              // 스타일 적용
+              clonedElement.style.cssText = \`
+                width: ${paperSize.width}mm !important;
+                height: ${paperSize.height}mm !important;
+                margin: 0 auto !important;
+                transform: ${rotate180 ? 'rotate(180deg)' : 'none'} !important;
+                transform-origin: center center !important;
+                page-break-after: \${index < targetElements.length - 1 ? 'always' : 'auto'} !important;
+                display: block !important;
+              \`;
+              
+              document.body.appendChild(clonedElement);
+            });
+            
+            // body 스타일 설정
+            document.body.style.cssText = \`
+              margin: 0 !important;
+              padding: 0 !important;
+            \`;
+          }
+          return targetElements.length;
+        })()
+      `);
+
+      await pdfWindow.webContents.insertCSS(`
+        @page {
+          margin: 0mm 0mm 0mm 0mm; 
+          padding: 0;
+          size: A4;
+        }
+        
+        @media print {
+          body {
+            padding: 0;
+            margin: 0;
+          }
+          .print-content {
+            padding: 0;
+            margin: 0;
+          }
+        }
+      `);
+    }
+    
+    // PDF 생성 옵션
+    const pdfOptions = {
+      pageSize: 'A4',
+      marginsType: 1, // 0=기본, 1=없음, 2=최소
+      margins: { 
+        top: 0, 
+        bottom: 0, 
+        left: 0, 
+        right: 0 
+      },
+      printBackground: true,
+      landscape: false
+    };
+    
+    // PDF 생성
+    const pdfBuffer = await pdfWindow.webContents.printToPDF(pdfOptions);
+    return pdfBuffer;
+    
+  } finally {
+    // 윈도우 정리
+    if (pdfWindow && !pdfWindow.isDestroyed()) {
+      pdfWindow.close();
+    }
+  }
+}
+
 // ========== 파일 저장 함수 ==========
-async function saveTempPDF(pdfBuffer) {
+async function saveTempPDF(pdfBuffer, pagePrefix = '') {
   const tempDir = os.tmpdir();
-  const tempFileName = `webprinter_temp_${Date.now()}.pdf`;
+  const prefix = pagePrefix ? `${pagePrefix}_` : '';
+  const tempFileName = `webprinter_temp_${prefix}${Date.now()}.pdf`;
   const tempPath = path.join(tempDir, tempFileName);
   
   await fs.writeFile(tempPath, pdfBuffer);
