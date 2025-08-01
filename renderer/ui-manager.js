@@ -6,10 +6,8 @@ const UIManager = {
         printerSelect: null,
         statusMessage: null,
         printButton: null,
-        cancelButton: null,
         loadingOverlay: null,
         refreshPrintersBtn: null,
-        outputTypeRadios: null,
         printerGroup: null,
         rotate180Checkbox: null,
         loadingMainText: null,
@@ -27,20 +25,18 @@ const UIManager = {
             printerSelect: document.getElementById('printer-select'),
             statusMessage: document.getElementById('status-message'),
             printButton: document.getElementById('print-button'),
-            cancelButton: document.getElementById('cancel-button'),
             loadingOverlay: document.getElementById('loading-overlay'),
             refreshPrintersBtn: document.getElementById('refresh-printers'),
-            outputTypeRadios: document.querySelectorAll('input[name="output-type"]'),
             printerGroup: document.getElementById('printer-group'),
             rotate180Checkbox: document.getElementById('rotate-180'),
             loadingMainText: document.getElementById('loading-main-text'),
             loadingProgress: document.getElementById('loading-progress')
         };
         
-        // 출력 방식 변경 이벤트
-        this.elements.outputTypeRadios.forEach(radio => {
-            radio.addEventListener('change', () => this.handleOutputTypeChange());
-        });
+        // 프린터 그룹을 항상 표시 (기본이 프린터 출력이므로)
+        if (this.elements.printerGroup) {
+            this.elements.printerGroup.classList.add('show');
+        }
     },
   
     handleOutputTypeChange() {
@@ -54,15 +50,13 @@ const UIManager = {
     },
   
     getSelectedOutputType() {
-        const selected = Array.from(this.elements.outputTypeRadios).find(r => r.checked);
-        return selected ? selected.value : 'pdf';
+        return 'printer'; // 항상 프린터 출력
     },
   
     updatePrintButtonText() {
-        const outputType = this.getSelectedOutputType();
         const btn = this.elements.printButton;
         if (!btn.disabled || btn.textContent.includes('중...')) {
-            btn.textContent = outputType === 'pdf' ? '📄 PDF 미리보기' : '🖨️ 프린터로 출력';
+            btn.textContent = '🖨️ 인쇄하기';
         }
     },
   
@@ -194,13 +188,14 @@ const UIManager = {
         this.updatePrintButtonText();
     },
   
-    setPrintButtonLoading(loading) {
+    setPrintButtonLoading(loading, customText = null) {
         const btn = this.elements.printButton;
-        const outputType = this.getSelectedOutputType();
         btn.disabled = loading;
         if (loading) {
-            btn.textContent = outputType === 'pdf' ? '📄 PDF 생성 중...' : '🖨️ 인쇄 중...';
+            btn.textContent = customText || '🖨️ 인쇄 중...';
+            btn.classList.add('loading');
         } else {
+            btn.classList.remove('loading');
             this.updatePrintButtonText();
         }
     },

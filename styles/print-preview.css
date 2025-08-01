@@ -85,6 +85,56 @@ body {
   height: 100%;
   border: none;
   background: white;
+  transition: opacity 0.4s ease-in-out;
+  opacity: 1;
+}
+
+.preview-iframe.fade-out {
+  opacity: 0;
+}
+
+.preview-iframe.fade-in {
+  opacity: 1;
+}
+
+/* 사이드 인디케이터 전환 효과 */
+#preview-side-indicator {
+  transition: all 0.3s ease-in-out;
+  display: inline-block;
+}
+
+#preview-side-indicator.changing {
+  transform: scale(1.1);
+  color: #e74c3c;
+}
+
+/* 인쇄 버튼 전환 상태 */
+.btn-primary.transitioning {
+  background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
+  transform: scale(0.98);
+}
+
+/* 로딩 중인 버튼 */
+.btn-primary.loading {
+  background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-primary.loading::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+  animation: loading-shimmer 1.5s infinite;
+}
+
+@keyframes loading-shimmer {
+  0% { left: -100%; }
+  100% { left: 100%; }
 }
 
 .controls-section {

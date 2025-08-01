@@ -46,7 +46,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 function initializeEventListeners() {
     UIManager.elements.refreshPrintersBtn.addEventListener('click', loadPrinters);
     UIManager.elements.printButton.addEventListener('click', executePrint);
-    UIManager.elements.cancelButton.addEventListener('click', () => IPCHandler.hideToBackground());
     UIManager.elements.printerSelect.addEventListener('change', updateUI);
     
     // 앞면/뒷면 선택 이벤트
@@ -88,6 +87,65 @@ function updatePreviewHeader() {
     if (indicator) {
         indicator.textContent = `(${currentSide === 'front' ? '앞면' : '뒷면'})`;
     }
+}
+
+// 다음 면으로 부드럽게 자동 전환 (앞면 → 뒷면)
+async function switchToNextSide() {
+    if (currentSide === 'front' && receivedUrls.backPreviewUrl) {
+        // 전환 시작 표시
+        const indicator = document.getElementById('preview-side-indicator');
+        const iframe = UIManager.elements.previewFrame;
+        const printBtn = UIManager.elements.printButton;
+        
+        // 1. 전환 애니메이션 시작
+        if (indicator) indicator.classList.add('changing');
+        if (printBtn) printBtn.classList.add('transitioning');
+        
+        UIManager.showStatus('앞면 인쇄 완료! 뒷면으로 전환 중...', 'info');
+        
+        // 2. 페이드 아웃
+        if (iframe) iframe.classList.add('fade-out');
+        
+        // 3. 잠시 대기 (페이드 아웃 완료)
+        await new Promise(resolve => setTimeout(resolve, 200));
+        
+        // 4. 상태 변경
+        currentSide = 'back';
+        
+        // 5. 라디오 버튼 업데이트
+        const backRadio = document.querySelector('input[name="side-selection"][value="back"]');
+        if (backRadio) {
+            backRadio.checked = true;
+        }
+        
+        // 6. 뒷면 URL 로드 (페이드 아웃 상태에서)
+        showPreviewForSide(currentSide);
+        
+        // 7. 헤더 업데이트
+        updatePreviewHeader();
+        
+        // 8. 잠시 대기 후 페이드 인
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        if (iframe) {
+            iframe.classList.remove('fade-out');
+            iframe.classList.add('fade-in');
+        }
+        
+        // 9. 전환 효과 제거
+        await new Promise(resolve => setTimeout(resolve, 200));
+        
+        if (indicator) indicator.classList.remove('changing');
+        if (printBtn) printBtn.classList.remove('transitioning');
+        if (iframe) iframe.classList.remove('fade-in');
+        
+        // 10. UI 업데이트 및 성공 메시지
+        updateUI();
+        UIManager.showStatus('뒷면으로 전환되었습니다. 뒷면을 인쇄해주세요.', 'success');
+        
+        return true; // 전환됨
+    }
+    return false; // 전환되지 않음 (뒷면이 없거나 이미 뒷면)
 }
 
 // 서버 정보 처리
@@ -155,17 +213,18 @@ async function executePrint() {
     if (isPrinting || !printUrl) return;
     
     isPrinting = true;
-    UIManager.setPrintButtonLoading(true);
+    const sideText = currentSide === 'front' ? '앞면' : '뒷면';
+    UIManager.setPrintButtonLoading(true, `🖨️ ${sideText} 인쇄 중...`);
     
     try {
         if (!printUrl || !currentPaperSize) {
             throw new Error('인쇄 정보가 부족합니다');
         }
         
-        const outputType = UIManager.getSelectedOutputType();
+        const outputType = 'printer'; // 항상 프린터 출력
         const rotate180 = UIManager.isRotate180Checked();
         
-        UIManager.showStatus(outputType === 'pdf' ? `${currentSide === 'front' ? '앞면' : '뒷면'} PDF 생성 중...` : `${currentSide === 'front' ? '앞면' : '뒷면'} 인쇄 중...`, 'info');
+        UIManager.showStatus(`${sideText} 인쇄 처리 중입니다. 잠시만 기다려주세요...`, 'info');
         
         const result = await IPCHandler.printUrl({
             url: printUrl,
@@ -179,20 +238,26 @@ async function executePrint() {
         });
         
         if (result.success) {
-            if (outputType === 'pdf') {
-                UIManager.showStatus('PDF 미리보기가 열렸습니다!', 'success');
-            } else {
-                const message = result.message || '프린터로 전송되었습니다!';
-                UIManager.showStatus(message, 'success');
-                console.log('프린터 출력 성공:', result);
-            }
+            const message = result.message || '프린터로 전송되었습니다!';
+            UIManager.showStatus(message, 'success');
+            console.log('프린터 출력 성공:', result);
             
-            // 성공 시 창 닫기 처리 (shouldClose가 true인 경우)
+            // 앞면/뒷면 전환 로직
             if (result.shouldClose) {
-                console.log('작업 완료, 창을 닫고 백그라운드로 전환합니다.');
-                setTimeout(() => {
-                    IPCHandler.hideToBackground();
-                }, 2000); // 2초 후 자동으로 백그라운드로 전환
+                const switchedToBack = await switchToNextSide();
+                
+                if (switchedToBack) {
+                    // 앞면 완료 → 뒷면으로 전환됨
+                    console.log('앞면 인쇄 완료, 뒷면으로 전환');
+                    // 창은 닫지 않고 뒷면 표시
+                } else {
+                    // 뒷면 완료 또는 뒷면이 없음 → 창 닫기
+                    console.log('모든 인쇄 완료, 창을 닫고 백그라운드로 전환합니다.');
+                    UIManager.showStatus('모든 인쇄가 완료되었습니다. 잠시 후 창이 닫힙니다.', 'success');
+                    setTimeout(() => {
+                        IPCHandler.hideToBackground();
+                    }, 2000); // 2초 후 자동으로 백그라운드로 전환
+                }
             }
         } else {
             throw new Error(result.error || '알 수 없는 오류가 발생했습니다');
@@ -222,27 +287,13 @@ function updateUI() {
     }
     
     const hasPaperSize = currentPaperSize && currentPaperSize.width && currentPaperSize.height;
-    const outputType = UIManager.getSelectedOutputType();
     
-    // 프린터 출력 방식일 때는 프린터가 선택되어야 함
-    let canPrint = hasUrl && hasPaperSize;
-    if (outputType === 'printer') {
-        const printerSelected = UIManager.elements.printerSelect.value && 
-                              UIManager.elements.printerSelect.value !== '';
-        canPrint = canPrint && printerSelected;
-    }
+    // 프린터가 선택되어야 함 (항상 프린터 출력)
+    const printerSelected = UIManager.elements.printerSelect.value && 
+                          UIManager.elements.printerSelect.value !== '';
+    const canPrint = hasUrl && hasPaperSize && printerSelected;
     
     UIManager.updatePrintButton(canPrint);
-    
-    // 프린터 방식 선택 시 프린터 그룹 표시/숨김
-    const printerGroup = UIManager.elements.printerGroup;
-    if (printerGroup) {
-        if (outputType === 'printer') {
-            printerGroup.classList.add('show');
-        } else {
-            printerGroup.classList.remove('show');
-        }
-    }
 }
 
 // 키보드 단축키
@@ -252,9 +303,5 @@ document.addEventListener('keydown', (event) => {
         if (!UIManager.elements.printButton.disabled) {
             executePrint();
         }
-    }
-    
-    if (event.key === 'Escape') {
-        IPCHandler.hideToBackground();
     }
 });
