@@ -205,7 +205,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         onServerInfo: handleServerInfo,
         onUrlsReceived: handleUrlsReceived,
         onLoadingComplete: () => UIManager.completeLoading(),
-        onSessionChanged: handleSessionChanged
+        onSessionChanged: handleSessionChanged,
+        onShowWaitingMessage: handleShowWaitingMessage
     });
     
     initializeEventListeners();
@@ -330,6 +331,14 @@ function handleServerInfo(info) {
 function handleSessionChanged(data) {
     console.log('세션 변경됨:', data.session);
     showToast('🔄 새 인쇄 작업', 'info', 2000);
+}
+
+// 대기 메시지 처리
+function handleShowWaitingMessage(messageData) {
+    console.log('대기 메시지 수신:', messageData);
+    if (messageData && messageData.message) {
+        UIManager.showStatus(messageData.message, 'info');
+    }
 }
 
 // URL 수신 처리

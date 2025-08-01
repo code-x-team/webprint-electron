@@ -3,7 +3,8 @@ const IPCHandler = {
         onServerInfo: null,
         onUrlsReceived: null,
         onLoadingComplete: null,
-        onSessionChanged: null
+        onSessionChanged: null,
+        onShowWaitingMessage: null
     },
   
     init(callbacks) {
@@ -45,18 +46,18 @@ const IPCHandler = {
   
         window.electronAPI.onShowWaitingMessage((msg) => {
             console.log('onShowWaitingMessage 이벤트 수신:', msg);
-            UIManager.showStatus(msg.message, 'info');
+            if (this.callbacks.onShowWaitingMessage) {
+                this.callbacks.onShowWaitingMessage(msg);
+            }
         });
         
         // 세션 변경 이벤트 추가
-        if (window.electronAPI.onSessionChanged) {
-            window.electronAPI.onSessionChanged((data) => {
-                console.log('onSessionChanged 이벤트 수신:', data);
-                if (this.callbacks.onSessionChanged) {
-                    this.callbacks.onSessionChanged(data);
-                }
-            });
-        }
+        window.electronAPI.onSessionChanged((data) => {
+            console.log('onSessionChanged 이벤트 수신:', data);
+            if (this.callbacks.onSessionChanged) {
+                this.callbacks.onSessionChanged(data);
+            }
+        });
     },
   
     async getServerInfo() {
