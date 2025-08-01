@@ -89,9 +89,11 @@ async function loadPrinters() {
             throw new Error(result.error);
         }
     } catch (error) {
-        UIManager.showStatus('프린터 목록을 불러올 수 없습니다.', 'error');
+        console.error('프린터 목록 로드 실패:', error);
+        UIManager.showStatus('프린터 목록을 불러올 수 없습니다. 시스템 기본 프린터를 사용합니다.', 'error');
         
         // 기본 옵션 추가
+        availablePrinters = [{ name: 'system-default', displayName: '시스템 기본 프린터' }];
         const defaultOption = document.createElement('option');
         defaultOption.value = 'system-default';
         defaultOption.textContent = '시스템 기본 프린터';
@@ -168,10 +170,28 @@ async function executePrint() {
 // UI 상태 업데이트
 function updateUI() {
     const hasUrl = receivedUrls.printUrl || receivedUrls.previewUrl;
+    const hasPaperSize = currentPaperSize && currentPaperSize.width && currentPaperSize.height;
     const outputType = UIManager.getSelectedOutputType();
-    const printerSelected = outputType === 'pdf' || UIManager.elements.printerSelect.value;
     
-    UIManager.updatePrintButton(hasUrl && printerSelected);
+    // 프린터 출력 방식일 때는 프린터가 선택되어야 함
+    let canPrint = hasUrl && hasPaperSize;
+    if (outputType === 'printer') {
+        const printerSelected = UIManager.elements.printerSelect.value && 
+                              UIManager.elements.printerSelect.value !== '';
+        canPrint = canPrint && printerSelected;
+    }
+    
+    UIManager.updatePrintButton(canPrint);
+    
+    // 프린터 방식 선택 시 프린터 그룹 표시/숨김
+    const printerGroup = UIManager.elements.printerGroup;
+    if (printerGroup) {
+        if (outputType === 'printer') {
+            printerGroup.classList.add('show');
+        } else {
+            printerGroup.classList.remove('show');
+        }
+    }
 }
 
 // 키보드 단축키

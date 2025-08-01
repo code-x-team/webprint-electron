@@ -63,7 +63,7 @@ const UIManager = {
     updatePrintButtonText() {
         const outputType = this.getSelectedOutputType();
         const btn = this.elements.printButton;
-        if (!btn.disabled) {
+        if (!btn.disabled || btn.textContent.includes('중...')) {
             btn.textContent = outputType === 'pdf' ? '📄 PDF 미리보기' : '🖨️ 프린터로 출력';
         }
     },
