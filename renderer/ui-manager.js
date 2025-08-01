@@ -12,8 +12,13 @@ const UIManager = {
         refreshPrintersBtn: null,
         outputTypeRadios: null,
         printerGroup: null,
-        rotate180Checkbox: null
+        rotate180Checkbox: null,
+        loadingMainText: null,
+        loadingProgress: null
     },
+    
+    loadingSteps: ['init', 'server', 'printers', 'ready'],
+    currentStep: 0,
   
     init() {
         this.elements = {
@@ -29,7 +34,9 @@ const UIManager = {
             refreshPrintersBtn: document.getElementById('refresh-printers'),
             outputTypeRadios: document.querySelectorAll('input[name="output-type"]'),
             printerGroup: document.getElementById('printer-group'),
-            rotate180Checkbox: document.getElementById('rotate-180')
+            rotate180Checkbox: document.getElementById('rotate-180'),
+            loadingMainText: document.getElementById('loading-main-text'),
+            loadingProgress: document.getElementById('loading-progress')
         };
         
         // 출력 방식 변경 이벤트
@@ -64,7 +71,69 @@ const UIManager = {
     showLoading(show = true) {
         if (this.elements.loadingOverlay) {
             this.elements.loadingOverlay.classList.toggle('hidden', !show);
+            if (show) {
+                this.currentStep = 0;
+                this.updateLoadingStep('init');
+            }
         }
+    },
+    
+    updateLoadingStep(stepName, customText = null) {
+        const stepIndex = this.loadingSteps.indexOf(stepName);
+        if (stepIndex === -1) return;
+        
+        // 이전 단계들을 완료로 표시
+        for (let i = 0; i < stepIndex; i++) {
+            const step = this.loadingSteps[i];
+            const stepElement = document.getElementById(`step-${step}`);
+            if (stepElement) {
+                stepElement.classList.remove('active');
+                stepElement.classList.add('completed');
+                const icon = stepElement.querySelector('.step-icon');
+                if (icon) {
+                    icon.innerHTML = '✓';
+                }
+            }
+        }
+        
+        // 현재 단계를 활성화
+        const currentStepElement = document.getElementById(`step-${stepName}`);
+        if (currentStepElement) {
+            currentStepElement.classList.remove('completed');
+            currentStepElement.classList.add('active');
+            const icon = currentStepElement.querySelector('.step-icon');
+            if (icon) {
+                icon.innerHTML = stepIndex + 1;
+            }
+        }
+        
+        // 메인 텍스트 업데이트
+        const messages = {
+            init: '애플리케이션을 초기화하고 있습니다...',
+            server: '서버와 연결을 확인하고 있습니다...',
+            printers: '사용 가능한 프린터를 검색하고 있습니다...',
+            ready: '모든 준비가 완료되었습니다!'
+        };
+        
+        if (this.elements.loadingMainText) {
+            this.elements.loadingMainText.textContent = customText || messages[stepName] || '로딩 중...';
+        }
+        
+        if (this.elements.loadingProgress) {
+            const progressPercent = Math.round(((stepIndex + 1) / this.loadingSteps.length) * 100);
+            this.elements.loadingProgress.textContent = `${progressPercent}% 완료`;
+        }
+        
+        this.currentStep = stepIndex;
+    },
+    
+    completeLoading() {
+        this.updateLoadingStep('ready');
+        
+        // 완료 후 잠시 대기 후 숨기기
+        setTimeout(() => {
+            this.showLoading(false);
+        }, 800);
     },
   
     showStatus(message, type = 'info') {

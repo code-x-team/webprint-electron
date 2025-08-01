@@ -263,7 +263,7 @@ function setupIpcHandlers() {
       const result = await printViaPDF(
         params.url,
         params.paperSize,
-        params.printSelector || '#print_wrap',
+                      params.printSelector || '.print_wrap',
         params.copies || 1,
         params.silent !== false,
         params.printerName,

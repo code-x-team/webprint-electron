@@ -87,7 +87,7 @@ const IPCHandler = {
         const printParams = {
             url: params.url,
             paperSize: params.paperSize,
-            printSelector: params.printSelector || '#print_wrap',
+            printSelector: params.printSelector || '.print_wrap',
             printerName: params.printerName || '',
             copies: params.copies || 1,
             silent: params.silent !== false,

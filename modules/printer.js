@@ -4,16 +4,219 @@ const fs = require('fs').promises;
 const os = require('os');
 const ptp = require('pdf-to-printer');
 
+// ========== 다중 페이지 개수 확인 함수 ==========
+async function getElementCount(url, printSelector) {
+  const tempWindow = new BrowserWindow({
+    show: false,
+    width: 1200,
+    height: 1600,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      webSecurity: false,
+      offscreen: true
+    }
+  });
+  
+  try {
+    await tempWindow.loadURL(url);
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    const count = await tempWindow.webContents.executeJavaScript(`
+      (function() {
+        const elements = document.querySelectorAll('${printSelector}');
+        return elements.length;
+      })()
+    `);
+    
+    return count;
+  } finally {
+    tempWindow.close();
+  }
+}
+
+// ========== 특정 인덱스 요소로 PDF 생성 함수 ==========
+async function generatePDFByIndex(url, paperSize, printSelector, elementIndex, rotate180 = false) {
+  const pdfWindow = new BrowserWindow({
+    show: false,
+    width: 1200,
+    height: 1600,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      webSecurity: false,
+      offscreen: true,
+      backgroundThrottling: false
+    }
+  });
+  
+  try {
+    await pdfWindow.loadURL(url);
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    
+    await pdfWindow.webContents.executeJavaScript(`
+      (function() {
+        const elements = document.querySelectorAll('${printSelector}');
+        if (elements.length > ${elementIndex}) {
+          // 기존 body 내용을 제거하고 특정 인덱스의 요소만 추가
+          document.body.innerHTML = '';
+          document.body.appendChild(elements[${elementIndex}].cloneNode(true));
+          
+          // 스타일 적용
+          const element = document.body.firstChild;
+          element.style.cssText = \`
+            width: ${paperSize.width}mm !important;
+            height: ${paperSize.height}mm !important;
+            margin: 0 auto !important;
+            transform: ${rotate180 ? 'rotate(180deg)' : 'none'} !important;
+            transform-origin: center center !important;
+          \`;
+          
+          // body 스타일 설정
+          document.body.style.cssText = \`
+            margin: 0 !important;
+            padding: 0 !important;
+            display: flex !important;
+            justify-content: center !important;
+            align-items: center !important;
+            min-height: 100vh !important;
+          \`;
+        }
+        return true;
+      })()
+    `);
+
+    await pdfWindow.webContents.insertCSS(`
+      @page {
+        margin: 0mm 0mm 0mm 0mm; 
+        padding: 0;
+        box-sizing: border-box;
+      }
+      * { 
+        box-sizing: border-box !important; 
+        -webkit-print-color-adjust: exact !important;
+        color-adjust: exact !important;
+      }
+    `);
+
+    const pdfOptions = {
+      landscape: false,
+      displayHeaderFooter: false,
+      printBackground: true,
+      preferCSSPageSize: true,
+      pageRanges: '',
+      format: 'A4',
+      width: paperSize.width + 'mm',
+      height: paperSize.height + 'mm',
+      marginsType: 1
+    };
+
+    const pdfBuffer = await pdfWindow.webContents.printToPDF(pdfOptions);
+    return pdfBuffer;
+    
+  } finally {
+    pdfWindow.close();
+  }
+}
+
 // ========== 메인 함수 ==========
 async function printViaPDF(url, paperSize, printSelector, copies, silent, printerName, outputType = 'pdf', rotate180 = false) {
   try {
-    // PDF 생성
-    const pdfBuffer = await generatePDF(url, paperSize, printSelector, rotate180);
+    // 다중 페이지 개수 확인
+    const elementCount = await getElementCount(url, printSelector);
+    console.log(`${printSelector} 요소 개수: ${elementCount}`);
     
-    if (outputType === 'pdf') {
-      // PDF 저장 및 미리보기
-      const pdfPath = await savePermanentPDF(pdfBuffer);
-      await openPDFPreview(pdfPath);
+    if (elementCount > 1) {
+      console.log(`다중 페이지 처리: ${elementCount}개 페이지를 개별적으로 처리합니다.`);
+      
+      const results = [];
+      for (let i = 0; i < elementCount; i++) {
+        console.log(`페이지 ${i + 1}/${elementCount} 처리 중...`);
+        
+        // 각 요소별로 PDF 생성
+        const pdfBuffer = await generatePDFByIndex(url, paperSize, printSelector, i, rotate180);
+        
+        if (outputType === 'pdf') {
+          // PDF 저장 및 미리보기
+          const pdfPath = await savePermanentPDF(pdfBuffer, `page_${i + 1}`);
+          if (i === 0) {
+            await openPDFPreview(pdfPath);
+          }
+          results.push({ success: true, pdfPath, page: i + 1 });
+          
+        } else {
+          // PDF 임시 저장 후 인쇄
+          const tempPdfPath = await saveTempPDF(pdfBuffer, `page_${i + 1}`);
+          
+          try {
+            const printOptions = {
+              printer: printerName === 'system-default' ? undefined : printerName,
+              copies: copies,
+              silent: silent
+            };
+            
+            Object.keys(printOptions).forEach(key => {
+              if (printOptions[key] === undefined) {
+                delete printOptions[key];
+              }
+            });
+            
+            await ptp.print(tempPdfPath, printOptions);
+            
+            // 임시 파일 삭제 예약
+            setTimeout(async () => {
+              try {
+                await fs.unlink(tempPdfPath);
+              } catch (deleteError) {
+                // 삭제 실패 무시
+              }
+            }, 30000);
+            
+            results.push({ success: true, page: i + 1, message: `페이지 ${i + 1} 인쇄 완료` });
+            
+          } catch (printError) {
+            await fs.unlink(tempPdfPath).catch(() => {});
+            results.push({ success: false, page: i + 1, error: printError.message });
+          }
+        }
+      }
+      
+      // 결과 반환
+      const successCount = results.filter(r => r.success).length;
+      const failCount = results.filter(r => !r.success).length;
+      
+      if (outputType === 'pdf') {
+        return { 
+          success: true, 
+          shouldClose: true, 
+          message: `${successCount}개 페이지 PDF 생성 완료`,
+          results: results
+        };
+      } else {
+        if (failCount === 0) {
+          return { 
+            success: true, 
+            shouldClose: true, 
+            message: `${successCount}개 페이지 모두 인쇄 완료`
+          };
+        } else {
+          return { 
+            success: successCount > 0, 
+            shouldClose: true, 
+            message: `${successCount}개 성공, ${failCount}개 실패`,
+            results: results
+          };
+        }
+      }
+      
+    } else {
+      // 단일 페이지 처리 (기존 로직)
+      const pdfBuffer = await generatePDF(url, paperSize, printSelector, rotate180);
+      
+      if (outputType === 'pdf') {
+        // PDF 저장 및 미리보기
+        const pdfPath = await savePermanentPDF(pdfBuffer);
+        await openPDFPreview(pdfPath);
       return { success: true, pdfPath, shouldClose: true };
       
     } else {
@@ -95,39 +298,84 @@ async function generatePDF(url, paperSize, printSelector, rotate180 = false) {
     await pdfWindow.loadURL(url);
     await new Promise(resolve => setTimeout(resolve, 3000));
     
-    // 특정 요소만 선택하여 인쇄
+    // 특정 요소(들) 선택하여 인쇄
     if (printSelector) {
-      await pdfWindow.webContents.executeJavaScript(`
+      const elementCount = await pdfWindow.webContents.executeJavaScript(`
         (function() {
-          const targetElement = document.querySelector('${printSelector}');
-          if (targetElement) {
-            // 기존 body 내용을 제거하고 대상 요소만 추가
-            document.body.innerHTML = '';
-            document.body.appendChild(targetElement.cloneNode(true));
-            
-            // 스타일 적용
-            const element = document.body.firstChild;
-            element.style.cssText = \`
-              width: ${paperSize.width}mm !important;
-              height: ${paperSize.height}mm !important;
-              margin: 0 auto !important;
-              transform: ${rotate180 ? 'rotate(180deg)' : 'none'} !important;
-              transform-origin: center center !important;
-            \`;
-            
-            // body 스타일 설정
-            document.body.style.cssText = \`
-              margin: 0 !important;
-              padding: 0 !important;
-              display: flex !important;
-              justify-content: center !important;
-              align-items: center !important;
-              min-height: 100vh !important;
-            \`;
-          }
-          return true;
+          const elements = document.querySelectorAll('${printSelector}');
+          console.log('Found', elements.length, 'elements with selector:', '${printSelector}');
+          return elements.length;
         })()
       `);
+      
+      if (elementCount > 1) {
+        console.log(`다중 페이지 감지: ${elementCount}개의 ${printSelector} 요소 발견`);
+        // 여러 요소를 하나씩 처리하기 위해 첫 번째 요소만 선택
+        await pdfWindow.webContents.executeJavaScript(`
+          (function() {
+            const elements = document.querySelectorAll('${printSelector}');
+            if (elements.length > 0) {
+              // 기존 body 내용을 제거하고 첫 번째 요소만 추가
+              document.body.innerHTML = '';
+              document.body.appendChild(elements[0].cloneNode(true));
+              
+              // 스타일 적용
+              const element = document.body.firstChild;
+              element.style.cssText = \`
+                width: ${paperSize.width}mm !important;
+                height: ${paperSize.height}mm !important;
+                margin: 0 auto !important;
+                transform: ${rotate180 ? 'rotate(180deg)' : 'none'} !important;
+                transform-origin: center center !important;
+              \`;
+              
+              // body 스타일 설정
+              document.body.style.cssText = \`
+                margin: 0 !important;
+                padding: 0 !important;
+                display: flex !important;
+                justify-content: center !important;
+                align-items: center !important;
+                min-height: 100vh !important;
+              \`;
+            }
+            return true;
+          })()
+        `);
+      } else {
+        // 단일 요소 처리 (기존 로직)
+        await pdfWindow.webContents.executeJavaScript(`
+          (function() {
+            const targetElement = document.querySelector('${printSelector}');
+            if (targetElement) {
+              // 기존 body 내용을 제거하고 대상 요소만 추가
+              document.body.innerHTML = '';
+              document.body.appendChild(targetElement.cloneNode(true));
+              
+              // 스타일 적용
+              const element = document.body.firstChild;
+              element.style.cssText = \`
+                width: ${paperSize.width}mm !important;
+                height: ${paperSize.height}mm !important;
+                margin: 0 auto !important;
+                transform: ${rotate180 ? 'rotate(180deg)' : 'none'} !important;
+                transform-origin: center center !important;
+              \`;
+              
+              // body 스타일 설정
+              document.body.style.cssText = \`
+                margin: 0 !important;
+                padding: 0 !important;
+                display: flex !important;
+                justify-content: center !important;
+                align-items: center !important;
+                min-height: 100vh !important;
+              \`;
+            }
+            return true;
+          })()
+        `);
+      }
 
       await pdfWindow.webContents.insertCSS(`
         @page {
@@ -176,16 +424,17 @@ async function generatePDF(url, paperSize, printSelector, rotate180 = false) {
 }
 
 // ========== 파일 저장 함수 ==========
-async function saveTempPDF(pdfBuffer) {
+async function saveTempPDF(pdfBuffer, pagePrefix = '') {
   const tempDir = os.tmpdir();
-  const tempFileName = `webprinter_temp_${Date.now()}.pdf`;
+  const prefix = pagePrefix ? `${pagePrefix}_` : '';
+  const tempFileName = `webprinter_temp_${prefix}${Date.now()}.pdf`;
   const tempPath = path.join(tempDir, tempFileName);
   
   await fs.writeFile(tempPath, pdfBuffer);
   return tempPath;
 }
 
-async function savePermanentPDF(pdfBuffer) {
+async function savePermanentPDF(pdfBuffer, pagePrefix = '') {
   // Downloads/WebPrinter 폴더에 저장
   const saveDirectory = path.join(os.homedir(), 'Downloads', 'WebPrinter');
   await fs.mkdir(saveDirectory, { recursive: true });
@@ -196,7 +445,8 @@ async function savePermanentPDF(pdfBuffer) {
     .replace('T', '_')
     .substring(0, 19);
   
-  const fileName = `WebPrinter_${timestamp}.pdf`;
+  const prefix = pagePrefix ? `${pagePrefix}_` : '';
+  const fileName = `WebPrinter_${prefix}${timestamp}.pdf`;
   const filePath = path.join(saveDirectory, fileName);
   
   await fs.writeFile(filePath, pdfBuffer);

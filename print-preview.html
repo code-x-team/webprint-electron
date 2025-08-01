@@ -10,7 +10,28 @@
     <div class="loading-overlay" id="loading-overlay">
         <div class="loading-content">
             <div class="spinner"></div>
-            <p>초기화 중...</p>
+            <h3>WebPrinter 시작 중</h3>
+            <p id="loading-main-text">시스템을 초기화하고 있습니다...</p>
+            <p class="progress-text" id="loading-progress">준비 중...</p>
+            
+            <div class="loading-steps">
+                <div class="loading-step" id="step-init">
+                    <div class="step-icon">1</div>
+                    <span>애플리케이션 초기화</span>
+                </div>
+                <div class="loading-step" id="step-server">
+                    <div class="step-icon">2</div>
+                    <span>서버 연결 확인</span>
+                </div>
+                <div class="loading-step" id="step-printers">
+                    <div class="step-icon">3</div>
+                    <span>프린터 목록 로드</span>
+                </div>
+                <div class="loading-step" id="step-ready">
+                    <div class="step-icon">4</div>
+                    <span>준비 완료</span>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -62,12 +83,12 @@
                     <input type="number" class="control-input" id="copies" min="1" max="99" value="1">
                 </div>
 
-                <div class="control-group">
+                <!-- <div class="control-group">
                     <label class="checkbox-label">
                         <input type="checkbox" id="rotate-180">
                         <span>180도 회전</span>
                     </label>
-                </div>
+                </div> -->
 
                 <div class="status-message" id="status-message"></div>
 

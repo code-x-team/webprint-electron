@@ -8,20 +8,37 @@ let isPrinting = false;
 // 초기화
 document.addEventListener('DOMContentLoaded', async () => {
     UIManager.init();
+    UIManager.showLoading(true);
+    
+    // 1단계: 애플리케이션 초기화
+    await new Promise(resolve => setTimeout(resolve, 500));
+    UIManager.updateLoadingStep('init', '애플리케이션을 초기화하고 있습니다...');
     
     IPCHandler.init({
         onServerInfo: handleServerInfo,
         onUrlsReceived: handleUrlsReceived,
-        onLoadingComplete: () => UIManager.showLoading(false)
+        onLoadingComplete: () => UIManager.completeLoading()
     });
     
     initializeEventListeners();
+    
+    // 2단계: 서버 연결 확인
+    await new Promise(resolve => setTimeout(resolve, 300));
+    UIManager.updateLoadingStep('server', '서버와 연결을 확인하고 있습니다...');
+    
+    // 3단계: 프린터 목록 로드
+    await new Promise(resolve => setTimeout(resolve, 300));
+    UIManager.updateLoadingStep('printers', '사용 가능한 프린터를 검색하고 있습니다...');
     await loadPrinters();
+    
+    // 4단계: 준비 완료
+    await new Promise(resolve => setTimeout(resolve, 200));
+    UIManager.updateLoadingStep('ready', '모든 준비가 완료되었습니다!');
     
     setTimeout(() => {
         IPCHandler.requestShowWindow();
-        UIManager.showLoading(false);
-    }, 100);
+        UIManager.completeLoading();
+    }, 500);
 });
 
 // 이벤트 리스너 설정
@@ -109,7 +126,7 @@ async function executePrint() {
             printerName: UIManager.elements.printerSelect.value,
             copies: parseInt(UIManager.elements.copiesInput.value) || 1,
             paperSize: currentPaperSize,
-            printSelector: receivedUrls.printSelector || '#print_wrap',
+            printSelector: receivedUrls.printSelector || '.print_wrap',
             silent: true,
             outputType: outputType,
             rotate180: rotate180

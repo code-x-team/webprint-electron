@@ -9,8 +9,17 @@
 <body>
     <div class="container">
         <header class="header">
-            <h1>🖨️ WebPrinter</h1>
-            <p>웹에서 바로 인쇄하기</p>
+            <div class="header-main">
+                <h1>🖨️ WebPrinter</h1>
+                <p>웹에서 바로 인쇄하기</p>
+            </div>
+            <div class="version-info">
+                <span class="version-badge">v2.0.6</span>
+                <span class="status-indicator" id="status-indicator">
+                    <span class="dot"></span>
+                    <span id="connection-status">연결 확인 중...</span>
+                </span>
+            </div>
         </header>
         
         <main class="content">
@@ -50,14 +59,32 @@
             <div class="status" id="status"></div>
             
             <div class="install-notice" id="install-notice">
-                <h3>📥 WebPrinter 설치 필요</h3>
-                <p>WebPrinter가 설치되지 않았습니다.</p>
-                <p>
+                <div class="install-content">
+                    <div class="install-icon">📥</div>
+                    <div class="install-text">
+                        <h3>WebPrinter 설치 필요</h3>
+                        <p>WebPrinter 애플리케이션이 설치되지 않았거나 실행되지 않고 있습니다.</p>
+                        <p class="system-requirements">
+                            <strong>지원 시스템:</strong> Windows 10/11 (64bit)
+                        </p>
+                    </div>
+                </div>
+                
+                <div class="install-actions">
                     <a href="https://github.com/code-x-team/webprint-electron/releases/latest" 
-                       target="_blank" class="download-link">
-                        여기에서 다운로드
-                    </a>하여 설치 후 다시 시도하세요.
-                </p>
+                       target="_blank" class="btn btn-download">
+                        <span class="btn-icon">⬇️</span>
+                        최신 버전 다운로드
+                    </a>
+                    <div class="install-steps">
+                        <h4>설치 방법:</h4>
+                        <ol>
+                            <li>위 버튼을 클릭하여 최신 버전을 다운로드하세요</li>
+                            <li><code>WebPrinter-Setup-2.0.6.exe</code> 파일을 실행하세요</li>
+                            <li>설치 완료 후 이 페이지를 새로고침하세요</li>
+                        </ol>
+                    </div>
+                </div>
             </div>
             
             <div class="info-box">
@@ -69,6 +96,7 @@
                     <li>"출력하기" 버튼을 클릭하세요</li>
                 </ol>
             </div>
+
         </main>
     </div>
 

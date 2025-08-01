@@ -273,7 +273,7 @@ async function startHttpServer() {
             width: paperWidth, 
             height: paperHeight 
           },
-          printSelector: print_selector || '#print_wrap',
+          printSelector: print_selector || '.print_wrap',
           timestamp: Date.now(),
           receivedAt: new Date().toISOString()
         };

@@ -25,19 +25,76 @@ body {
 
 /* Header */
 .header {
-  background: #2563eb;
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
   color: white;
   padding: 2rem;
-  text-align: center;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.header-main {
+  text-align: left;
 }
 
 .header h1 {
   font-size: 2rem;
   margin-bottom: 0.5rem;
+  font-weight: 700;
 }
 
 .header p {
   opacity: 0.9;
+  font-size: 1.1rem;
+}
+
+.version-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.5rem;
+}
+
+.version-badge {
+  background: rgba(255, 255, 255, 0.2);
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  opacity: 0.9;
+}
+
+.status-indicator .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #fbbf24;
+  animation: pulse 2s infinite;
+}
+
+.status-indicator.connected .dot {
+  background: #10b981;
+  animation: none;
+}
+
+.status-indicator.disconnected .dot {
+  background: #ef4444;
+  animation: none;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
 /* Content */
@@ -140,31 +197,108 @@ body {
 
 /* Install Notice */
 .install-notice {
-  margin-top: 1.5rem;
-  padding: 1.5rem;
-  background: #fef3c7;
-  border-radius: 8px;
-  border-left: 4px solid #f59e0b;
   display: none;
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  border: 2px solid #f59e0b;
+  border-radius: 12px;
+  padding: 2rem;
+  margin-top: 2rem;
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.15);
 }
 
-.install-notice h3 {
+.install-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.install-icon {
+  font-size: 2rem;
+  flex-shrink: 0;
+}
+
+.install-text h3 {
   color: #92400e;
   margin-bottom: 0.75rem;
+  font-size: 1.25rem;
+  font-weight: 700;
 }
 
-.install-notice p {
-  margin-top: 0.5rem;
+.install-text p {
+  color: #92400e;
+  margin-bottom: 0.5rem;
+  line-height: 1.6;
 }
 
-.download-link {
-  color: #2563eb;
+.system-requirements {
+  background: rgba(146, 64, 14, 0.1);
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  margin-top: 0.75rem !important;
+}
+
+.install-actions {
+  border-top: 1px solid rgba(146, 64, 14, 0.2);
+  padding-top: 1.5rem;
+}
+
+.btn-download {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  color: white;
+  padding: 0.875rem 1.5rem;
+  border-radius: 8px;
   text-decoration: none;
+  font-weight: 600;
+  font-size: 1rem;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
+  transition: all 0.2s ease;
+  margin-bottom: 1.5rem;
+}
+
+.btn-download:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4);
+}
+
+.btn-icon {
+  font-size: 1.1rem;
+}
+
+.install-steps {
+  background: rgba(255, 255, 255, 0.6);
+  padding: 1.25rem;
+  border-radius: 8px;
+  border: 1px solid rgba(146, 64, 14, 0.2);
+}
+
+.install-steps h4 {
+  color: #92400e;
+  margin-bottom: 0.75rem;
+  font-size: 1rem;
   font-weight: 600;
 }
 
-.download-link:hover {
-  text-decoration: underline;
+.install-steps ol {
+  color: #92400e;
+  padding-left: 1.25rem;
+}
+
+.install-steps li {
+  margin-bottom: 0.5rem;
+  line-height: 1.5;
+}
+
+.install-steps code {
+  background: rgba(146, 64, 14, 0.15);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  color: #78350f;
 }
 
 /* Info Box */
@@ -202,6 +336,7 @@ body {
   }
 }
 
+
 /* Responsive */
 @media (max-width: 640px) {
   .container {
@@ -209,11 +344,35 @@ body {
       border-radius: 0;
   }
   
-  .header, .content {
+  .header {
+      padding: 1.5rem;
+      flex-direction: column;
+      text-align: center;
+  }
+  
+  .header-main {
+      text-align: center;
+  }
+  
+  .version-info {
+      align-items: center;
+  }
+  
+  .content {
       padding: 1.5rem;
   }
   
   .size-group {
       grid-template-columns: 1fr;
+  }
+  
+  .install-content {
+      flex-direction: column;
+      text-align: center;
+  }
+  
+  .btn-download {
+      width: 100%;
+      justify-content: center;
   }
 }
