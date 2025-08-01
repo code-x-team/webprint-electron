@@ -161,26 +161,8 @@
   DeleteRegKey HKCR "webprinter"
   DeleteRegKey HKCU "Software\Classes\webprinter"
   
-  ; 사용자 데이터 정리 옵션
-  MessageBox MB_YESNO|MB_ICONQUESTION "저장된 세션 데이터와 설정을 삭제하시겠습니까?" IDYES delete_userdata
-  Goto skip_userdata
-  
-  delete_userdata:
-    DetailPrint "사용자 데이터 정리 중..."
-    Delete "$PROFILE\.webprinter-sessions.json"
-    RMDir /r "$APPDATA\WebPrinter"
-    RMDir /r "$LOCALAPPDATA\WebPrinter"
-    
-    ; PDF 파일 정리 옵션
-    MessageBox MB_YESNO|MB_ICONQUESTION "Downloads 폴더의 WebPrinter PDF 파일도 삭제하시겠습니까?" IDYES delete_pdfs
-    Goto skip_pdfs
-    
-    delete_pdfs:
-      RMDir /r "$PROFILE\Downloads\WebPrinter"
-    
-    skip_pdfs:
-  
-  skip_userdata:
+  ; 사용자 데이터는 언인스톨 시에만 정리 (일반 종료에서는 제외)
+  DetailPrint "사용자 데이터 정리를 건너뜁니다..."
   
   ; 방화벽 규칙 제거
   DetailPrint "방화벽 규칙 제거 중..."
@@ -192,8 +174,6 @@
 !macro customWelcomePage
   !define MUI_WELCOMEPAGE_TEXT "WebPrinter 설치를 시작합니다.$\n$\n이 프로그램은 웹페이지에서 직접 인쇄를 가능하게 합니다.$\n$\n설치하기 전에 다른 모든 프로그램을 닫는 것을 권장합니다."
 !macroend
-
-
 
 
 

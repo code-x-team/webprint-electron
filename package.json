@@ -1,6 +1,6 @@
 {
   "name": "web-printer",
-  "version": "1.9.4",
+  "version": "2.0.6",
   "description": "웹에서 호출되는 로컬 인쇄 프로그램",
   "main": "main.js",
   "scripts": {
@@ -138,7 +138,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "deleteAppDataOnUninstall": true,
+      "deleteAppDataOnUninstall": false,
       "allowElevation": true,
       "perMachine": false,
       "displayLanguageSelector": false,
