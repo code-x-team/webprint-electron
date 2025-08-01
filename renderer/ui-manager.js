@@ -163,13 +163,25 @@ const UIManager = {
     },
   
     showPreview(url) {
+        console.log('UIManager.showPreview 호출됨:', url);
+        
         if (!url) {
+            console.log('URL이 없어서 미리보기를 숨깁니다');
             this.hidePreview();
             return;
         }
         
         const iframe = this.elements.previewFrame;
         const placeholder = this.elements.previewPlaceholder;
+        
+        console.log('iframe 요소:', iframe);
+        console.log('placeholder 요소:', placeholder);
+        
+        if (!iframe) {
+            console.error('iframe 요소를 찾을 수 없습니다');
+            this.showStatus('미리보기 요소를 찾을 수 없습니다', 'error');
+            return;
+        }
         
         this.showStatus('미리보기 로딩 중...', 'info');
         
@@ -178,14 +190,18 @@ const UIManager = {
         }
         
         iframe.onload = () => {
+            console.log('iframe 로드 완료:', url);
             this.showStatus('미리보기 로드 완료', 'success');
         };
         
         iframe.onerror = () => {
+            console.error('iframe 로드 실패:', url);
             this.showStatus('미리보기 로드 실패', 'error');
         };
         
+        console.log('iframe src 설정 중:', url);
         iframe.src = url;
+        console.log('iframe src 설정 완료, 현재 src:', iframe.src);
     },
     
     hidePreview() {

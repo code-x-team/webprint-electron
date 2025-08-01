@@ -66,18 +66,29 @@ function handleSideChange() {
 
 // 선택된 면의 미리보기 표시
 function showPreviewForSide(side) {
-    if (!receivedUrls) return;
+    console.log('showPreviewForSide 호출됨:', { side, receivedUrls });
+    
+    if (!receivedUrls) {
+        console.log('receivedUrls가 없습니다');
+        return;
+    }
     
     let url;
     if (side === 'front') {
         url = receivedUrls.frontPreviewUrl || receivedUrls.previewUrl;
+        console.log('앞면 URL 선택:', { frontPreviewUrl: receivedUrls.frontPreviewUrl, previewUrl: receivedUrls.previewUrl, selectedUrl: url });
     } else {
         url = receivedUrls.backPreviewUrl;
+        console.log('뒷면 URL 선택:', { backPreviewUrl: receivedUrls.backPreviewUrl, selectedUrl: url });
     }
     
     if (url) {
+        console.log('미리보기 표시:', url);
         UIManager.showPreview(url);
         UIManager.showStatus(`${side === 'front' ? '앞면' : '뒷면'} 미리보기 로드 중...`, 'info');
+    } else {
+        console.log('표시할 URL이 없습니다');
+        UIManager.showStatus(`${side === 'front' ? '앞면' : '뒷면'} 미리보기 URL이 없습니다.`, 'error');
     }
 }
 
@@ -120,13 +131,16 @@ function handleServerInfo(info) {
 
 // URL 수신 처리
 function handleUrlsReceived(urlData) {
+    console.log('URL 데이터 수신됨:', urlData);
     receivedUrls = urlData;
     
     if (urlData.paperSize) {
         currentPaperSize = urlData.paperSize;
         UIManager.displayPaperSize(currentPaperSize);
+        console.log('용지 크기 설정됨:', currentPaperSize);
     }
     
+    console.log('현재 면:', currentSide);
     showPreviewForSide(currentSide);
     updatePreviewHeader();
     updateUI();

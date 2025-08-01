@@ -51,6 +51,9 @@ async function createPrintWindow(sessionId = null) {
 
   printWindow.loadFile('print-preview.html');
 
+  // 개발자 도구 자동으로 열기 (디버깅용)
+  printWindow.webContents.openDevTools();
+
   printWindow.once('ready-to-show', () => {
     setTimeout(() => {
       if (printWindow && !printWindow.isDestroyed() && !printWindow.isVisible()) {
