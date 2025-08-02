@@ -13,23 +13,20 @@
             <p>초기화 중...</p>
         </div>
     </div>
-
     <div class="header">
         <h1>🖨️ WebPrinter</h1>
         <p id="status-text">준비 중...</p>
     </div>
-
     <div class="main-content">
         <div class="preview-section">
             <div class="preview-header">
                 <h2>인쇄 미리보기</h2>
-                <div class="url-display" id="server-display"></div>
+                <div class="url-display" id="server-display" style="display: none;"></div>
             </div>
             <div class="preview-container">
                 <iframe id="preview-frame" class="preview-iframe" style="display: none;"></iframe>
             </div>
         </div>
-
         <div class="controls-section">
             <div class="controls-header">
                 <h2>인쇄 설정</h2>
@@ -39,16 +36,15 @@
                     <label class="control-label">출력 방식:</label>
                     <div class="radio-group">
                         <label class="radio-label">
-                            <input type="radio" name="output-type" value="pdf" checked>
+                            <input type="radio" name="output-type" value="pdf">
                             <span>PDF 미리보기</span>
                         </label>
                         <label class="radio-label">
-                            <input type="radio" name="output-type" value="printer">
+                            <input type="radio" name="output-type" value="printer" checked>
                             <span>프린터로 출력</span>
                         </label>
                     </div>
                 </div>
-
                 <div class="control-group" id="printer-group">
                     <label class="control-label" for="printer-select">프린터:</label>
                     <select class="control-input" id="printer-select">
@@ -56,29 +52,24 @@
                     </select>
                     <button class="btn btn-secondary" id="refresh-printers">🔄 새로고침</button>
                 </div>
-
-                <div class="control-group">
+                <div class="control-group" style="display: none;">
                     <label class="control-label" for="copies">복사본 수:</label>
                     <input type="number" class="control-input" id="copies" min="1" max="99" value="1">
                 </div>
-
-                <div class="control-group">
+                <div class="control-group"  style="display: none;">
                     <label class="checkbox-label">
                         <input type="checkbox" id="rotate-180">
                         <span>180도 회전</span>
                     </label>
                 </div>
-
                 <div class="status-message" id="status-message"></div>
-
                 <div class="button-group">
                     <button class="btn btn-primary" id="print-button" disabled>📄 출력하기</button>
-                    <button class="btn btn-danger" id="cancel-button">✕ 취소</button>
+                    <button class="btn btn-danger" id="cancel-button"  style="display: none;">✕ 취소</button>
                 </div>
             </div>
         </div>
     </div>
-
     <script src="renderer/ui-manager.js"></script>
     <script src="renderer/ipc-handler.js"></script>
     <script src="renderer/print-preview.js"></script>

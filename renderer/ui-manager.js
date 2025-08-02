@@ -36,6 +36,9 @@ const UIManager = {
         this.elements.outputTypeRadios.forEach(radio => {
             radio.addEventListener('change', () => this.handleOutputTypeChange());
         });
+        
+        // 초기 출력 방식 상태 설정
+        this.handleOutputTypeChange();
     },
   
     handleOutputTypeChange() {
@@ -50,7 +53,7 @@ const UIManager = {
   
     getSelectedOutputType() {
         const selected = Array.from(this.elements.outputTypeRadios).find(r => r.checked);
-        return selected ? selected.value : 'pdf';
+        return selected ? selected.value : 'printer';
     },
   
     updatePrintButtonText() {
