@@ -141,7 +141,6 @@ function updateTrayMenu() {
           console.log('✅ [Debug] 트레이 - performUpdateProcess 완료');
         } catch (error) {
           console.error('❌ [Debug] 트레이 - performUpdateProcess 실패:', error);
-          const { dialog } = require('electron');
           dialog.showMessageBoxSync(null, {
             type: 'error',
             buttons: ['확인'],
@@ -156,7 +155,6 @@ function updateTrayMenu() {
     {
       label: '🛑 종료',
       click: () => {
-        const { dialog } = require('electron');
         const choice = dialog.showMessageBoxSync(null, {
           type: 'warning',
           buttons: ['취소', '종료'],
@@ -284,7 +282,6 @@ async function performUpdateProcess() {
     console.log(`📦 새 버전 발견: ${currentVersion} → ${newVersion}`);
     
     // 사용자 확인 (트레이에서 호출된 경우만)
-    const { dialog } = require('electron');
     const choice = dialog.showMessageBoxSync(null, {
       type: 'question',
       buttons: ['취소', '업데이트'],
@@ -354,7 +351,6 @@ async function performUpdateProcess() {
     }
 
     // 사용자에게 설치 확인
-    const { dialog } = require('electron');
     const installChoice = dialog.showMessageBoxSync(null, {
       type: 'info',
       buttons: ['나중에', '지금 설치'],
@@ -740,7 +736,6 @@ async function handleProtocolCall(protocolUrl) {
             
             if (currentVersion !== newVersion) {
               console.log('📦 [Debug] 새 버전 발견 - 사용자에게 확인 요청');
-              const { dialog } = require('electron');
               const choice = dialog.showMessageBoxSync(null, {
                 type: 'info',
                 buttons: ['취소', '확인'],
