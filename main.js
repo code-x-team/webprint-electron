@@ -161,7 +161,7 @@ function updateTrayMenu() {
   tray.setContextMenu(contextMenu);
 }
 
-async function performUpdateProcess() {
+async function performUpdateProcess(skipVersionCheck = false, updateInfo = null) {
   if (!autoUpdater) {
     console.log('업데이트 기능을 사용할 수 없습니다');
     if (tray && !tray.isDestroyed()) {
@@ -174,59 +174,69 @@ async function performUpdateProcess() {
   }
 
   try {
-    console.log('🔍 업데이트 확인 중...');
-    if (tray && !tray.isDestroyed()) {
-      tray.displayBalloon({
+    let currentVersion, newVersion;
+
+    if (skipVersionCheck && updateInfo) {
+      // 이미 체크된 정보 사용
+      currentVersion = updateInfo.currentVersion;
+      newVersion = updateInfo.newVersion;
+      console.log(`📦 업데이트 진행: ${currentVersion} → ${newVersion}`);
+    } else {
+      // 새로 버전 체크
+      console.log('🔍 업데이트 확인 중...');
+      if (tray && !tray.isDestroyed()) {
+        tray.displayBalloon({
+          title: 'WebPrinter 업데이트',
+          content: '업데이트를 확인하고 있습니다...'
+        });
+      }
+
+      // 1단계: 업데이트 확인
+      const updateCheckResult = await autoUpdater.checkForUpdates();
+      
+      if (!updateCheckResult || !updateCheckResult.updateInfo) {
+        console.log('📋 최신 버전입니다');
+        if (tray && !tray.isDestroyed()) {
+          tray.displayBalloon({
+            title: 'WebPrinter 업데이트',
+            content: '이미 최신 버전입니다.'
+          });
+        }
+        return;
+      }
+
+      currentVersion = app.getVersion();
+      newVersion = updateCheckResult.updateInfo.version;
+      
+      // 현재 버전과 최신 버전 비교
+      if (currentVersion === newVersion) {
+        console.log(`📋 이미 최신 버전입니다 (v${currentVersion})`);
+        if (tray && !tray.isDestroyed()) {
+          tray.displayBalloon({
+            title: 'WebPrinter 업데이트',
+            content: '이미 최신 버전입니다.'
+          });
+        }
+        return;
+      }
+      
+      console.log(`📦 새 버전 발견: ${currentVersion} → ${newVersion}`);
+      
+      // 사용자 확인 (트레이에서 호출된 경우만)
+      const { dialog } = require('electron');
+      const choice = dialog.showMessageBoxSync(null, {
+        type: 'question',
+        buttons: ['취소', '업데이트'],
+        defaultId: 1,
         title: 'WebPrinter 업데이트',
-        content: '업데이트를 확인하고 있습니다...'
+        message: `새 버전 ${newVersion}이 사용 가능합니다.`,
+        detail: '업데이트를 다운로드하고 설치하시겠습니까?\n앱이 재시작됩니다.'
       });
-    }
 
-    // 1단계: 업데이트 확인
-    const updateCheckResult = await autoUpdater.checkForUpdates();
-    
-    if (!updateCheckResult || !updateCheckResult.updateInfo) {
-      console.log('📋 최신 버전입니다');
-      if (tray && !tray.isDestroyed()) {
-        tray.displayBalloon({
-          title: 'WebPrinter 업데이트',
-          content: '이미 최신 버전입니다.'
-        });
+      if (choice !== 1) {
+        console.log('사용자가 업데이트를 취소했습니다');
+        return;
       }
-      return;
-    }
-
-    const currentVersion = app.getVersion();
-    const newVersion = updateCheckResult.updateInfo.version;
-    
-    // 현재 버전과 최신 버전 비교
-    if (currentVersion === newVersion) {
-      console.log(`📋 이미 최신 버전입니다 (v${currentVersion})`);
-      if (tray && !tray.isDestroyed()) {
-        tray.displayBalloon({
-          title: 'WebPrinter 업데이트',
-          content: '이미 최신 버전입니다.'
-        });
-      }
-      return;
-    }
-    
-    console.log(`📦 새 버전 발견: ${currentVersion} → ${newVersion}`);
-    
-    // 사용자 확인
-    const { dialog } = require('electron');
-    const choice = dialog.showMessageBoxSync(null, {
-      type: 'question',
-      buttons: ['취소', '업데이트'],
-      defaultId: 1,
-      title: 'WebPrinter 업데이트',
-      message: `새 버전 ${newVersion}이 사용 가능합니다.`,
-      detail: '업데이트를 다운로드하고 설치하시겠습니까?\n앱이 재시작됩니다.'
-    });
-
-    if (choice !== 1) {
-      console.log('사용자가 업데이트를 취소했습니다');
-      return;
     }
 
     // 2단계: 다운로드
@@ -538,6 +548,32 @@ function setupErrorRecovery() {
   });
 }
 
+async function checkUpdateAvailable() {
+  if (!autoUpdater) {
+    return null;
+  }
+
+  try {
+    const updateCheckResult = await autoUpdater.checkForUpdates();
+    
+    if (!updateCheckResult || !updateCheckResult.updateInfo) {
+      return null;
+    }
+
+    const currentVersion = app.getVersion();
+    const newVersion = updateCheckResult.updateInfo.version;
+    
+    if (currentVersion === newVersion) {
+      return null;
+    }
+    
+    return { currentVersion, newVersion };
+  } catch (error) {
+    console.error('업데이트 확인 실패:', error);
+    return null;
+  }
+}
+
 async function handleProtocolCall(protocolUrl) {
   try {
     const parsedUrl = new URL(protocolUrl);
@@ -545,6 +581,29 @@ async function handleProtocolCall(protocolUrl) {
     const params = Object.fromEntries(parsedUrl.searchParams);
     
     if (action === 'print') {
+      // 업데이트 확인
+      const updateInfo = await checkUpdateAvailable();
+      
+      if (updateInfo) {
+        const { dialog } = require('electron');
+        const choice = dialog.showMessageBoxSync(null, {
+          type: 'info',
+          buttons: ['취소', '확인'],
+          defaultId: 1,
+          title: 'WebPrinter 업데이트',
+          message: '새로운 버전이 있습니다. 업데이트하시겠습니까?',
+          detail: `현재 버전: v${updateInfo.currentVersion}\n새 버전: v${updateInfo.newVersion}\n\n업데이트를 진행하시겠습니까?`
+        });
+
+        if (choice === 1) {
+          // 확인 선택 시 - 인쇄창을 열지 않고 업데이트 프로세스 실행
+          console.log('사용자가 업데이트를 선택했습니다');
+          await performUpdateProcess(true, updateInfo);
+          return;
+        }
+        // 취소 선택 시 - 그냥 인쇄창을 열어줌
+      }
+      
       // 프로토콜 호출시 창 생성/표시
       const { createPrintWindow } = require('./modules/window');
       await createPrintWindow(params.session);
