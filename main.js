@@ -208,25 +208,61 @@ async function performUpdateProcess() {
       });
     }
 
-    // 1단계: 업데이트 확인
-    const updateCheckResult = await autoUpdater.checkForUpdates();
-    
-    if (!updateCheckResult || !updateCheckResult.updateInfo) {
-      console.log('📋 최신 버전입니다');
-      if (tray && !tray.isDestroyed()) {
-        tray.displayBalloon({
-          title: 'WebPrinter 업데이트',
-          content: '이미 최신 버전입니다.'
-        });
-      }
-      return;
-    }
+    // 이벤트 기반 처리를 위한 Promise
+    const updateCheckPromise = new Promise((resolve, reject) => {
+      let eventHandled = false;
 
-    const currentVersion = app.getVersion();
-    const newVersion = updateCheckResult.updateInfo.version;
-    
-    // 현재 버전과 최신 버전 비교
-    if (currentVersion === newVersion) {
+      const onUpdateAvailable = (info) => {
+        if (eventHandled) return;
+        eventHandled = true;
+        console.log('🎯 [Debug] update-available 이벤트 발생:', info);
+        resolve({ hasUpdate: true, updateInfo: info });
+      };
+
+      const onUpdateNotAvailable = (info) => {
+        if (eventHandled) return;
+        eventHandled = true;
+        console.log('✅ [Debug] update-not-available 이벤트 발생:', info);
+        resolve({ hasUpdate: false, updateInfo: info });
+      };
+
+      const onError = (error) => {
+        if (eventHandled) return;
+        eventHandled = true;
+        console.error('❌ [Debug] 업데이트 확인 중 에러 이벤트:', error);
+        reject(error);
+      };
+
+      // 이벤트 리스너 등록
+      autoUpdater.once('update-available', onUpdateAvailable);
+      autoUpdater.once('update-not-available', onUpdateNotAvailable);
+      autoUpdater.once('error', onError);
+
+      // 10초 타임아웃
+      setTimeout(() => {
+        if (!eventHandled) {
+          eventHandled = true;
+          autoUpdater.removeListener('update-available', onUpdateAvailable);
+          autoUpdater.removeListener('update-not-available', onUpdateNotAvailable);
+          autoUpdater.removeListener('error', onError);
+          reject(new Error('업데이트 확인 타임아웃'));
+        }
+      }, 10000);
+    });
+
+    // 1단계: 업데이트 확인
+    console.log('🔍 [Debug] autoUpdater.checkForUpdates() 호출 시작');
+    const updateCheckResult = await autoUpdater.checkForUpdates();
+    console.log('📋 [Debug] updateCheckResult 전체:', JSON.stringify(updateCheckResult, null, 2));
+
+    // 이벤트 결과 대기
+    const eventResult = await updateCheckPromise;
+    console.log('📋 [Debug] 이벤트 결과:', eventResult);
+
+    // 이벤트 기반으로 처리
+    if (!eventResult.hasUpdate) {
+      console.log('✅ [Debug] update-not-available 이벤트 - 최신 버전입니다');
+      const currentVersion = app.getVersion();
       console.log(`📋 이미 최신 버전입니다 (v${currentVersion})`);
       if (tray && !tray.isDestroyed()) {
         tray.displayBalloon({
@@ -236,6 +272,14 @@ async function performUpdateProcess() {
       }
       return;
     }
+
+    // 업데이트가 있는 경우
+    const currentVersion = app.getVersion();
+    const newVersion = eventResult.updateInfo.version;
+    console.log(`📋 [Debug] 버전 정보:`);
+    console.log(`  - 현재 버전: "${currentVersion}"`);
+    console.log(`  - 새 버전: "${newVersion}"`);
+    console.log(`  - updateInfo:`, JSON.stringify(eventResult.updateInfo, null, 2));
     
     console.log(`📦 새 버전 발견: ${currentVersion} → ${newVersion}`);
     
@@ -257,17 +301,40 @@ async function performUpdateProcess() {
 
     // 2단계: 다운로드
     console.log('📥 업데이트 다운로드 중...');
+    
+    // 초기 다운로드 시작 알림
     if (tray && !tray.isDestroyed()) {
       tray.displayBalloon({
         title: 'WebPrinter 업데이트',
-        content: `버전 ${newVersion} 다운로드 중...`
+        content: `버전 ${newVersion} 다운로드 시작...`
       });
     }
+
+    // 다운로드 진행률 표시를 위한 변수
+    let lastPercent = 0;
+    let lastBalloonTime = 0;
 
     // 다운로드 진행률 이벤트 리스너 추가
     const progressHandler = (progressObj) => {
       const percent = Math.round(progressObj.percent);
-      console.log(`다운로드 진행률: ${percent}%`);
+      const speed = (progressObj.bytesPerSecond / 1024 / 1024).toFixed(1); // MB/s
+      const total = (progressObj.total / 1024 / 1024).toFixed(1); // MB
+      const transferred = (progressObj.transferred / 1024 / 1024).toFixed(1); // MB
+      
+      console.log(`📥 다운로드 진행률: ${percent}% (${transferred}MB/${total}MB, ${speed}MB/s)`);
+      
+      // 10% 단위로 또는 2초마다 트레이 알림 업데이트
+      const currentTime = Date.now();
+      if (percent >= lastPercent + 10 || currentTime - lastBalloonTime > 2000) {
+        if (tray && !tray.isDestroyed()) {
+          tray.displayBalloon({
+            title: 'WebPrinter 업데이트 다운로드',
+            content: `진행률: ${percent}% (${transferred}MB/${total}MB)\n속도: ${speed}MB/s`
+          });
+        }
+        lastPercent = percent;
+        lastBalloonTime = currentTime;
+      }
     };
     
     autoUpdater.on('download-progress', progressHandler);
@@ -282,17 +349,72 @@ async function performUpdateProcess() {
     if (tray && !tray.isDestroyed()) {
       tray.displayBalloon({
         title: 'WebPrinter 업데이트',
-        content: '다운로드 완료. 설치를 시작합니다...'
+        content: '다운로드 완료! 설치를 준비 중입니다...'
       });
     }
 
-    // 잠깐 대기 후 설치 및 재시작
-    setTimeout(() => {
-      console.log('🚀 업데이트 설치 및 재시작');
-      allowQuit = true;
-      global.isQuitting = true;
-      autoUpdater.quitAndInstall();
-    }, 2000);
+    // 사용자에게 설치 확인
+    const { dialog } = require('electron');
+    const installChoice = dialog.showMessageBoxSync(null, {
+      type: 'info',
+      buttons: ['나중에', '지금 설치'],
+      defaultId: 1,
+      title: 'WebPrinter 업데이트 설치',
+      message: '업데이트 다운로드가 완료되었습니다.',
+      detail: `새 버전 ${newVersion}을 설치하시겠습니까?\n\n설치 후 프로그램이 자동으로 재시작됩니다.\n설치 화면이 나타나면 안내에 따라 진행해주세요.`
+    });
+
+    if (installChoice === 1) {
+      console.log('🚀 사용자가 즉시 설치를 선택했습니다');
+      
+      if (tray && !tray.isDestroyed()) {
+        tray.displayBalloon({
+          title: 'WebPrinter 업데이트',
+          content: '설치를 시작합니다. 잠시 후 설치 화면이 나타납니다.'
+        });
+      }
+
+      // 잠깐 대기 후 설치 시작 (인스톨 화면 표시)
+      setTimeout(() => {
+        console.log('🔧 업데이트 설치를 시작합니다');
+        console.log('📋 [Debug] quitAndInstall 호출: isSilent=false, isForceRunAfter=true');
+        
+        // 최종 안내 메시지
+        if (tray && !tray.isDestroyed()) {
+          tray.displayBalloon({
+            title: 'WebPrinter 설치 시작',
+            content: '프로그램을 종료하고 설치를 시작합니다.\n설치 창이 나타나면 안내에 따라 진행해주세요.'
+          });
+        }
+        
+        allowQuit = true;
+        global.isQuitting = true;
+        
+        // 추가 대기 후 설치 시작
+        setTimeout(() => {
+          console.log('🚀 [Debug] autoUpdater.quitAndInstall() 실행');
+          try {
+            // isSilent=false: 설치 UI 표시, isForceRunAfter=true: 설치 후 자동 실행
+            autoUpdater.quitAndInstall(false, true);
+          } catch (error) {
+            console.error('❌ [Debug] quitAndInstall 실행 실패:', error);
+            
+            // 실패 시 대안으로 사일런트 설치
+            console.log('🔄 [Debug] 대안으로 사일런트 설치 시도');
+            autoUpdater.quitAndInstall(true, true);
+          }
+        }, 1000);
+      }, 2000);
+    } else {
+      console.log('⏰ 사용자가 나중에 설치하기를 선택했습니다');
+      
+      if (tray && !tray.isDestroyed()) {
+        tray.displayBalloon({
+          title: 'WebPrinter 업데이트',
+          content: '업데이트가 준비되었습니다. 다음 실행 시 설치됩니다.'
+        });
+      }
+    }
 
   } catch (error) {
     console.error('업데이트 프로세스 실패:', error);
@@ -371,21 +493,15 @@ function setupAutoUpdater() {
     autoUpdater.autoDownload = false;
     autoUpdater.autoInstallOnAppQuit = false;
     
-    // 이벤트 리스너 추가
-    autoUpdater.on('error', (error) => {
-      console.error('❌ 업데이트 오류:', error);
-    });
-
+    // 기본 이벤트 리스너만 등록 (디버깅용)
     autoUpdater.on('checking-for-update', () => {
-      console.log('🔍 업데이트 확인 중...');
+      console.log('🔍 [Event] checking-for-update');
     });
 
-    autoUpdater.on('update-available', (info) => {
-      console.log('📦 업데이트 사용 가능:', info.version);
-    });
-
-    autoUpdater.on('update-not-available', (info) => {
-      console.log('✅ 최신 버전 사용 중:', info.version);
+    autoUpdater.on('before-quit-for-update', () => {
+      console.log('🔄 [Event] before-quit-for-update - 앱 종료 준비');
+      allowQuit = true;
+      global.isQuitting = true;
     });
     
     console.log('✅ 자동 업데이트 시스템 준비 완료 (수동 제어 모드)');
