@@ -113,7 +113,7 @@ async function createPrintWindow(sessionId = null) {
   });
 }
 
-// 실제 창 생성 로직 (내부 함수)
+// _createPrintWindow 함수의 수정된 부분
 async function _createPrintWindow(sessionId = null) {
   const now = Date.now();
   
@@ -169,11 +169,14 @@ async function _createPrintWindow(sessionId = null) {
   isCreatingWindow = true; // 창 생성 시작
 
   try {
+    let isUsingPreloaded = false; // 미리 생성된 윈도우 사용 여부
+    
     // 미리 생성된 윈도우가 있으면 사용
     if (preloadedWindow && !preloadedWindow.isDestroyed()) {
       console.log('✨ 미리 생성된 윈도우 사용');
       printWindow = preloadedWindow;
       preloadedWindow = null;
+      isUsingPreloaded = true; // 플래그 설정
       
       // 새 창을 백그라운드에서 다시 준비
       setTimeout(() => preloadPrintWindow(), 1000);
@@ -203,67 +206,116 @@ async function _createPrintWindow(sessionId = null) {
       await printWindow.loadFile('print-preview.html');
     }
 
-    // 창이 준비되면 표시
-    printWindow.once('ready-to-show', () => {
-      console.log('🪟 창 ready-to-show 이벤트 - 창 생성 완료');
-      isCreatingWindow = false; // 창 생성 완료
+    // 미리 생성된 윈도우를 사용하는 경우 즉시 처리
+    if (isUsingPreloaded) {
+      console.log('🪟 미리 생성된 창 사용 - 즉시 표시');
+      isCreatingWindow = false;
       
-      // 스플래시 닫고 메인 창 표시
+      // 바로 스플래시 닫고 창 표시
       setTimeout(() => {
         closeSplashWindow();
-        if (printWindow && !printWindow.isDestroyed() && !printWindow.isVisible()) {
+        if (printWindow && !printWindow.isDestroyed()) {
           printWindow.show();
           printWindow.focus();
-        }
-      }, 300); // 부드러운 전환을 위한 짧은 지연
-    });
-
-    // 콘텐츠 로드 완료 시 데이터 전송
-    printWindow.webContents.once('did-finish-load', () => {
-      updateSplashProgress('데이터를 준비하는 중...');
-      
-      setTimeout(() => {
-        if (printWindow && !printWindow.isDestroyed()) {
-          // 서버 정보 전송
-          printWindow.webContents.send('server-info', {
-            port: getServerPort(),
-            session: sessionId
-          });
           
-          // URL 데이터 확인 및 전송
-          let urlData = getSessionData(sessionId);
-          if (!urlData) {
-            // 최근 세션 데이터 확인
-            const sessions = Object.keys(getAllSessions());
-            if (sessions.length > 0) {
-              const latestSession = sessions.sort((a, b) => 
-                (getAllSessions()[b].timestamp || 0) - (getAllSessions()[a].timestamp || 0)
-              )[0];
-              urlData = getAllSessions()[latestSession];
-              currentSession = latestSession;
+          // 데이터 전송
+          setTimeout(() => {
+            if (printWindow && !printWindow.isDestroyed()) {
+              printWindow.webContents.send('server-info', {
+                port: getServerPort(),
+                session: sessionId
+              });
+              
+              let urlData = getSessionData(sessionId);
+              if (!urlData) {
+                const sessions = Object.keys(getAllSessions());
+                if (sessions.length > 0) {
+                  const latestSession = sessions.sort((a, b) => 
+                    (getAllSessions()[b].timestamp || 0) - (getAllSessions()[a].timestamp || 0)
+                  )[0];
+                  urlData = getAllSessions()[latestSession];
+                  currentSession = latestSession;
+                }
+              }
+              
+              if (urlData) {
+                printWindow.webContents.send('urls-received', urlData);
+              } else {
+                printWindow.webContents.send('show-waiting-message', {
+                  title: '인쇄 데이터 대기 중',
+                  message: '웹페이지에서 인쇄 요청을 기다리고 있습니다.'
+                });
+                setTimeout(() => {
+                  printWindow.webContents.send('loading-complete', { reason: 'waiting_for_data' });
+                }, 500);
+              }
             }
-          }
-          
-          if (urlData) {
-            printWindow.webContents.send('urls-received', urlData);
-          } else {
-            // 대기 메시지 표시
-            printWindow.webContents.send('show-waiting-message', {
-              title: '인쇄 데이터 대기 중',
-              message: '웹페이지에서 인쇄 요청을 기다리고 있습니다.'
-            });
-            setTimeout(() => {
-              printWindow.webContents.send('loading-complete', { reason: 'waiting_for_data' });
-            }, 500);
-          }
-          
-          // 스플래시가 아직 열려있다면 닫기
-          closeSplashWindow();
+          }, 500);
         }
-      }, 1000);
-    });
+      }, 300);
+    } else {
+      // 새로 생성된 창의 경우에만 ready-to-show 이벤트 사용
+      printWindow.once('ready-to-show', () => {
+        console.log('🪟 창 ready-to-show 이벤트 - 창 생성 완료');
+        isCreatingWindow = false; // 창 생성 완료
+        
+        // 스플래시 닫고 메인 창 표시
+        setTimeout(() => {
+          closeSplashWindow();
+          if (printWindow && !printWindow.isDestroyed() && !printWindow.isVisible()) {
+            printWindow.show();
+            printWindow.focus();
+          }
+        }, 300); // 부드러운 전환을 위한 짧은 지연
+      });
 
-    // 창 닫기 이벤트 처리
+      // 콘텐츠 로드 완료 시 데이터 전송
+      printWindow.webContents.once('did-finish-load', () => {
+        updateSplashProgress('데이터를 준비하는 중...');
+        
+        setTimeout(() => {
+          if (printWindow && !printWindow.isDestroyed()) {
+            // 서버 정보 전송
+            printWindow.webContents.send('server-info', {
+              port: getServerPort(),
+              session: sessionId
+            });
+            
+            // URL 데이터 확인 및 전송
+            let urlData = getSessionData(sessionId);
+            if (!urlData) {
+              // 최근 세션 데이터 확인
+              const sessions = Object.keys(getAllSessions());
+              if (sessions.length > 0) {
+                const latestSession = sessions.sort((a, b) => 
+                  (getAllSessions()[b].timestamp || 0) - (getAllSessions()[a].timestamp || 0)
+                )[0];
+                urlData = getAllSessions()[latestSession];
+                currentSession = latestSession;
+              }
+            }
+            
+            if (urlData) {
+              printWindow.webContents.send('urls-received', urlData);
+            } else {
+              // 대기 메시지 표시
+              printWindow.webContents.send('show-waiting-message', {
+                title: '인쇄 데이터 대기 중',
+                message: '웹페이지에서 인쇄 요청을 기다리고 있습니다.'
+              });
+              setTimeout(() => {
+                printWindow.webContents.send('loading-complete', { reason: 'waiting_for_data' });
+              }, 500);
+            }
+            
+            // 스플래시가 아직 열려있다면 닫기 (백업)
+            closeSplashWindow();
+          }
+        }, 1000);
+      });
+    }
+
+    // 창 닫기 이벤트 처리 (공통)
     printWindow.on('close', (event) => {
       console.log('🪟 창 닫기 이벤트 발생');
       
