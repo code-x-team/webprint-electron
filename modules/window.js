@@ -6,23 +6,25 @@ const { getServerPort, getSessionData, getAllSessions } = require('./server');
 let printWindow = null;
 let currentSession = null;
 let isCreatingWindow = false; // 창 생성 중복 방지 플래그
+let lastWindowActionTime = 0; // 마지막 창 액션 시간
+const WINDOW_ACTION_COOLDOWN = 2000; // 2초 쿨다운
 
 function generateSessionId() {
   return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 }
 
 async function createPrintWindow(sessionId = null) {
-  console.log('🪟 [Debug] createPrintWindow 호출됨 - 입력 세션 ID:', sessionId);
-  console.log('🪟 [Debug] 기존 printWindow 상태:', {
-    exists: !!printWindow,
-    destroyed: printWindow ? printWindow.isDestroyed() : 'N/A',
-    visible: printWindow && !printWindow.isDestroyed() ? printWindow.isVisible() : 'N/A',
-    isCreating: isCreatingWindow
-  });
+  const now = Date.now();
+  
+  // 쿨다운 체크: 너무 빨리 연속 호출되면 무시
+  if (now - lastWindowActionTime < WINDOW_ACTION_COOLDOWN) {
+    console.log('🛡️ 창 생성 쿨다운 중 - 중복 요청 무시');
+    return currentSession;
+  }
   
   // 창이 생성 중이면 대기
   if (isCreatingWindow) {
-    console.log('🪟 [Debug] 창 생성 중 - 잠시 대기');
+    console.log('🪟 창 생성 중 - 잠시 대기');
     return new Promise((resolve) => {
       const checkInterval = setInterval(() => {
         if (!isCreatingWindow) {
@@ -33,13 +35,15 @@ async function createPrintWindow(sessionId = null) {
     });
   }
   
+  lastWindowActionTime = now;
+  
   if (printWindow && !printWindow.isDestroyed()) {
-    console.log('🪟 [Debug] 기존 창 재사용 - 창 표시 및 데이터 전송');
+    console.log('🪟 기존 창 재사용 - 창 표시 및 데이터 전송');
     if (sessionId) currentSession = sessionId;
     
     // 창이 숨겨져 있으면 다시 표시
     if (!printWindow.isVisible()) {
-      console.log('🪟 [Debug] 숨겨진 창을 다시 표시합니다');
+      console.log('🪟 숨겨진 창을 다시 표시합니다');
       printWindow.show();
       printWindow.focus();
     }
@@ -57,14 +61,14 @@ async function createPrintWindow(sessionId = null) {
       }
     }, 500);
     
-    console.log('🪟 [Debug] 기존 창 재사용 완료');
+    console.log('🪟 기존 창 재사용 완료');
     return currentSession;
   }
 
   if (!sessionId) sessionId = generateSessionId();
   currentSession = sessionId;
   
-  console.log('🪟 [Debug] 새 창 생성 시작 - 세션 ID:', sessionId);
+  console.log('🪟 새 창 생성 시작 - 세션 ID:', sessionId);
   isCreatingWindow = true; // 창 생성 시작
 
   printWindow = new BrowserWindow({
@@ -87,7 +91,7 @@ async function createPrintWindow(sessionId = null) {
   printWindow.loadFile('print-preview.html');
 
   printWindow.once('ready-to-show', () => {
-    console.log('🪟 [Debug] 창 ready-to-show 이벤트 - 창 생성 완료');
+    console.log('🪟 창 ready-to-show 이벤트 - 창 생성 완료');
     isCreatingWindow = false; // 창 생성 완료
     
     setTimeout(() => {
@@ -134,65 +138,64 @@ async function createPrintWindow(sessionId = null) {
   });
 
   printWindow.on('close', (event) => {
-    console.log('🪟 [Debug] 창 닫기 이벤트 발생');
-    console.log('🪟 [Debug] global.isQuitting:', global.isQuitting);
+    console.log('🪟 창 닫기 이벤트 발생');
+    
+    // 창이 닫힐 때도 쿨다운 적용 (즉시 재생성 방지)
+    lastWindowActionTime = Date.now();
     
     // 트레이에서 완전 종료가 아닌 경우에만 숨기기
     if (!global.isQuitting) {
-      console.log('🪟 [Debug] 창 닫기 - 백그라운드로 전환 (실제로는 숨기기만)');
+      console.log('🪟 창 닫기 - 백그라운드로 전환');
       event.preventDefault();
       printWindow.hide();
       if (process.platform === 'darwin' && app.dock) {
         app.dock.hide();
       }
     } else {
-      console.log('🪟 [Debug] 완전 종료 - 창 정리');
+      console.log('🪟 완전 종료 - 창 정리');
       // 완전 종료 시에는 정상적으로 닫히도록 허용
     }
   });
 
   printWindow.on('closed', () => {
-    console.log('🪟 [Debug] 창 완전히 닫힘 - 변수 정리');
+    console.log('🪟 창 완전히 닫힘 - 변수 정리');
     printWindow = null;
     currentSession = null;
     isCreatingWindow = false; // 창 생성 플래그도 해제
   });
 
-  console.log('🪟 [Debug] 새 창 생성 완료 - 반환 세션 ID:', sessionId);
+  console.log('🪟 새 창 생성 완료 - 반환 세션 ID:', sessionId);
   return sessionId;
 }
 
 function notifyWindow(sessionId, urlData) {
-  console.log('🔔 [Debug] notifyWindow 호출됨 - 세션 ID:', sessionId);
-  console.log('🔔 [Debug] 현재 창 상태:', {
-    exists: !!printWindow,
-    destroyed: printWindow ? printWindow.isDestroyed() : 'N/A',
-    visible: printWindow && !printWindow.isDestroyed() ? printWindow.isVisible() : 'N/A',
-    isCreating: isCreatingWindow
-  });
+  const now = Date.now();
   
-  // 창이 생성 중이면 생성 완료 후 데이터만 전송
-  if (isCreatingWindow) {
-    console.log('🔔 [Debug] 창 생성 중 - 완료 후 데이터 전송');
-    const waitForWindow = () => {
-      if (!isCreatingWindow && printWindow && !printWindow.isDestroyed()) {
-        console.log('🔔 [Debug] 창 생성 완료 - 데이터 전송');
-        printWindow.webContents.send('urls-received', urlData);
-        if (!printWindow.isVisible()) {
-          printWindow.show();
-          printWindow.focus();
-        }
-      } else if (isCreatingWindow) {
-        setTimeout(waitForWindow, 100);
-      }
-    };
-    setTimeout(waitForWindow, 100);
+  // 쿨다운 체크: HTTP 요청이 너무 빨리 와도 중복 방지
+  if (now - lastWindowActionTime < WINDOW_ACTION_COOLDOWN) {
+    console.log('🛡️ notifyWindow 쿨다운 중 - 중복 HTTP 요청 무시');
     return;
   }
   
+  // 창이 이미 보이는 상태면 데이터만 업데이트 (중복 생성 방지)
+  if (printWindow && !printWindow.isDestroyed() && printWindow.isVisible()) {
+    console.log('🔔 창이 이미 표시됨 - 데이터만 업데이트');
+    printWindow.webContents.send('urls-received', urlData);
+    printWindow.focus();
+    return;
+  }
+  
+  // 창이 생성 중이면 무시 (프로토콜에서 이미 처리 중)
+  if (isCreatingWindow) {
+    console.log('🔔 창 생성 중 - HTTP 요청 무시');
+    return;
+  }
+  
+  lastWindowActionTime = now;
+  
   // 창이 없거나 닫혀있으면 새로 생성
   if (!printWindow || printWindow.isDestroyed()) {
-    console.log('🔔 [Debug] 백그라운드에서 새 요청 수신, 미리보기 창을 엽니다:', sessionId);
+    console.log('🔔 백그라운드에서 새 요청 수신, 미리보기 창을 엽니다:', sessionId);
     createPrintWindow(sessionId);
     
     // 창 생성 후 데이터 전송
@@ -203,24 +206,12 @@ function notifyWindow(sessionId, urlData) {
         printWindow.focus();
       }
     }, 1000);
-  } else if (printWindow.isVisible() && currentSession === sessionId) {
-    // 창이 이미 보이고 같은 세션이면 데이터만 업데이트 (중복 생성 방지)
-    console.log('🔔 [Debug] 창이 이미 표시됨 - 데이터만 업데이트');
-    if (printWindow.webContents.isLoading()) {
-      printWindow.webContents.once('did-finish-load', () => {
-        setTimeout(() => {
-          if (printWindow && !printWindow.isDestroyed()) {
-            printWindow.webContents.send('urls-received', urlData);
-          }
-        }, 500);
-      });
-    } else {
-      printWindow.webContents.send('urls-received', urlData);
-    }
-    printWindow.focus(); // 포커스만 이동
-  } else if (currentSession === sessionId) {
-    // 창이 숨겨진 상태면 표시하고 데이터 업데이트
-    console.log('🔔 [Debug] 숨겨진 창을 표시하고 데이터 업데이트');
+  } else {
+    // 창이 존재하지만 숨겨진 상태 - 표시하고 데이터 업데이트
+    if (sessionId) currentSession = sessionId;
+    console.log('🔔 숨겨진 창을 표시하고 데이터 업데이트');
+    
+    // 데이터 전송
     if (printWindow.webContents.isLoading()) {
       printWindow.webContents.once('did-finish-load', () => {
         setTimeout(() => {
@@ -234,26 +225,6 @@ function notifyWindow(sessionId, urlData) {
     }
     
     // 창을 앞으로 가져오기
-    printWindow.show();
-    printWindow.focus();
-  } else {
-    // 다른 세션이면 기존 창 데이터만 업데이트
-    console.log('새 세션으로 창 업데이트:', sessionId);
-    currentSession = sessionId;
-    
-    // 기존 창에 새 세션 데이터 전송
-    if (printWindow.webContents.isLoading()) {
-      printWindow.webContents.once('did-finish-load', () => {
-        setTimeout(() => {
-          if (printWindow && !printWindow.isDestroyed()) {
-            printWindow.webContents.send('urls-received', urlData);
-          }
-        }, 500);
-      });
-    } else {
-      printWindow.webContents.send('urls-received', urlData);
-    }
-    
     printWindow.show();
     printWindow.focus();
   }
