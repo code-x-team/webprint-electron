@@ -262,6 +262,17 @@ async function performUpdateProcess() {
       console.log('✅ [Debug] update-not-available 이벤트 - 최신 버전입니다');
       const currentVersion = app.getVersion();
       console.log(`📋 이미 최신 버전입니다 (v${currentVersion})`);
+      
+      // 다이얼로그로 명확하게 알림
+      dialog.showMessageBoxSync(null, {
+        type: 'info',
+        buttons: ['확인'],
+        title: 'WebPrinter 업데이트',
+        message: '이미 최신 버전입니다.',
+        detail: `현재 버전: v${currentVersion}\n\n업데이트가 필요하지 않습니다.`
+      });
+      
+      // 추가로 트레이 풍선 알림도 표시
       if (tray && !tray.isDestroyed()) {
         tray.displayBalloon({
           title: 'WebPrinter 업데이트',
