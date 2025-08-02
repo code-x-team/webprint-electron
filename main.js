@@ -119,16 +119,12 @@ function createTray() {
 function updateTrayMenu() {
   if (!tray || tray.isDestroyed()) return;
   
-  // 서버 상태 확인 (포트 정보 제거)
-  const serverStatus = server ? '✅ 서버 실행 중' : '❌ 서버 중단됨';
+  // Electron app에서 버전 가져오기
+  const appVersion = app.getVersion();
   
   const menuTemplate = [
     {
-      label: '📋 WebPrinter v' + (process.env.npm_package_version || '1.0.0'),
-      enabled: false
-    },
-    {
-      label: serverStatus,
+      label: '📋 WebPrinter v' + appVersion,
       enabled: false
     },
     { type: 'separator' },
