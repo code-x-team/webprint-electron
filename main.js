@@ -161,7 +161,7 @@ function updateTrayMenu() {
   tray.setContextMenu(contextMenu);
 }
 
-async function performUpdateProcess(skipVersionCheck = false, updateInfo = null) {
+async function performUpdateProcess() {
   if (!autoUpdater) {
     console.log('업데이트 기능을 사용할 수 없습니다');
     if (tray && !tray.isDestroyed()) {
@@ -174,69 +174,45 @@ async function performUpdateProcess(skipVersionCheck = false, updateInfo = null)
   }
 
   try {
-    let currentVersion, newVersion;
+    console.log('🔍 업데이트 확인 중...');
+    if (tray && !tray.isDestroyed()) {
+      tray.displayBalloon({
+        title: 'WebPrinter 업데이트',
+        content: '업데이트를 확인하고 있습니다...'
+      });
+    }
 
-    if (skipVersionCheck && updateInfo) {
-      // 이미 체크된 정보 사용
-      currentVersion = updateInfo.currentVersion;
-      newVersion = updateInfo.newVersion;
-      console.log(`📦 업데이트 진행: ${currentVersion} → ${newVersion}`);
-    } else {
-      // 새로 버전 체크
-      console.log('🔍 업데이트 확인 중...');
+    // 업데이트 확인
+    const updateInfo = await checkUpdateAvailable();
+    
+    if (!updateInfo) {
+      console.log('📋 최신 버전입니다');
       if (tray && !tray.isDestroyed()) {
         tray.displayBalloon({
           title: 'WebPrinter 업데이트',
-          content: '업데이트를 확인하고 있습니다...'
+          content: '이미 최신 버전입니다.'
         });
       }
+      return;
+    }
+    
+    const { currentVersion, newVersion } = updateInfo;
+    console.log(`📦 새 버전 발견: ${currentVersion} → ${newVersion}`);
+    
+    // 사용자 확인 (트레이에서 호출된 경우만)
+    const { dialog } = require('electron');
+    const choice = dialog.showMessageBoxSync(null, {
+      type: 'question',
+      buttons: ['취소', '업데이트'],
+      defaultId: 1,
+      title: 'WebPrinter 업데이트',
+      message: `새 버전 ${newVersion}이 사용 가능합니다.`,
+      detail: '업데이트를 다운로드하고 설치하시겠습니까?\n앱이 재시작됩니다.'
+    });
 
-      // 1단계: 업데이트 확인
-      const updateCheckResult = await autoUpdater.checkForUpdates();
-      
-      if (!updateCheckResult || !updateCheckResult.updateInfo) {
-        console.log('📋 최신 버전입니다');
-        if (tray && !tray.isDestroyed()) {
-          tray.displayBalloon({
-            title: 'WebPrinter 업데이트',
-            content: '이미 최신 버전입니다.'
-          });
-        }
-        return;
-      }
-
-      currentVersion = app.getVersion();
-      newVersion = updateCheckResult.updateInfo.version;
-      
-      // 현재 버전과 최신 버전 비교
-      if (currentVersion === newVersion) {
-        console.log(`📋 이미 최신 버전입니다 (v${currentVersion})`);
-        if (tray && !tray.isDestroyed()) {
-          tray.displayBalloon({
-            title: 'WebPrinter 업데이트',
-            content: '이미 최신 버전입니다.'
-          });
-        }
-        return;
-      }
-      
-      console.log(`📦 새 버전 발견: ${currentVersion} → ${newVersion}`);
-      
-      // 사용자 확인 (트레이에서 호출된 경우만)
-      const { dialog } = require('electron');
-      const choice = dialog.showMessageBoxSync(null, {
-        type: 'question',
-        buttons: ['취소', '업데이트'],
-        defaultId: 1,
-        title: 'WebPrinter 업데이트',
-        message: `새 버전 ${newVersion}이 사용 가능합니다.`,
-        detail: '업데이트를 다운로드하고 설치하시겠습니까?\n앱이 재시작됩니다.'
-      });
-
-      if (choice !== 1) {
-        console.log('사용자가 업데이트를 취소했습니다');
-        return;
-      }
+    if (choice !== 1) {
+      console.log('사용자가 업데이트를 취소했습니다');
+      return;
     }
 
     // 2단계: 다운로드
@@ -328,20 +304,43 @@ function registerProtocol() {
 }
 
 function setupAutoUpdater() {
-  if (!autoUpdater || process.env.NODE_ENV === 'development' || process.defaultApp) return;
+  if (!autoUpdater || process.env.NODE_ENV === 'development' || process.defaultApp) {
+    console.log('❌ AutoUpdater를 사용할 수 없습니다');
+    return;
+  }
   
   try {
+    // GitHub 릴리즈 설정
+    autoUpdater.setFeedURL({
+      provider: 'github',
+      owner: 'code-x-team',
+      repo: 'webprint-electron',
+      releaseType: 'release'
+    });
+
     autoUpdater.autoDownload = false;
     autoUpdater.autoInstallOnAppQuit = false;
     
-    // 에러 이벤트만 처리
+    // 이벤트 리스너 추가
     autoUpdater.on('error', (error) => {
-      console.log('업데이트 오류:', error);
+      console.error('❌ 업데이트 오류:', error);
+    });
+
+    autoUpdater.on('checking-for-update', () => {
+      console.log('🔍 업데이트 확인 중...');
+    });
+
+    autoUpdater.on('update-available', (info) => {
+      console.log('📦 업데이트 사용 가능:', info.version);
+    });
+
+    autoUpdater.on('update-not-available', (info) => {
+      console.log('✅ 최신 버전 사용 중:', info.version);
     });
     
-    console.log('자동 업데이트 시스템 준비 완료 (수동 제어 모드)');
+    console.log('✅ 자동 업데이트 시스템 준비 완료 (수동 제어 모드)');
   } catch (error) {
-    console.log('자동 업데이트 설정 실패:', error);
+    console.error('❌ 자동 업데이트 설정 실패:', error);
   }
 }
 
@@ -549,42 +548,70 @@ function setupErrorRecovery() {
 }
 
 async function checkUpdateAvailable() {
+  console.log('🔍 [Debug] checkUpdateAvailable 함수 시작');
+  
   if (!autoUpdater) {
+    console.log('❌ [Debug] autoUpdater가 없습니다');
+    return null;
+  }
+
+  if (process.env.NODE_ENV === 'development' || process.defaultApp) {
+    console.log('⚠️ [Debug] 개발 환경에서는 업데이트 확인 건너뜀');
     return null;
   }
 
   try {
+    console.log('🔍 [Debug] autoUpdater.checkForUpdates() 호출 중...');
     const updateCheckResult = await autoUpdater.checkForUpdates();
+    console.log('📋 [Debug] updateCheckResult:', updateCheckResult);
     
-    if (!updateCheckResult || !updateCheckResult.updateInfo) {
+    if (!updateCheckResult) {
+      console.log('❌ [Debug] updateCheckResult가 null/undefined');
+      return null;
+    }
+
+    if (!updateCheckResult.updateInfo) {
+      console.log('❌ [Debug] updateCheckResult.updateInfo가 없습니다');
       return null;
     }
 
     const currentVersion = app.getVersion();
     const newVersion = updateCheckResult.updateInfo.version;
+    console.log(`📋 [Debug] 버전 비교: 현재=${currentVersion}, 최신=${newVersion}`);
     
     if (currentVersion === newVersion) {
+      console.log('✅ [Debug] 현재 버전이 최신 버전과 동일함');
       return null;
     }
     
+    console.log('🎯 [Debug] 새 버전 발견!');
     return { currentVersion, newVersion };
   } catch (error) {
-    console.error('업데이트 확인 실패:', error);
+    console.error('❌ [Debug] 업데이트 확인 실패:', error);
+    console.error('❌ [Debug] 에러 스택:', error.stack);
     return null;
   }
 }
 
 async function handleProtocolCall(protocolUrl) {
+  console.log('🔗 [Debug] 프로토콜 호출:', protocolUrl);
+  
   try {
     const parsedUrl = new URL(protocolUrl);
     const action = parsedUrl.hostname;
     const params = Object.fromEntries(parsedUrl.searchParams);
     
+    console.log(`🎯 [Debug] 액션: ${action}, 파라미터:`, params);
+    
     if (action === 'print') {
+      console.log('🖨️ [Debug] print 액션 - 업데이트 확인 시작');
+      
       // 업데이트 확인
       const updateInfo = await checkUpdateAvailable();
+      console.log('📋 [Debug] 업데이트 확인 결과:', updateInfo);
       
       if (updateInfo) {
+        console.log('📦 [Debug] 새 버전 발견 - 사용자에게 확인 요청');
         const { dialog } = require('electron');
         const choice = dialog.showMessageBoxSync(null, {
           type: 'info',
@@ -595,21 +622,31 @@ async function handleProtocolCall(protocolUrl) {
           detail: `현재 버전: v${updateInfo.currentVersion}\n새 버전: v${updateInfo.newVersion}\n\n업데이트를 진행하시겠습니까?`
         });
 
+        console.log(`👤 [Debug] 사용자 선택: ${choice === 1 ? '확인' : '취소'}`);
+
         if (choice === 1) {
           // 확인 선택 시 - 인쇄창을 열지 않고 업데이트 프로세스 실행
-          console.log('사용자가 업데이트를 선택했습니다');
-          await performUpdateProcess(true, updateInfo);
+          console.log('✅ [Debug] 사용자가 업데이트를 선택했습니다');
+          await performUpdateProcess();
           return;
         }
         // 취소 선택 시 - 그냥 인쇄창을 열어줌
+        console.log('❌ [Debug] 사용자가 업데이트를 취소 - 인쇄창을 엽니다');
+      } else {
+        console.log('✅ [Debug] 업데이트 없음 - 바로 인쇄창을 엽니다');
       }
       
       // 프로토콜 호출시 창 생성/표시
+      console.log('🪟 [Debug] 인쇄창 생성 중...');
       const { createPrintWindow } = require('./modules/window');
       await createPrintWindow(params.session);
+      console.log('✅ [Debug] 인쇄창 생성 완료');
+    } else {
+      console.log(`❓ [Debug] 알 수 없는 액션: ${action}`);
     }
   } catch (error) {
-    console.error('프로토콜 처리 실패:', error);
+    console.error('❌ [Debug] 프로토콜 처리 실패:', error);
+    console.error('❌ [Debug] 에러 스택:', error.stack);
   }
 }
 
