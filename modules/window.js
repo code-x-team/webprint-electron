@@ -2,6 +2,7 @@ const { BrowserWindow, ipcMain, app } = require('electron');
 const path = require('path');
 const { printViaPDF } = require('./printer');
 const { getServerPort, getSessionData, getAllSessions } = require('./server');
+const { createSplashWindow, closeSplashWindow, updateSplashProgress } = require('./splash');
 
 let printWindow = null;
 let currentSession = null;
@@ -9,12 +10,72 @@ let isCreatingWindow = false; // 창 생성 중복 방지 플래그
 let lastWindowActionTime = 0; // 마지막 창 액션 시간
 const WINDOW_ACTION_COOLDOWN = 2000; // 2초 쿨다운
 
+// 미리 생성된 숨겨진 윈도우 (백그라운드 대기)
+let preloadedWindow = null;
+let isPreloading = false;
+
 // 창 생성 대기 큐
 let windowCreationQueue = [];
 let isProcessingWindowQueue = false;
 
 function generateSessionId() {
   return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+}
+
+// 백그라운드에서 윈도우 미리 생성
+async function preloadPrintWindow() {
+  if (isPreloading || preloadedWindow) return;
+  
+  isPreloading = true;
+  console.log('🔄 백그라운드에서 윈도우 미리 생성 시작...');
+  
+  try {
+    preloadedWindow = new BrowserWindow({
+      width: 1000,
+      height: 800,
+      minWidth: 800,
+      minHeight: 600,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        preload: path.join(__dirname, '../preload.js'),
+        backgroundThrottling: false // 백그라운드에서도 성능 유지
+      },
+      title: 'WebPrinter - 인쇄 미리보기',
+      show: false, // 절대 표시하지 않음
+      autoHideMenuBar: true,
+      backgroundColor: '#f5f5f5',
+      webSecurity: false
+    });
+
+    // HTML 미리 로드
+    await preloadedWindow.loadFile('print-preview.html');
+    
+    // 완전히 로드될 때까지 대기
+    await new Promise((resolve) => {
+      preloadedWindow.webContents.once('did-finish-load', () => {
+        console.log('✅ 백그라운드 윈도우 로드 완료');
+        resolve();
+      });
+    });
+    
+    // 창이 닫히면 null로 설정
+    preloadedWindow.on('closed', () => {
+      preloadedWindow = null;
+    });
+    
+  } catch (error) {
+    console.error('❌ 백그라운드 윈도우 생성 실패:', error);
+    preloadedWindow = null;
+  } finally {
+    isPreloading = false;
+  }
+}
+
+// 앱 시작 시 미리 창 생성 (export 하여 main.js에서 호출)
+async function initializeWindows() {
+  // 백그라운드에서 미리 창 생성
+  await preloadPrintWindow();
 }
 
 // 창 생성 큐 처리 함수
@@ -97,6 +158,9 @@ async function _createPrintWindow(sessionId = null) {
     return currentSession;
   }
 
+  // 스플래시 윈도우 표시
+  const splash = createSplashWindow();
+  
   // 새 세션 ID 생성
   if (!sessionId) sessionId = generateSessionId();
   currentSession = sessionId;
@@ -104,110 +168,138 @@ async function _createPrintWindow(sessionId = null) {
   console.log('🪟 새 창 생성 시작 - 세션 ID:', sessionId);
   isCreatingWindow = true; // 창 생성 시작
 
-  // 새 창 생성
-  printWindow = new BrowserWindow({
-    width: 1000,
-    height: 800,
-    minWidth: 800,
-    minHeight: 600,
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      preload: path.join(__dirname, '../preload.js')
-    },
-    title: 'WebPrinter - 인쇄 미리보기',
-    show: false,
-    autoHideMenuBar: true,
-    backgroundColor: '#f5f5f5',
-    webSecurity: false
-  });
-
-  // HTML 파일 로드
-  printWindow.loadFile('print-preview.html');
-
-  // 창이 준비되면 표시
-  printWindow.once('ready-to-show', () => {
-    console.log('🪟 창 ready-to-show 이벤트 - 창 생성 완료');
-    isCreatingWindow = false; // 창 생성 완료
-    
-    // 창 표시 (약간의 지연 후)
-    setTimeout(() => {
-      if (printWindow && !printWindow.isDestroyed() && !printWindow.isVisible()) {
-        printWindow.show();
-        printWindow.focus();
-      }
-    }, 100);
-  });
-
-  // 콘텐츠 로드 완료 시 데이터 전송
-  printWindow.webContents.once('did-finish-load', () => {
-    setTimeout(() => {
-      if (printWindow && !printWindow.isDestroyed()) {
-        // 서버 정보 전송
-        printWindow.webContents.send('server-info', {
-          port: getServerPort(),
-          session: sessionId
-        });
-        
-        // URL 데이터 확인 및 전송
-        let urlData = getSessionData(sessionId);
-        if (!urlData) {
-          // 최근 세션 데이터 확인
-          const sessions = Object.keys(getAllSessions());
-          if (sessions.length > 0) {
-            const latestSession = sessions.sort((a, b) => 
-              (getAllSessions()[b].timestamp || 0) - (getAllSessions()[a].timestamp || 0)
-            )[0];
-            urlData = getAllSessions()[latestSession];
-            currentSession = latestSession;
-          }
-        }
-        
-        if (urlData) {
-          printWindow.webContents.send('urls-received', urlData);
-        } else {
-          // 대기 메시지 표시
-          printWindow.webContents.send('show-waiting-message', {
-            title: '인쇄 데이터 대기 중',
-            message: '웹페이지에서 인쇄 요청을 기다리고 있습니다.'
-          });
-          setTimeout(() => {
-            printWindow.webContents.send('loading-complete', { reason: 'waiting_for_data' });
-          }, 500);
-        }
-      }
-    }, 1000);
-  });
-
-  // 창 닫기 이벤트 처리
-  printWindow.on('close', (event) => {
-    console.log('🪟 창 닫기 이벤트 발생');
-    
-    // 창이 닫힐 때도 쿨다운 적용
-    lastWindowActionTime = Date.now();
-    
-    // 완전 종료가 아닌 경우 숨기기만 함
-    if (!global.isQuitting) {
-      console.log('🪟 창 닫기 - 백그라운드로 전환');
-      event.preventDefault();
-      printWindow.hide();
+  try {
+    // 미리 생성된 윈도우가 있으면 사용
+    if (preloadedWindow && !preloadedWindow.isDestroyed()) {
+      console.log('✨ 미리 생성된 윈도우 사용');
+      printWindow = preloadedWindow;
+      preloadedWindow = null;
       
-      // macOS dock 숨기기
-      if (process.platform === 'darwin' && app.dock) {
-        app.dock.hide();
-      }
+      // 새 창을 백그라운드에서 다시 준비
+      setTimeout(() => preloadPrintWindow(), 1000);
     } else {
-      console.log('🪟 완전 종료 - 창 정리');
-    }
-  });
+      // 새 창 생성
+      updateSplashProgress('창을 준비하는 중...');
+      
+      printWindow = new BrowserWindow({
+        width: 1000,
+        height: 800,
+        minWidth: 800,
+        minHeight: 600,
+        webPreferences: {
+          nodeIntegration: false,
+          contextIsolation: true,
+          preload: path.join(__dirname, '../preload.js'),
+          backgroundThrottling: false
+        },
+        title: 'WebPrinter - 인쇄 미리보기',
+        show: false,
+        autoHideMenuBar: true,
+        backgroundColor: '#f5f5f5',
+        webSecurity: false
+      });
 
-  // 창이 완전히 닫혔을 때
-  printWindow.on('closed', () => {
-    console.log('🪟 창 완전히 닫힘 - 변수 정리');
-    printWindow = null;
-    currentSession = null;
+      updateSplashProgress('페이지를 로드하는 중...');
+      await printWindow.loadFile('print-preview.html');
+    }
+
+    // 창이 준비되면 표시
+    printWindow.once('ready-to-show', () => {
+      console.log('🪟 창 ready-to-show 이벤트 - 창 생성 완료');
+      isCreatingWindow = false; // 창 생성 완료
+      
+      // 스플래시 닫고 메인 창 표시
+      setTimeout(() => {
+        closeSplashWindow();
+        if (printWindow && !printWindow.isDestroyed() && !printWindow.isVisible()) {
+          printWindow.show();
+          printWindow.focus();
+        }
+      }, 300); // 부드러운 전환을 위한 짧은 지연
+    });
+
+    // 콘텐츠 로드 완료 시 데이터 전송
+    printWindow.webContents.once('did-finish-load', () => {
+      updateSplashProgress('데이터를 준비하는 중...');
+      
+      setTimeout(() => {
+        if (printWindow && !printWindow.isDestroyed()) {
+          // 서버 정보 전송
+          printWindow.webContents.send('server-info', {
+            port: getServerPort(),
+            session: sessionId
+          });
+          
+          // URL 데이터 확인 및 전송
+          let urlData = getSessionData(sessionId);
+          if (!urlData) {
+            // 최근 세션 데이터 확인
+            const sessions = Object.keys(getAllSessions());
+            if (sessions.length > 0) {
+              const latestSession = sessions.sort((a, b) => 
+                (getAllSessions()[b].timestamp || 0) - (getAllSessions()[a].timestamp || 0)
+              )[0];
+              urlData = getAllSessions()[latestSession];
+              currentSession = latestSession;
+            }
+          }
+          
+          if (urlData) {
+            printWindow.webContents.send('urls-received', urlData);
+          } else {
+            // 대기 메시지 표시
+            printWindow.webContents.send('show-waiting-message', {
+              title: '인쇄 데이터 대기 중',
+              message: '웹페이지에서 인쇄 요청을 기다리고 있습니다.'
+            });
+            setTimeout(() => {
+              printWindow.webContents.send('loading-complete', { reason: 'waiting_for_data' });
+            }, 500);
+          }
+          
+          // 스플래시가 아직 열려있다면 닫기
+          closeSplashWindow();
+        }
+      }, 1000);
+    });
+
+    // 창 닫기 이벤트 처리
+    printWindow.on('close', (event) => {
+      console.log('🪟 창 닫기 이벤트 발생');
+      
+      // 창이 닫힐 때도 쿨다운 적용
+      lastWindowActionTime = Date.now();
+      
+      // 완전 종료가 아닌 경우 숨기기만 함
+      if (!global.isQuitting) {
+        console.log('🪟 창 닫기 - 백그라운드로 전환');
+        event.preventDefault();
+        printWindow.hide();
+        
+        // macOS dock 숨기기
+        if (process.platform === 'darwin' && app.dock) {
+          app.dock.hide();
+        }
+      } else {
+        console.log('🪟 완전 종료 - 창 정리');
+      }
+    });
+
+    // 창이 완전히 닫혔을 때
+    printWindow.on('closed', () => {
+      console.log('🪟 창 완전히 닫힘 - 변수 정리');
+      printWindow = null;
+      currentSession = null;
+      isCreatingWindow = false;
+      closeSplashWindow(); // 혹시 남아있을 스플래시 정리
+    });
+
+  } catch (error) {
+    console.error('❌ 창 생성 중 오류:', error);
+    closeSplashWindow();
     isCreatingWindow = false;
-  });
+    throw error;
+  }
 
   console.log('🪟 새 창 생성 완료 - 반환 세션 ID:', sessionId);
   return sessionId;
@@ -421,12 +513,17 @@ module.exports = {
   createPrintWindow,
   notifyWindow,
   setupIpcHandlers,
+  initializeWindows,
   getCurrentSession: () => currentSession,
   closeAllWindows: () => {
     if (printWindow && !printWindow.isDestroyed()) {
       printWindow.destroy();
     }
+    if (preloadedWindow && !preloadedWindow.isDestroyed()) {
+      preloadedWindow.destroy();
+    }
     printWindow = null;
+    preloadedWindow = null;
     windowCreationQueue = [];
     isProcessingWindowQueue = false;
   }

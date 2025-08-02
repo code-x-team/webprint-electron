@@ -862,6 +862,7 @@ async function handleProtocolCall(protocolUrl) {
         console.log('⚠️ [Debug] 업데이트 프로세스로 인해 인쇄창을 열지 않음');
       }
       
+      
       console.log('🔗 [Debug] ===== 프로토콜 호출 완료 =====');
     } else {
       console.log(`❓ [Debug] 알 수 없는 액션: ${action}`);
@@ -880,68 +881,76 @@ if (!gotTheLock) {
   // second-instance 이벤트는 setupImmortalMode()에서 통합 처리됨
   // 중복 방지를 위해 여기서는 별도 리스너를 등록하지 않음
 
-  app.whenReady().then(async () => {
-    try {
-      // 새 인스턴스 시작 시 상태 초기화
-      allowQuit = false;
-      global.isQuitting = false;
-      console.log('🔄 새 인스턴스 시작 - 상태 초기화');
+ 
+app.whenReady().then(async () => {
+  try {
+    // 새 인스턴스 시작 시 상태 초기화
+    allowQuit = false;
+    global.isQuitting = false;
+    console.log('🔄 새 인스턴스 시작 - 상태 초기화');
+    
+    console.log('🔧 [Debug] 프로토콜 등록 중...');
+    registerProtocol();
+    
+    console.log('🔧 [Debug] AutoUpdater 설정 중...');
+    setupAutoUpdater();
+    
+    console.log('🔧 [Debug] AutoLaunch 설정 중...');
+    setupAutoLaunch();
+    
+    // 불사조 모드 초기화
+    setupImmortalMode();
+    setupErrorRecovery();
+    
+    // ===== 여기에 추가 =====
+    // 백그라운드에서 윈도우 미리 준비
+    console.log('🪟 백그라운드 윈도우 초기화 중...');
+    const { initializeWindows } = require('./modules/window');
+    await initializeWindows();
+    // =====================
+    
+    createTray();
+    setupIpcHandlers();
+    
+    server = await startHttpServer();
+    loadSessionData();
+    cleanOldSessions();
+    cleanupOldPDFs();
+    
+    // 감시자 시작
+    startWatchdog();
+    
+    // 시작 모드에 따른 UI 처리
+    if (global.startupMode) {
+      console.log('🔕 백그라운드 모드 - 창을 열지 않고 트레이에서만 실행');
       
-      console.log('🔧 [Debug] 프로토콜 등록 중...');
-      registerProtocol();
-      
-      console.log('🔧 [Debug] AutoUpdater 설정 중...');
-      setupAutoUpdater();
-      
-      console.log('🔧 [Debug] AutoLaunch 설정 중...');
-      setupAutoLaunch();
-      
-      // 불사조 모드 초기화
-      setupImmortalMode();
-      setupErrorRecovery();
-      
-      createTray();
-      setupIpcHandlers();
-      
-      server = await startHttpServer();
-      loadSessionData();
-      cleanOldSessions();
-      cleanupOldPDFs();
-      
-      // 감시자 시작
-      startWatchdog();
-      
-      // 시작 모드에 따른 UI 처리
-      if (global.startupMode) {
-        console.log('🔕 백그라운드 모드 - 창을 열지 않고 트레이에서만 실행');
-        
-        // 백그라운드 시작 알림 (선택적)
-        if (tray && process.platform === 'win32') {
-          tray.displayBalloon({
-            iconType: 'info',
-            title: 'WebPrinter',
-            content: '백그라운드에서 실행되었습니다. 웹페이지에서 인쇄 기능을 사용할 수 있습니다.'
-          });
-        }
-      } else {
-        console.log('🖥️ 일반 모드 - 백그라운드에서 대기');
-        
-        // 프로토콜 호출은 second-instance 이벤트에서만 처리
-        // 중복 실행 방지를 위해 초기 실행 시에는 프로토콜 처리하지 않음
-        console.log('💡 프로토콜 호출은 second-instance 이벤트에서 처리됩니다');
+      // 백그라운드 시작 알림 (선택적)
+      if (tray && process.platform === 'win32') {
+        tray.displayBalloon({
+          iconType: 'info',
+          title: 'WebPrinter',
+          content: '백그라운드에서 실행되었습니다. 웹페이지에서 인쇄 기능을 사용할 수 있습니다.'
+        });
       }
+    } else {
+      console.log('🖥️ 일반 모드 - 백그라운드에서 대기');
       
-      // 모든 플랫폼에서 백그라운드 실행
-      if (process.platform === 'darwin' && app.dock) {
-        app.dock.hide();
-      }
-      
-      console.log('✅ WebPrinter가 백그라운드에서 실행 중입니다.');
-    } catch (error) {
-      console.error('앱 초기화 오류:', error);
-      dialog.showErrorBox('WebPrinter 오류', '앱을 시작할 수 없습니다.\n' + error.message);
+      // 프로토콜 호출은 second-instance 이벤트에서만 처리
+      // 중복 실행 방지를 위해 초기 실행 시에는 프로토콜 처리하지 않음
+      console.log('💡 프로토콜 호출은 second-instance 이벤트에서 처리됩니다');
     }
-  });
+    
+    // 모든 플랫폼에서 백그라운드 실행
+    if (process.platform === 'darwin' && app.dock) {
+      app.dock.hide();
+    }
+    
+    console.log('✅ WebPrinter가 백그라운드에서 실행 중입니다.');
+  } catch (error) {
+    console.error('앱 초기화 오류:', error);
+    dialog.showErrorBox('WebPrinter 오류', '앱을 시작할 수 없습니다.\n' + error.message);
+  }
+});
 
   // open-url 이벤트는 setupImmortalMode()에서 통합 처리됨
 
