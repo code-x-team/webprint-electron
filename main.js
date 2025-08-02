@@ -196,8 +196,22 @@ async function performUpdateProcess() {
       return;
     }
 
+    const currentVersion = app.getVersion();
     const newVersion = updateCheckResult.updateInfo.version;
-    console.log(`📦 새 버전 발견: ${newVersion}`);
+    
+    // 현재 버전과 최신 버전 비교
+    if (currentVersion === newVersion) {
+      console.log(`📋 이미 최신 버전입니다 (v${currentVersion})`);
+      if (tray && !tray.isDestroyed()) {
+        tray.displayBalloon({
+          title: 'WebPrinter 업데이트',
+          content: '이미 최신 버전입니다.'
+        });
+      }
+      return;
+    }
+    
+    console.log(`📦 새 버전 발견: ${currentVersion} → ${newVersion}`);
     
     // 사용자 확인
     const { dialog } = require('electron');
