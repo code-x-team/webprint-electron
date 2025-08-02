@@ -80,58 +80,221 @@ function createTray() {
     const iconPath = path.join(__dirname, process.platform === 'win32' ? 'assets/icon-32.png' : 'assets/icon.png');
     tray = new Tray(iconPath);
     
-    const contextMenu = Menu.buildFromTemplate([
-      {
-        label: '📋 WebPrinter 상태',
-        enabled: false
-      },
-      {
-        label: '✅ 백그라운드에서 실행 중',
-        enabled: false
-      },
-      { type: 'separator' },
-      {
-        label: '🔄 재시작',
-        click: () => {
-          console.log('트레이에서 재시작');
-          allowQuit = true;
-          global.isQuitting = true;
-          app.relaunch();
-          app.quit();
-        }
-      },
-      {
-        label: '🛑 완전 종료',
-        click: () => {
-          console.log('트레이에서 완전 종료');
-          allowQuit = true;
-          global.isQuitting = true;
-          
-          // 감시자 정리
-          if (watchdogTimer) {
-            clearInterval(watchdogTimer);
-            watchdogTimer = null;
-          }
-          
-          // 서버 정리
-          if (server) {
-            try {
-              stopHttpServer();
-            } catch (error) {
-              console.log('서버 종료 중 오류:', error);
-            }
-          }
-          
-          app.quit();
-        }
-      }
-    ]);
+    updateTrayMenu();
     
     tray.setToolTip('WebPrinter - 백그라운드에서 실행 중');
-    tray.setContextMenu(contextMenu);
+    
+    // 모든 기본 동작 방지 및 커스텀 동작 설정
+    tray.on('click', (event) => {
+      event.preventDefault();
+      updateTrayMenu();
+      tray.popUpContextMenu();
+    });
+    
+    tray.on('double-click', (event) => {
+      event.preventDefault();
+      updateTrayMenu();
+      tray.popUpContextMenu();
+    });
+    
+    tray.on('right-click', (event) => {
+      event.preventDefault();
+      updateTrayMenu();
+      tray.popUpContextMenu();
+    });
+    
+    // Windows 특정 이벤트 처리
+    if (process.platform === 'win32') {
+      tray.on('mouse-move', (event) => {
+        // 마우스 움직임 시에도 기본 툴팁만 표시
+        event.preventDefault();
+      });
+    }
+    
   } catch (error) {
     console.error('트레이 생성 실패:', error);
   }
+}
+
+function updateTrayMenu() {
+  if (!tray || tray.isDestroyed()) return;
+  
+  // 서버 상태 확인 (포트 정보 제거)
+  const serverStatus = server ? '✅ 서버 실행 중' : '❌ 서버 중단됨';
+  
+  const menuTemplate = [
+    {
+      label: '📋 WebPrinter v' + (process.env.npm_package_version || '1.0.0'),
+      enabled: false
+    },
+    {
+      label: serverStatus,
+      enabled: false
+    },
+    { type: 'separator' },
+    {
+      label: '🔄 업데이트 확인',
+      click: async () => {
+        console.log('업데이트 확인 및 전체 프로세스 시작');
+        await performUpdateProcess();
+      }
+    },
+    { type: 'separator' },
+    {
+      label: '🛑 종료',
+      click: () => {
+        const { dialog } = require('electron');
+        const choice = dialog.showMessageBoxSync(null, {
+          type: 'warning',
+          buttons: ['취소', '종료'],
+          defaultId: 0,
+          title: 'WebPrinter 종료',
+          message: '정말로 WebPrinter를 종료하시겠습니까?',
+          detail: '종료하면 웹페이지에서 인쇄 기능을 사용할 수 없습니다.'
+        });
+        
+        if (choice === 1) {
+          console.log('트레이에서 종료 확인됨');
+          performCompleteShutdown();
+        }
+      }
+    }
+  ];
+  
+  const contextMenu = Menu.buildFromTemplate(menuTemplate);
+  tray.setContextMenu(contextMenu);
+}
+
+async function performUpdateProcess() {
+  if (!autoUpdater) {
+    console.log('업데이트 기능을 사용할 수 없습니다');
+    if (tray && !tray.isDestroyed()) {
+      tray.displayBalloon({
+        title: 'WebPrinter 업데이트',
+        content: '업데이트 기능을 사용할 수 없습니다.'
+      });
+    }
+    return;
+  }
+
+  try {
+    console.log('🔍 업데이트 확인 중...');
+    if (tray && !tray.isDestroyed()) {
+      tray.displayBalloon({
+        title: 'WebPrinter 업데이트',
+        content: '업데이트를 확인하고 있습니다...'
+      });
+    }
+
+    // 1단계: 업데이트 확인
+    const updateCheckResult = await autoUpdater.checkForUpdates();
+    
+    if (!updateCheckResult || !updateCheckResult.updateInfo) {
+      console.log('📋 최신 버전입니다');
+      if (tray && !tray.isDestroyed()) {
+        tray.displayBalloon({
+          title: 'WebPrinter 업데이트',
+          content: '이미 최신 버전입니다.'
+        });
+      }
+      return;
+    }
+
+    const newVersion = updateCheckResult.updateInfo.version;
+    console.log(`📦 새 버전 발견: ${newVersion}`);
+    
+    // 사용자 확인
+    const { dialog } = require('electron');
+    const choice = dialog.showMessageBoxSync(null, {
+      type: 'question',
+      buttons: ['취소', '업데이트'],
+      defaultId: 1,
+      title: 'WebPrinter 업데이트',
+      message: `새 버전 ${newVersion}이 사용 가능합니다.`,
+      detail: '업데이트를 다운로드하고 설치하시겠습니까?\n앱이 재시작됩니다.'
+    });
+
+    if (choice !== 1) {
+      console.log('사용자가 업데이트를 취소했습니다');
+      return;
+    }
+
+    // 2단계: 다운로드
+    console.log('📥 업데이트 다운로드 중...');
+    if (tray && !tray.isDestroyed()) {
+      tray.displayBalloon({
+        title: 'WebPrinter 업데이트',
+        content: `버전 ${newVersion} 다운로드 중...`
+      });
+    }
+
+    // 다운로드 진행률 이벤트 리스너 추가
+    const progressHandler = (progressObj) => {
+      const percent = Math.round(progressObj.percent);
+      console.log(`다운로드 진행률: ${percent}%`);
+    };
+    
+    autoUpdater.on('download-progress', progressHandler);
+
+    // 다운로드 시작
+    await autoUpdater.downloadUpdate();
+
+    // 진행률 이벤트 리스너 제거
+    autoUpdater.removeListener('download-progress', progressHandler);
+
+    console.log('✅ 업데이트 다운로드 완료');
+    if (tray && !tray.isDestroyed()) {
+      tray.displayBalloon({
+        title: 'WebPrinter 업데이트',
+        content: '다운로드 완료. 설치를 시작합니다...'
+      });
+    }
+
+    // 잠깐 대기 후 설치 및 재시작
+    setTimeout(() => {
+      console.log('🚀 업데이트 설치 및 재시작');
+      allowQuit = true;
+      global.isQuitting = true;
+      autoUpdater.quitAndInstall();
+    }, 2000);
+
+  } catch (error) {
+    console.error('업데이트 프로세스 실패:', error);
+    if (tray && !tray.isDestroyed()) {
+      tray.displayBalloon({
+        title: 'WebPrinter 업데이트',
+        content: '업데이트 중 오류가 발생했습니다: ' + error.message
+      });
+    }
+  }
+}
+
+function performCompleteShutdown() {
+  console.log('🛑 완전 종료 프로세스 시작');
+  allowQuit = true;
+  global.isQuitting = true;
+  
+  // 감시자 정리
+  if (watchdogTimer) {
+    clearInterval(watchdogTimer);
+    watchdogTimer = null;
+  }
+  
+  // 서버 정리
+  if (server) {
+    try {
+      stopHttpServer();
+    } catch (error) {
+      console.log('서버 종료 중 오류:', error);
+    }
+  }
+  
+  // 트레이 정리
+  if (tray && !tray.isDestroyed()) {
+    tray.destroy();
+  }
+  
+  app.quit();
 }
 
 function registerProtocol() {
@@ -148,35 +311,15 @@ function setupAutoUpdater() {
   if (!autoUpdater || process.env.NODE_ENV === 'development' || process.defaultApp) return;
   
   try {
-    autoUpdater.autoDownload = true;
-    autoUpdater.autoInstallOnAppQuit = true;
+    autoUpdater.autoDownload = false;
+    autoUpdater.autoInstallOnAppQuit = false;
     
-    // 업데이트 확인
-    setTimeout(() => {
-      autoUpdater.checkForUpdates().catch(err => {
-        console.log('업데이트 확인 실패:', err);
-      });
-    }, 3000);
-    
-    // 주기적 업데이트 확인
-    setInterval(() => {
-      autoUpdater.checkForUpdates().catch(err => {
-        console.log('업데이트 확인 실패:', err);
-      });
-    }, 30 * 60 * 1000);
-    
-    autoUpdater.on('update-downloaded', () => {
-      if (tray && !tray.isDestroyed()) {
-        tray.displayBalloon({
-          title: 'WebPrinter 업데이트',
-          content: '새 버전이 다운로드되었습니다. 재시작 시 적용됩니다.'
-        });
-      }
-    });
-    
+    // 에러 이벤트만 처리
     autoUpdater.on('error', (error) => {
       console.log('업데이트 오류:', error);
     });
+    
+    console.log('자동 업데이트 시스템 준비 완료 (수동 제어 모드)');
   } catch (error) {
     console.log('자동 업데이트 설정 실패:', error);
   }
@@ -491,14 +634,34 @@ if (!gotTheLock) {
   app.on('window-all-closed', () => {});
 
   app.on('before-quit', (event) => {
-    if (!global.isQuitting) {
+    console.log('before-quit 이벤트:', { allowQuit, isQuitting: global.isQuitting });
+    
+    if (!allowQuit && !global.isQuitting) {
+      console.log('🔥 불사조 모드: 종료 방지 활성화');
       event.preventDefault();
-    } else {
-      stopHttpServer();
+      return;
+    }
+    
+    console.log('🛑 앱 종료 진행');
+    
+    // 종료 시 모든 리소스 정리
+    try {
+      if (server) {
+        stopHttpServer();
+      }
+      
+      if (watchdogTimer) {
+        clearInterval(watchdogTimer);
+        watchdogTimer = null;
+      }
+      
       if (tray && !tray.isDestroyed()) {
         tray.destroy();
       }
+      
       closeAllWindows();
+    } catch (error) {
+      console.error('앱 종료 중 정리 오류:', error);
     }
   });
 
