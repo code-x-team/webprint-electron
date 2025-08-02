@@ -616,7 +616,7 @@ function setupImmortalMode() {
 
   // 프로토콜 호출 시 복원
   app.on('second-instance', (event, commandLine, workingDirectory) => {
-    console.log('🔥 프로토콜 호출로 앱 재시작/복원');
+    console.log('🔥 두 번째 인스턴스 실행 시도');
     
     // 백그라운드 서비스 복원
     if (!server) {
@@ -627,7 +627,19 @@ function setupImmortalMode() {
     // 프로토콜 URL 처리
     const protocolUrl = commandLine.find(arg => arg.startsWith('webprinter://'));
     if (protocolUrl) {
+      console.log('🔗 프로토콜 URL 발견:', protocolUrl);
       handleProtocolCall(protocolUrl);
+    } else {
+      // 프로토콜 없이 앱을 다시 실행한 경우 - 트레이 알림
+      console.log('💡 일반 실행 시도 - 이미 실행 중임을 알림');
+      if (tray && !tray.isDestroyed()) {
+        if (process.platform === 'win32') {
+          tray.displayBalloon({
+            title: 'WebPrinter',
+            content: '이미 실행 중입니다.'
+          });
+        }
+      }
     }
   });
 
@@ -799,19 +811,8 @@ const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
   app.quit();
 } else {
-  // second-instance 이벤트는 setupImmortalMode()에서 처리됨
-  // 중복 방지를 위해 여기서는 트레이 알림만 처리
-  app.on('second-instance', (event, commandLine) => {
-    // 두 번째 인스턴스가 실행되면 트레이 아이콘 강조만
-    if (tray && !tray.isDestroyed()) {
-      if (process.platform === 'win32') {
-        tray.displayBalloon({
-          title: 'WebPrinter',
-          content: '이미 실행 중입니다.'
-        });
-      }
-    }
-  });
+  // second-instance 이벤트는 setupImmortalMode()에서 통합 처리됨
+  // 중복 방지를 위해 여기서는 별도 리스너를 등록하지 않음
 
   app.whenReady().then(async () => {
     try {
@@ -857,16 +858,11 @@ if (!gotTheLock) {
           });
         }
       } else {
-        console.log('🖥️ 일반 모드 - 창 표시 가능');
+        console.log('🖥️ 일반 모드 - 백그라운드에서 대기');
         
-        // 프로토콜로 호출된 경우에만 창 열기
-        const protocolUrl = process.argv.find(arg => arg.startsWith('webprinter://'));
-        if (protocolUrl) {
-          handleProtocolCall(protocolUrl);
-        } else {
-          // 일반 실행도 백그라운드에서 시작 (더 조용한 UX)
-          console.log('💡 일반 실행 - 백그라운드에서 대기');
-        }
+        // 프로토콜 호출은 second-instance 이벤트에서만 처리
+        // 중복 실행 방지를 위해 초기 실행 시에는 프로토콜 처리하지 않음
+        console.log('💡 프로토콜 호출은 second-instance 이벤트에서 처리됩니다');
       }
       
       // 모든 플랫폼에서 백그라운드 실행
@@ -881,10 +877,7 @@ if (!gotTheLock) {
     }
   });
 
-  app.on('open-url', (event, protocolUrl) => {
-    event.preventDefault();
-    handleProtocolCall(protocolUrl);
-  });
+  // open-url 이벤트는 setupImmortalMode()에서 통합 처리됨
 
   app.on('window-all-closed', () => {});
 
