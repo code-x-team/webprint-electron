@@ -86,8 +86,23 @@ try {
 
 function createTray() {
   try {
-    const iconPath = path.join(__dirname, process.platform === 'win32' ? 'assets/icon-32.png' : 'assets/icon.png');
+    // 플랫폼별 트레이 아이콘 설정
+    let iconPath;
+    if (process.platform === 'win32') {
+      iconPath = path.join(__dirname, 'assets/icon-32.png');
+    } else if (process.platform === 'darwin') {
+      // macOS는 Template 아이콘 사용 (다크/라이트 모드 자동 적응)
+      iconPath = path.join(__dirname, 'assets/iconTemplate.png');
+    } else {
+      iconPath = path.join(__dirname, 'assets/icon.png');
+    }
+    
     tray = new Tray(iconPath);
+    
+    // macOS Template 아이콘 설정
+    if (process.platform === 'darwin') {
+      tray.setTemplateImage(iconPath);
+    }
     
     updateTrayMenu();
     

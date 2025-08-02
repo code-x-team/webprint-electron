@@ -50,3 +50,5 @@ artifacts/
 
 
 electron-cache/
+
+scripts/image-creater/
