@@ -7,6 +7,11 @@ if (process.platform === 'darwin') {
   app.commandLine.appendSwitch('js-flags', '--expose-gc');
 }
 
+// 프로토콜 호출 관리 변수 추가
+let pendingProtocolCall = null;
+let isProcessingProtocol = false;
+let protocolCallQueue = [];
+
 // 강화된 모듈 해상도 시스템
 function setupModulePaths() {
   const possibleNodeModulesPaths = [
@@ -628,7 +633,10 @@ function setupImmortalMode() {
     const protocolUrl = commandLine.find(arg => arg.startsWith('webprinter://'));
     if (protocolUrl) {
       console.log('🔗 프로토콜 URL 발견:', protocolUrl);
-      handleProtocolCall(protocolUrl);
+      
+      // 프로토콜 큐에 추가하고 순차 처리
+      protocolCallQueue.push(protocolUrl);
+      processProtocolQueue();
     } else {
       // 프로토콜 없이 앱을 다시 실행한 경우 - 트레이 알림
       console.log('💡 일반 실행 시도 - 이미 실행 중임을 알림');
@@ -652,8 +660,36 @@ function setupImmortalMode() {
       restoreServices();
     }
     
-    handleProtocolCall(url);
+    // 프로토콜 큐에 추가하고 순차 처리
+    protocolCallQueue.push(url);
+    processProtocolQueue();
   });
+}
+
+// 프로토콜 큐 처리 함수
+async function processProtocolQueue() {
+  if (isProcessingProtocol || protocolCallQueue.length === 0) {
+    return;
+  }
+  
+  isProcessingProtocol = true;
+  
+  while (protocolCallQueue.length > 0) {
+    const protocolUrl = protocolCallQueue.shift();
+    console.log('🔗 [Queue] 프로토콜 처리 시작:', protocolUrl);
+    
+    try {
+      await handleProtocolCall(protocolUrl);
+      
+      // 각 호출 사이에 약간의 지연을 둠
+      await new Promise(resolve => setTimeout(resolve, 500));
+    } catch (error) {
+      console.error('❌ [Queue] 프로토콜 처리 실패:', error);
+    }
+  }
+  
+  isProcessingProtocol = false;
+  console.log('✅ [Queue] 프로토콜 큐 처리 완료');
 }
 
 // 3단계: 복원 시스템과 감시자
@@ -732,6 +768,7 @@ function setupErrorRecovery() {
   });
 }
 
+// 개선된 프로토콜 처리 함수
 async function handleProtocolCall(protocolUrl) {
   console.log('🔗 [Debug] ===== 프로토콜 호출 시작 =====');
   console.log('🔗 [Debug] 프로토콜 URL:', protocolUrl);
@@ -745,7 +782,10 @@ async function handleProtocolCall(protocolUrl) {
     console.log(`🎯 [Debug] 액션: ${action}, 파라미터:`, params);
     
     if (action === 'print') {
-      console.log('🖨️ [Debug] print 액션 - 업데이트 확인 시작');
+      console.log('🖨️ [Debug] print 액션 처리 시작');
+      
+      // 업데이트 확인 여부 플래그
+      let shouldOpenWindow = true;
       
       // 업데이트 확인 (프로토콜 호출 시에만 체크, 개발환경에서는 건너뜀)
       if (autoUpdater && process.env.NODE_ENV !== 'development' && !process.defaultApp) {
@@ -775,11 +815,13 @@ async function handleProtocolCall(protocolUrl) {
               if (choice === 1) {
                 // 확인 선택 시 - 인쇄창을 열지 않고 업데이트 프로세스 실행
                 console.log('✅ [Debug] 사용자가 업데이트를 선택했습니다');
+                shouldOpenWindow = false;
                 await performUpdateProcess();
-                return;
               }
               // 취소 선택 시 - 그냥 인쇄창을 열어줌
-              console.log('❌ [Debug] 사용자가 업데이트를 취소 - 인쇄창을 엽니다');
+              else {
+                console.log('❌ [Debug] 사용자가 업데이트를 취소 - 인쇄창을 엽니다');
+              }
             } else {
               console.log('✅ [Debug] 이미 최신 버전 - 바로 인쇄창을 엽니다');
             }
@@ -794,12 +836,17 @@ async function handleProtocolCall(protocolUrl) {
         console.log('⚠️ [Debug] 개발 환경 또는 autoUpdater 없음 - 업데이트 확인 건너뜀');
       }
       
-      // 프로토콜 호출시 창 생성/표시
-      console.log('🪟 [Debug] 인쇄창 생성 중...');
-      console.log('🪟 [Debug] 세션 ID:', params.session);
-      const { createPrintWindow } = require('./modules/window');
-      const resultSessionId = await createPrintWindow(params.session);
-      console.log('✅ [Debug] 인쇄창 생성 완료 - 세션 ID:', resultSessionId);
+      // 업데이트를 선택하지 않았을 때만 창을 열기
+      if (shouldOpenWindow) {
+        console.log('🪟 [Debug] 인쇄창 생성 중...');
+        console.log('🪟 [Debug] 세션 ID:', params.session);
+        const { createPrintWindow } = require('./modules/window');
+        const resultSessionId = await createPrintWindow(params.session);
+        console.log('✅ [Debug] 인쇄창 생성 완료 - 세션 ID:', resultSessionId);
+      } else {
+        console.log('⚠️ [Debug] 업데이트 프로세스로 인해 인쇄창을 열지 않음');
+      }
+      
       console.log('🔗 [Debug] ===== 프로토콜 호출 완료 =====');
     } else {
       console.log(`❓ [Debug] 알 수 없는 액션: ${action}`);
