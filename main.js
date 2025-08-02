@@ -12,6 +12,8 @@ let pendingProtocolCall = null;
 let isProcessingProtocol = false;
 let protocolCallQueue = [];
 
+let initialProtocolUrl = null;
+
 // 강화된 모듈 해상도 시스템
 function setupModulePaths() {
   const possibleNodeModulesPaths = [
@@ -453,11 +455,16 @@ async function performUpdateProcess() {
     }
   }
 }
+// main.js의 performCompleteShutdown 함수 개선
 
 function performCompleteShutdown() {
   console.log('🛑 완전 종료 프로세스 시작');
   allowQuit = true;
   global.isQuitting = true;
+  
+  // 프로토콜 큐 초기화
+  protocolCallQueue = [];
+  isProcessingProtocol = false;
   
   // 감시자 정리
   if (watchdogTimer) {
@@ -465,10 +472,18 @@ function performCompleteShutdown() {
     watchdogTimer = null;
   }
   
-  // 서버 정리
+  // 모든 창 닫기
+  try {
+    closeAllWindows();
+  } catch (error) {
+    console.log('창 정리 중 오류:', error);
+  }
+  
+  // 서버 정리 (동기적으로 처리)
   if (server) {
     try {
       stopHttpServer();
+      server = null; // 명시적으로 null 설정
     } catch (error) {
       console.log('서버 종료 중 오류:', error);
     }
@@ -477,9 +492,13 @@ function performCompleteShutdown() {
   // 트레이 정리
   if (tray && !tray.isDestroyed()) {
     tray.destroy();
+    tray = null; // 명시적으로 null 설정
   }
   
-  app.quit();
+  // 약간의 지연 후 앱 종료 (정리 작업이 완료되도록)
+  setTimeout(() => {
+    app.quit();
+  }, 100);
 }
 
 function registerProtocol() {
@@ -726,16 +745,18 @@ function startWatchdog() {
   console.log('🐕 감시자 시작됨');
 }
 
-function restoreServices() {
+async function restoreServices() {
   try {
     console.log('🔧 서비스 복구 시작...');
     
     // 서버 복구
     if (!server) {
-      const httpServer = startHttpServer();
+      const httpServer = await startHttpServer();
       if (httpServer) {
         server = httpServer;
         console.log('✅ HTTP 서버 복구됨');
+        // 서버가 완전히 시작될 때까지 대기
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
     }
     
@@ -789,6 +810,27 @@ async function handleProtocolCall(protocolUrl) {
   console.log('🔗 [Debug] 프로토콜 URL:', protocolUrl);
   console.log('🔗 [Debug] 호출 시각:', new Date().toISOString());
   
+
+  if (!server) {
+    console.log('⚠️ [Debug] 서버가 없음 - 복구 시도');
+    await restoreServices();
+    // 서버가 완전히 준비될 때까지 추가 대기
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+  
+  // 서버 포트 확인
+  const serverPort = getServerPort();
+  console.log('🔍 [Debug] 서버 포트:', serverPort);
+  
+  if (!serverPort) {
+    console.error('❌ [Debug] 서버가 아직 준비되지 않음');
+    // 서버가 없으면 한번 더 시도
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    if (!getServerPort()) {
+      throw new Error('서버를 시작할 수 없습니다');
+    }
+  }
+
   try {
     const parsedUrl = new URL(protocolUrl);
     const action = parsedUrl.hostname;
@@ -881,6 +923,12 @@ if (!gotTheLock) {
   // second-instance 이벤트는 setupImmortalMode()에서 통합 처리됨
   // 중복 방지를 위해 여기서는 별도 리스너를 등록하지 않음
 
+  const protocolArg = process.argv.find(arg => arg.startsWith('webprinter://'));
+  if (protocolArg) {
+    console.log('🔗 [Initial] 초기 실행 프로토콜 발견:', protocolArg);
+    initialProtocolUrl = protocolArg;
+  }
+
  
 app.whenReady().then(async () => {
   try {
@@ -913,12 +961,27 @@ app.whenReady().then(async () => {
     setupIpcHandlers();
     
     server = await startHttpServer();
+
+    // ===== 여기에 추가: 서버 시작 후 약간의 대기 시간 =====
+    await new Promise(resolve => setTimeout(resolve, 500));
+    // ================================================
+    
+
     loadSessionData();
     cleanOldSessions();
     cleanupOldPDFs();
     
     // 감시자 시작
     startWatchdog();
+
+    if (initialProtocolUrl && !global.startupMode) {
+      console.log('🔗 [Initial] 초기 프로토콜 처리 시작');
+      // 약간의 지연 후 처리 (서비스들이 완전히 준비되도록)
+      setTimeout(() => {
+        protocolCallQueue.push(initialProtocolUrl);
+        processProtocolQueue();
+      }, 1000);
+    }
     
     // 시작 모드에 따른 UI 처리
     if (global.startupMode) {

@@ -252,7 +252,7 @@ async function _createPrintWindow(sessionId = null) {
             }
           }, 500);
         }
-      }, 300);
+      }, 2000);
     } else {
       // 새로 생성된 창의 경우에만 ready-to-show 이벤트 사용
       printWindow.once('ready-to-show', () => {
@@ -266,7 +266,7 @@ async function _createPrintWindow(sessionId = null) {
             printWindow.show();
             printWindow.focus();
           }
-        }, 300); // 부드러운 전환을 위한 짧은 지연
+        }, 2000); // 부드러운 전환을 위한 짧은 지연
       });
 
       // 콘텐츠 로드 완료 시 데이터 전송
