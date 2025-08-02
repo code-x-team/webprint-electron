@@ -152,7 +152,7 @@
         "ko_KR",
         "en_US"
       ],
-      "runAfterFinish": false,
+      "runAfterFinish": true,
       "warningsAsErrors": false,
       "differentialPackage": false
     },
