@@ -7,20 +7,13 @@
     "start": "electron . --js-flags=\"--expose-gc\"",
     "test": "node test/basic.test.js",
     "lint": "echo \"No linting configured\"",
-    "pre-commit": "npm run test && npm run validate-files",
-    "validate-files": "node scripts/pre-commit-check.js",
-    "prepare": "husky install && node scripts/prepare.js",
+    "prepare": "node scripts/prepare.js",
     "build": "npm run prepare && electron-builder",
     "build-win": "npm run prepare && electron-builder --win",
     "build-mac": "npm run prepare && electron-builder --mac",
     "build-all": "npm run build-mac && npm run build-win",
     "build-all-parallel": "npm run prepare && electron-builder -mw",
-    "publish": "npm run prepare && electron-builder --publish=always",
-    "commit": "node scripts/commit-helper.js commit",
-    "commit:patch": "node scripts/commit-helper.js commit-patch",
-    "commit:minor": "node scripts/commit-helper.js commit-minor",
-    "commit:major": "node scripts/commit-helper.js commit-major",
-    "version:status": "node scripts/commit-helper.js version-status"
+    "publish": "npm run prepare && electron-builder --publish=always"
   },
   "keywords": [
     "electron",
@@ -37,8 +30,7 @@
   },
   "devDependencies": {
     "electron": "^27.0.0",
-    "electron-builder": "^24.6.4",
-    "husky": "^9.1.7"
+    "electron-builder": "^24.6.4"
   },
   "dependencies": {
     "cors": "^2.8.5",
@@ -129,9 +121,7 @@
       "target": [
         {
           "target": "nsis",
-          "arch": [
-            "x64"
-          ]
+          "arch": ["x64"]
         }
       ],
       "publisherName": "WebPrinter Team",
