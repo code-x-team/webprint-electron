@@ -733,7 +733,9 @@ function setupErrorRecovery() {
 }
 
 async function handleProtocolCall(protocolUrl) {
-  console.log('🔗 [Debug] 프로토콜 호출:', protocolUrl);
+  console.log('🔗 [Debug] ===== 프로토콜 호출 시작 =====');
+  console.log('🔗 [Debug] 프로토콜 URL:', protocolUrl);
+  console.log('🔗 [Debug] 호출 시각:', new Date().toISOString());
   
   try {
     const parsedUrl = new URL(protocolUrl);
@@ -794,9 +796,11 @@ async function handleProtocolCall(protocolUrl) {
       
       // 프로토콜 호출시 창 생성/표시
       console.log('🪟 [Debug] 인쇄창 생성 중...');
+      console.log('🪟 [Debug] 세션 ID:', params.session);
       const { createPrintWindow } = require('./modules/window');
-      await createPrintWindow(params.session);
-      console.log('✅ [Debug] 인쇄창 생성 완료');
+      const resultSessionId = await createPrintWindow(params.session);
+      console.log('✅ [Debug] 인쇄창 생성 완료 - 세션 ID:', resultSessionId);
+      console.log('🔗 [Debug] ===== 프로토콜 호출 완료 =====');
     } else {
       console.log(`❓ [Debug] 알 수 없는 액션: ${action}`);
     }
